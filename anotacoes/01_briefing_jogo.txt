@@ -1,0 +1,59 @@
+### Briefing do Jogo
+
+1. Pitch em uma frase
+   - O {nome do jogo} é um roguelite 2D em pixel art com câmera isométrica, focado em combates intensos, coleta de itens e exploração de biomas que escalam em dificuldade, oferecendo builds variadas e alta rejogabilidade.
+
+2. Objetivo principal do jogador
+   - Avançar pelos biomas, limpar salas, coletar itens e armas para ficar mais forte, derrotar chefes e alcançar a maior profundidade possível enquanto enfrenta o aumento de poder dos inimigos.
+
+3. Loop central
+   - O personagem começa livre na sala-menu (sem inimigos) onde acessa opções andando pelo cenário.
+   - Ao entrar pela porta de missão, a sala é selada: surgem inimigos e o objetivo é limpar tudo.
+   - Salas têm múltiplas portas; após limpar, o jogador escolhe o caminho e pode revisitar salas anteriores (exceto o menu).
+   - Em diferentes pontos surgem salas especiais: chefe, forja e loja. Vencendo chefes, novos biomas (mais difíceis) são liberados e conectados às áreas anteriores.
+   - O ciclo continua indefinidamente com dificuldade crescente, incentivando uso de itens, atalhos e habilidades de locomoção.
+
+4. Plataformas e resolução alvo
+   - PC (Windows como alvo inicial; Linux/macOS desejados se a adaptação for simples). Suporte para resoluções PC comuns (HD, Full HD, Quad HD). Interface 2D em pixel art com câmera isométrica.
+
+5. Público-alvo
+   - Adultos (18+) que gostam de experiências solo, sessões longas e desafio alto em roguelites/isométricos.
+
+6. Diferenciais-chave
+   - Convergência de roguelite infinito com sistema profundo de equipamentos/atributos em pixel art isométrico.
+   - Revisita de salas com exploração aberta para puzzles, atalhos e progressão baseada em itens de biomas avançados.
+   - Variedade grande de hotkeys e habilidades ativas/passivas para personalizar builds.
+
+7. Referências
+   - Soul Knight, Children of Morta, The Binding of Isaac, League of Legends (para ideias de builds e sinergias), Vampire Survivors (câmera/estilo), Plants vs Zombies 2 (diversidade temática).
+
+8. Escopo e restrições
+   - Prazo total flexível; meta de protótipo jogável em 10/11/2025.
+   - Equipe: solo (possível apoio pontual de artista).
+   - Restrições: necessidade de aprender Raylib e design de jogos enquanto desenvolve; produção de arte pode recair totalmente sobre o autor.
+
+9. Metas de qualidade
+   - 60 FPS estáveis; controles WASD + mouse responsivos; suporte consistente a múltiplas hotkeys.
+   - Tutoriais contextuais nas primeiras runs explicando mecânicas principais.
+
+10. Critérios de sucesso
+   - Entregar protótipo jogável até 10/11/2025 e considerar o resultado visual/jogável “muito bom” segundo avaliação pessoal.
+
+11. Estrutura de equipamentos (resumo para referência cruzada)
+   - Inventário: mochila com 10 espaços (expansível no futuro), slots de mão direita/esquerda para armas, 5 slots de armadura que aplicam atributos.
+   - Itens têm raridades (comum → mítico) e atributos (força, agilidade, defesa, vigor, carisma, inteligência) podendo incluir habilidades ativas/passivas.
+   - Armas possuem dano, cadência, peso, tipo/elemento e exigem blueprint para fabricação. Blueprints são raros e persistem entre runs.
+   - Aquisição: drops de inimigos, chefes, objetos destruíveis, lojas (moedas), forjas (combinar itens + moedas). Moedas são temporárias por run.
+
+12. Estrutura de progressão
+   - Roguelite: ao morrer, run é reiniciada; metaprogressão existirá no menu, mas será tratada após o protótipo inicial.
+
+13. Biomas planejados para o protótipo
+   - Caverna (morcegos, toupeiras, minhocas).
+   - Dungeon (esqueletos, executores, torturadores, prisioneiros).
+   - Mansão (gárgulas, vampiros, cães, guardas).
+   - Cada bioma tem pool própria de inimigos/bosses; ordem aleatória; repetição aumenta dificuldade (ex.: Caverna II).
+
+Observações adicionais:
+- Liste dúvidas abertas separadamente.
+- Atualize este briefing sempre que alguma decisão mudar; registre data e motivo.

@@ -1,0 +1,70 @@
+Resumo Geral do Projeto — Raylib roguelite (consolidação)
+
+Arquivos fonte consultados:
+- 00_fluxo_planejamento.txt — fluxo e fases do projeto.
+- 01_briefing_jogo.txt — briefing, pitch, público alvo, loop central, biomas e pontos de visão.
+- 02_mecanicas_e_sistemas.txt — documento extenso com mecânicas, sistemas, atributos, balanceamento, inimigos, bosses, saves e pendências (arquivo vivo).
+- 03_fluxo_jogador.txt — fluxo do jogador (estados e transições) (ver arquivo).
+- 04_plano_execucao.txt — roadmap, milestones e backlog.
+- geral.txt — tecnologias principais (C++, Raylib).
+
+Objetivo do resumo
+- Consolidar decisões, evitar redundâncias e apontar pendências/ações futuras.
+- Não remover nem sobrescrever arquivos originais; manter como fonte-canônica e criar este resumo para orientação rápida.
+
+1) Estado atual (alto nível)
+- Briefing, fluxo e plano de execução estão definidos.
+- Documento de mecânicas e sistemas (`02_mecanicas_e_sistemas.txt`) contém a maior parte do conteúdo detalhado: atributos, armas, itens, inimigos, bosses, persistência e regras de save.
+- Decisões recentes:
+  - Cadência passa a ser em APS (ataques por segundo).
+  - Letalidade implementada como atributo secundário que afeta chance de crítico, com parâmetros por arma.
+  - Inimigos serão hardcoded como classes derivadas (cada inimigo tem sua própria classe), evitando CSV/JSON por ora.
+  - Regra global de drops: 10% item comum por inimigo, 1% item incomum por inimigo; moedas como intervalo aleatório por inimigo.
+  - Protótipos de bosses (1 por bioma) adicionados, com fases, música e drops multi-item.
+
+2) Pontos centrais (resumo das decisões de design)
+- Mecânica central: limpar salas seladas para avançar; portas trancadas requerem chaves/atributos.
+- Inventário: mochila 10 slots + slots de armas (mão esquerda/direita) + 5 slots de armadura.
+- Atributos do jogador: Poder, Defesa, Vigor, Velocidade, Destreza (APS), Inteligência; secundários incluem Vampirismo, Letalidade, Redução de dano, Desvio, Alcance de coleta, Sorte, Maldição.
+- Armas: exibem dano com fórmula, APS, tipo (Corte, Força bruta, Projétil, Laser), precisão, habilidades ativas/passivas, raridade.
+- Itens (armas/equipamentos) agora registram preço base e biomas onde podem aparecer; armas seguem regra de 30 moedas por tier de raridade; lojas permitem venda de itens por 80% do preço base.
+- Forja: combinação 2 itens + moedas com chance de sucesso baseada em investimento; falha pode quebrar a forja.
+- Saves: JSON interno + cifragem ChaCha20-Poly1305; arquivos `save_run.json`, `save_meta.json`, `config.json` previstos.
+- Salas especiais (chefe, loja, forja, puzzle, baú) usam layout fixo por código; lojas abrem interface de compra via interação com NPC; sala de baú possui porta trancada e único baú central com pool própria.
+- Primeiro bioma da run é sorteado quando o jogador atravessa a porta inicial do lobby.
+
+3) Organização do conteúdo (mapa rápido)
+- Regras base, mecânicas e HUD: `02_mecanicas_e_sistemas.txt` (seções 1–3, 5–6).
+- Atributos e balanceamento: `02_mecanicas_e_sistemas.txt` (seção 3.9 e 7).
+- Inimigos e bosses: `02_mecanicas_e_sistemas.txt` (seção 7.4 e 7.10).
+- Plano de execução e milestones: `04_plano_execucao.txt`.
+- Briefing e visão: `01_briefing_jogo.txt`.
+
+- Especificar tabelas de loot/itens por bioma (formato e conteúdo) — único item essencial restante para o protótipo.
+- Definir valores finos de balance (HP, dano, APS teto, custo de fogueira) via playtests.
+- Implementar esquema de geração/armazenamento da chave ChaCha20 (método e ofuscação) e utilitário de migração de saves.
+- Preencher tabela completa de inimigos por bioma (HP/dano/ranges) — o usuário adicionará incrementos.
+- Diagramas UML para entidades (EnemyBase, BossBase, Weapon, Projectile, SaveManager).
+- Mockups de UI (inventário, barra de boss, minimapa ampliado).
+
+- Implementar esqueleto técnico (pode continuar sobre o template atual): iniciar arquitetura de salas/biomas e gerenciador de streaming.
+- Criar `EnemyBase` e `RoomManager` básicos para validar spawn e seleção de tipo de sala.
+- Prototipar sala básica com 3 ondas e medir tempo médio/loot por sala para ajustar economia.
+
+6) Observações para desenvolvimento
+- Implementar testes rápidos: salas com parâmetros de velocidade/APS para calibrar Destreza.
+- Evitar hardcoding visual em lógica (separar data/visual onde fizer sentido, mesmo com classes hardcoded).
+- Registrar logs de balance durante os primeiros testes para facilitar ajustes.
+
+7) Arquivos alterados nesta sessão
+- `02_mecanicas_e_sistemas.txt` — reorganizado e atualizado com cadência em APS, Letalidade, inimigos, bosses e drops.
+
+8) Registro de decisões importantes (para histórico)
+- Cadência → APS adotado.
+- Letalidade adicionada como atributo secundário.
+- NPCs hardcoded por enquanto; manter estrutura que permita migrar para data-driven mais tarde.
+- Drops: 10% comum, 1% incomum por inimigo; moedas em intervalo aleatório.
+
+---
+
+Este arquivo é um sumário de alto nível para referência rápida. Para mudanças grandes, atualize os arquivos de origem (`02_mecanicas_e_sistemas.txt`, `01_briefing_jogo.txt`, `04_plano_execucao.txt`) e, se necessário, regere este arquivo com anotações mais recentes.

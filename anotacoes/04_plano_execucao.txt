@@ -1,0 +1,41 @@
+### Plano de Execução e Roadmap
+
+1. Milestones
+   - M0 — Protótipo jogável (data alvo, objetivos, critérios de aceite)
+   - M1 — Alpha (conteúdo completo, UI temporária, estabilidade básica)
+   - M2 — Beta (conteúdo fechado, polimento em andamento)
+   - M3 — Release Candidate (bugfixing final, conteúdos aprovados)
+
+2. Backlog inicial (priorize por risco/valor)
+   - [ ] Configurar ambiente (projeto CMake/Meson, integração Raylib, git)
+   - [ ] Construir protótipo do loop central
+   - [ ] Implementar sistemas essenciais (inputs, render, física simplificada)
+   - [ ] Integrar UI/HUD mínima
+   - [ ] Adicionar conteúdo crítico (nível 1, inimigos principais, etc.)
+   - [ ] Testes e ajustes de performance
+
+3. Tarefas detalhadas
+   - Use formato: `[responsável] Nome da tarefa — estimativa — dependências`
+   - Agrupe por categorias (Código, Arte, Áudio, Design, QA)
+
+4. Gestão de riscos
+   - Lista de riscos com probabilidade, impacto e plano de mitigação
+   - Revisar semanalmente
+
+5. Métricas de acompanhamento
+   - Burndown/velocity (se usar sprints)
+   - Número de bugs abertos/fechados por milestone
+   - Tempo médio de build e performance (FPS, uso de memória)
+
+6. Pipeline de build e release
+   - Ferramentas de build (ex.: CMake + Ninja)
+   - Estratégia de versionamento
+   - Checklist de build (compilação limpa, testes, assets atualizados)
+
+7. Comunicação e cadência
+   - Frequência de revisões internas
+   - Documentar decisões importantes e status das tarefas
+
+Notas finais:
+- Atualize este arquivo toda vez que uma milestone for atingida ou reagendada.
+- Anexe links para quadros Kanban, planilhas ou issues externas, se utilizadas.

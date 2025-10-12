@@ -1,0 +1,37 @@
+### Fluxo do Jogador e Estrutura de Níveis
+
+1. Jornada macro
+   - Sequência de telas/estados (menu → gameplay → resultados → etc.)
+   - Eventos que podem interromper ou alterar o fluxo (morte, vitória, cutscene)
+
+2. Loop moment-to-moment
+   - Passo a passo das ações que o jogador executa em ciclos curtos (segundos/minutos)
+   - Feedback visual/sonoro esperado em cada passo
+
+3. Loop de longo prazo
+   - Progressão entre níveis, fases ou capítulos
+   - Como o jogador evolui: habilidades, narrativa, recursos
+
+4. Estrutura de níveis/fases
+   - Tema, objetivos, obstáculos principais
+   - Mapa ou layout simplificado (pode referenciar esboços externos)
+
+5. Fluxo de UI/UX
+   - Mock das telas chave (menu, HUD, inventário, feedbacks)
+   - Transições e estados de foco/seleção
+
+6. Estados de falha e recuperação
+   - O que acontece ao perder? Reinício, checkpoint, punições?
+   - Como o jogador é guiado para tentar novamente
+
+7. Tutoriais e onboarding
+   - Passos para introduzir mecânicas
+   - Forma de apresentação (texto, animação, interação guiada)
+
+8. Ritmo e pacing
+   - Intensidade ao longo do tempo (curvas de desafio/tensão)
+   - Momentos de descanso, variação de ritmo e clímax
+
+Notas:
+- Manter versões datadas quando o fluxo mudar.
+- Linkar para qualquer protótipo ou vídeo que demonstre o fluxo.

@@ -1,0 +1,65 @@
+ Dano — fórmula específica por arma usando o atributo chave (ex.: Espada longa: 10 + 150% do atributo; Broquel: 20 + 100% do atributo).
+             - Cadência — intervalo entre ataques calculado com Destreza (ex.: Espada longa: 0,8s − 10% da Destreza; Broquel: 0,5s − 15% da Destreza).
+             - Tipo de projétil — define o comportamento visual/funcional (corte, tiro, laser etc.).
+             - Quantidade de projéteis — número de projéteis emitidos por ataque.
+             - Precisão — determina o desvio aplicado aos disparos (exibido ao jogador em níveis descritivos como “alto”, “baixo”).
+             - Habilidade — descrição da habilidade especial da arma.
+             - Recarga da habilidade — tempo (s) para reutilizar a habilidade da arma.
+             - Raridade — categoria de raridade do item.
+
+- **Atributos de ataque (atributos-chave de armas)**
+	            - Constituição — escala dano de armas cujo atributo chave é Constituição.
+ 	            - Força — escala dano de armas cujo atributo chave é Força.
+ 	            - Foco — escala dano de armas cujo atributo chave é Foco.
+  	            - Misticismo — escala dano de armas cujo atributo chave é Misticismo.
+  	            - Conhecimento — escala dano de armas cujo atributo chave é Conhecimento.
+
+**Atributos de equipamentos (armaduras/acessórios)**
+             - Podem conceder qualquer combinação dos atributos listados acima.
+             - Habilidade ativa/passiva opcionais, cada uma com possível tempo de recarga próprio.
+             - Raridade define poder base e frequência de drop.
+
+ac -> atributo chave
+
+Lembrando que estas tabelas dizem respeito ao que aparece para o jogador, mas existe mais atributos que é o tamanho do projétil, distância do ataque (lifespan no caso de ataques de projéteis), quantidade de ricochetes, velocidade do projétil, nivel de teleguiação, knockback, etc (por enquanto só pensei nesses. Não quero aumentar ainda mais a complexidade do protótipo então por enquanto deixaremos assim),  mas isso é algo que será definido no código (até porque os projéteis tem até formatos diferentes, então o cálculo não é tão simples de fazer), além de quantidade de projéteis, que agora eu resolvi não deixar explicito como um atributo para o jogador, mas sim anotado no dano (por exemplo, se há 3 projéteis, o dano é exibido como 12+150%ac x 3).
+Além disso, mudei o "tipo de corte" para tipo de arma, mas esse atributo continua sendo oque define o modelo de projétil da arma.
+Outro comentário, dessa vez sobre a recarga da habilidade: esta só começa quando o efeito da habilidade terminar. Além disso, existem habilidades de combate e de aventureiro, este é um atributo que também aparece no rodapé do tooltip da habilidade. As habilidades de combate tem seu tempo de recarga congelado fora de combate e não podem ser utilizadas. Já as de aventureiro, o tempo de recargas dela não congela durante combate, mas não podem ser usadas durante combate.
+
+tipos de arma (por enquanto)
+Corte: ataque curto alcance em forma de cone, como um "corte" realizado de um lado pro outro. 
+Força bruta: ataque curto alcance, que expele um projétil arremessado para frente em linha reta em relação ao mouse como se fosse uma onde de choque, e com hitbox grande.
+Projétil: Gera um objeto que voa em direção a posição do mouse.
+Laser: gera um laser que instantâneamente aparece onde o mouse está apontado
+(adicionarei mais com o tempo, quando minha criatividade ir chegando)
+
+Armas:
+
+{
+Nome, atributo chave, dano, cadencia, tipo de arma, precisão, habilidade ativa, recarga da habilidade, habilidade passiva, tipo de habilidade(sobre a ativa), raridade
+espada longa, força, 12 + (ac * 1.5), 0.8 + (destreza * 0.1), Corte, ótima, corte circular: gira a espada em torno do corpo 4 vezes causando dano normal mas em uma area de 360°, 20 segundos, NULL, combate, cinza (comum);
+broquel, constituição, 10 + (ac * 1.50), 0.5 + (destreza * 0.2), Força bruta, ótima, posição de guarda: por 10 segundos não pode atacar com o escudo porém mitiga 100% do dano dos próximos 2 ataques recebidos, 60 segundos, protegido: mais 5 de defesa, combate, cinza (comum);
+grimório, Misticismo, 5 + (ac * 1.25) x 3, 1 + (destreza * 0.05),  Projéteis, mediocre, NULL, NULL, Mana ardente: a cada 5 ataques dispara um projetil único ao invés de 3, com o dano de 125% dos 3 projéteis normais combinados e mais precisão, combate, verde(incomum);
+}
+
+Só alguns exemplos, quando eu estiver escrevendo o código eu faço mais. Não quero definir os outros atributos da classe que ficam "escondidos" (não são exibidos para o jogador) por enquanto pois não sei como representar eles no código, então vou deixar isso mais pra frente.
+
+Equipamentos:
+{
+nome, atributos, habilidade ativa, cd da habilidade, tipo de habilidade, habilidade passiva, raridade;
+chapéu do aventureiro, +2 vitalidade +5 de sorte, NULL, NULL, NULL, NULL, raro;
+capa do hemomante, +5 vampirismo +5 de letalidade, NULL, NULL, NULL, colheita: inimigos que morrem tem chance de deixar um orbe de sangue no chão, que ao ser coletado concede +2 de poder cada um que acumula até 5 vezes (+10 de poder) e duram até o fim do combate atual, épico;
+pedra lunar, +2 misticismo +2 inteligência, sensitivo: sente qual tipo de sala está atrás de uma porta trancada, 560 segundos, aventureiro, NULL, raro;
+Ponta de aço, +2 velocidade, pontapé: avança em um inimigo próximo e causa 10 de dano nele, recupera 10 de vida se o inimigo morrer pelo pontapé, 10 segundos, combate, NULL, incomum;
+}
+
+Só alguns exemplos, quando eu estiver escrevendo o código eu faço mais. 
+
+Só te relembrando uma coisa que não sei se esclareci, a cor de cada raridade é 
+comum -> cinza claro
+incomum -> verde
+raro -> azul
+épico -> roxo
+lendário -> amarelo
+mítico -> vermelho escuro
+
+é bastante coisa pra planejar mas eu pensei noque eu pude, preciso adicionar mais alguma coisa? Organize esses exemplos de item no código, e eu depois disso farei a tabela dos inimigos. Lembre de deixar claro qualquer duvida ou exigencia 
