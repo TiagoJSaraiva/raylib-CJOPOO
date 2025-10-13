@@ -33,6 +33,7 @@ Objetivo do resumo
 - Saves: JSON interno + cifragem ChaCha20-Poly1305; arquivos `save_run.json`, `save_meta.json`, `config.json` previstos.
 - Salas especiais (chefe, loja, forja, puzzle, baú) usam layout fixo por código; lojas abrem interface de compra via interação com NPC; sala de baú possui porta trancada e único baú central com pool própria.
 - Primeiro bioma da run é sorteado quando o jogador atravessa a porta inicial do lobby.
+- Tile base adotado: 64 px; paredes externas serão representadas sem espessura visível e com altura entre 2 e 4 tiles (definição final nos testes).
 
 3) Organização do conteúdo (mapa rápido)
 - Regras base, mecânicas e HUD: `02_mecanicas_e_sistemas.txt` (seções 1–3, 5–6).

@@ -30,7 +30,7 @@
 2. Mecânicas secundárias
     - **2.1 Porta inicial (menu → run)**
        - Começa fechada; ao interagir, reproduz animação do personagem atravessando e sela a passagem de volta. Teleporta para a primeira sala do bioma inicial. Permanece inacessível até o fim da run.
-       - Primeiro bioma da run é escolhido aleatoriamente dentre os biomas desbloqueados no momento da entrada na porta do lobby.
+   - Primeiro bioma da run é escolhido aleatoriamente dentre os biomas desbloqueados no momento da entrada na porta do lobby.
     - **2.2 Portas padrão de sala**
        - Entradas não trancadas permanecem fechadas/inativas enquanto houver inimigos vivos. Ao limpar a sala, todas se abrem simultaneamente.
        - Ao cruzar uma porta que leva a uma sala com inimigos, ela (e as demais saídas) selam novamente até a limpeza da nova sala.
@@ -98,13 +98,13 @@
           - Salas de chefe, loja, forja, puzzle (fora do protótipo inicial) e baú têm layout/objetos definidos manualmente no código, sem variação procedural de formato ou decoração.
           - Sala de baú: porta trancada, contém apenas um baú central com sprite próprio por bioma; interação por clique ou `E` abre o baú e sorteia item de uma pool específica (definição posterior).
        - **Algoritmo de geração da sala (estrutura e layout)**:
-          - Representar cada sala em uma grade regular de "quadrados" (tiles) que delimita posições válidas de portas, paredes internas e objetos; essa abordagem simplifica colisão e evita colocar elementos em pixels arbitrários.
+          - Representar cada sala em uma grade regular de "quadrados" (tiles) de 64 px que delimita posições válidas de portas, paredes internas e objetos; essa abordagem simplifica colisão e evita colocar elementos em pixels arbitrários.
           - Sortear dimensões (largura e altura) dentro de um intervalo mínimo/máximo definido por bioma. As dimensões sorteadas são convertidas para número de tiles, respeitando proporção mínima para comportar portas e áreas de combate.
           - Determinar a quantidade de portas (1 a 3) de forma aleatória ponderada, garantindo conectividade do grafo de salas. Portas são alinhadas à grade e posicionadas em paredes distintas sempre que possível.
           - Antes de fixar uma porta, validar se o lado escolhido aponta para uma coordenada ainda livre no grafo global de salas; se a próxima sala potencial já existir (ou estiver reservada), descartar a porta ou tentar outra direção para evitar sobreposição.
           - Ao gerar uma nova sala adjacente, verificar se a área proposta (bounding box baseada no tamanho em tiles) não colide com salas existentes. Se todas as direções estiverem bloqueadas, registrar a sala como beco sem saída e não criar portas adicionais nela.
           - A geração física da sala é disparada quando o jogador se aproxima a uma sala de distância: a sala atual e todas as vizinhas diretas permanecem instanciadas/renderizadas; salas vizinhas das vizinhas são mantidas apenas na camada lógica (dados prontos) e usam lazy loading para reaplicar meshes/objetos quando o jogador avança.
-          - Gerar paredes/obstáculos internos, enfeites e objetos quebráveis com base em pesos por bioma. O posicionamento utiliza o grid para bloquear tiles específicos, deixando corredores transitáveis conforme regras de densidade.
+          - Gerar paredes/obstáculos internos, enfeites e objetos quebráveis com base em pesos por bioma. Paredes externas não possuem espessura visível (o limite é o “vazio” do mapa) e terão altura visual entre 2 e 4 tiles (testaremos qual fica melhor). O posicionamento utiliza o grid para bloquear tiles específicos, deixando corredores transitáveis conforme regras de densidade.
           - Calcular o limite de cada objeto pelo tamanho da sala: muitos = 1 objeto/100 tiles, médio = 1/200 tiles, poucos = 1/300 tiles (valores calibrados posteriormente). Aplicar um gerador pseudoaleatório determinístico (seed global + id da sala) para repetir o layout caso necessário.
           - Registrar no estado da sala os elementos fixos colocados (paredes internas, objetos com/sem hitbox) para reaproveitar o layout em revisitas sem reprocessar a geração.
        - **Algoritmo de spawn de inimigos (por sala)**:
@@ -188,7 +188,7 @@
              - Desvio — chance (%) de evitar automaticamente um ataque recebido.
              - Alcance de coleta — aumento (%) no raio de coleta de moedas e itens (também pode ser ampliado por itens/metaprogressão).
              - Sorte — aumento (%) na chance de encontrar mais moedas e itens.
-             - Maldição — aumenta os atributos dos inimigos (efeito de risco/recompensa). Cada ponto de Maldição também faz o jogador receber +4% de dano e reduz sua vida efetiva em 4% (valores placeholder a confirmar).
+             - Maldição — Cada ponto de Maldição faz o jogador receber +4% de dano e causar -4% de dano (efeito de risco/recompensa). Valores sujeitos a mudança.
 
           - **Extensões futuras**
              - Atributos elementais (físico, fogo, terra, vento, água, luz, morte etc.) que ampliarão dano e resistência por elemento. Não previstos para o protótipo inicial; serão detalhados quando ativados.
