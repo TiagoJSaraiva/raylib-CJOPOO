@@ -188,7 +188,7 @@
              - Desvio — chance (%) de evitar automaticamente um ataque recebido.
              - Alcance de coleta — aumento (%) no raio de coleta de moedas e itens (também pode ser ampliado por itens/metaprogressão).
              - Sorte — aumento (%) na chance de encontrar mais moedas e itens.
-             - Maldição — aumento (%) nos atributos dos inimigos (usado para efeitos de risco/recompensa).
+             - Maldição — aumenta os atributos dos inimigos (efeito de risco/recompensa). Cada ponto de Maldição também faz o jogador receber +4% de dano e reduz sua vida efetiva em 4% (valores placeholder a confirmar).
 
           - **Extensões futuras**
              - Atributos elementais (físico, fogo, terra, vento, água, luz, morte etc.) que ampliarão dano e resistência por elemento. Não previstos para o protótipo inicial; serão detalhados quando ativados.
@@ -203,10 +203,11 @@
              - Recarga da habilidade — tempo (s) para reutilizar a habilidade da arma.
              - Raridade — categoria de raridade do item.
 
-          - **Classificação das habilidades**
-             - Habilidades de combate — tempo de recarga congela fora de combate; não podem ser ativadas enquanto o estado do jogador for “fora de combate”.
-             - Habilidades de aventureiro — tempo de recarga continua contando durante o combate, mas não podem ser ativadas enquanto o estado do jogador for “em combate”.
-             - A recarga só começa após o término completo do efeito da habilidade (quando aplicável).
+         - **Classificação das habilidades**
+            - Habilidades de combate — tempo de recarga congela fora de combate; não podem ser ativadas enquanto o estado do jogador for “fora de combate”.
+            - Habilidades de aventureiro — tempo de recarga continua contando durante o combate, mas não podem ser ativadas enquanto o estado do jogador for “em combate”.
+            - Habilidades consumíveis — itens que se esgotam ao uso; não possuem cooldown e podem ser acionados em qualquer estado (dentro ou fora de combate). Após disparadas, removem o item da mochila/slot.
+            - A recarga só começa após o término completo do efeito da habilidade (quando aplicável).
 
           - **Atributos de equipamentos (armaduras/acessórios)**
              - Podem conceder qualquer combinação dos atributos listados acima.
@@ -554,28 +555,57 @@
          - Habilidade ativa: —
          - Habilidade passiva: —
          - Preço: 220 moedas (placeholder)
-         - Biomas: Caverna, Mansão (placeholder)
+         - Biomas: Caverna 
 
       - `Capa do Hemomante` — épico (roxo)
          - Atributos: +5 Vampirismo, +5 Letalidade
          - Habilidade ativa: —
          - Habilidade passiva: **Colheita** — inimigos mortos podem deixar orbe de sangue; cada orbe coletado concede +2 Poder (acumula até 5, dura até o fim do combate atual)
          - Preço: 340 moedas (placeholder)
-         - Biomas: Dungeon, Mansão (placeholder)
+         - Biomas: Dungeon
 
       - `Pedra Lunar` — raro (azul)
          - Atributos: +2 Misticismo, +2 Inteligência
          - Habilidade ativa (aventureiro): **Sensitivo** — revela o tipo de sala atrás de portas trancadas; recarga 560s (não congela em combate, mas habilidade não pode ser usada durante combate)
          - Habilidade passiva: —
          - Preço: 260 moedas (placeholder)
-         - Biomas: Mansão (placeholder)
+         - Biomas: Mansão 
 
       - `Ponta de Aço` — incomum (verde)
          - Atributos: +2 Velocidade
          - Habilidade ativa (combate): **Pontapé** — avança até inimigo próximo causando 10 de dano; cura 10 se matar o alvo; recarga 10s
          - Habilidade passiva: —
-         - Preço: 180 moedas (placeholder)
-         - Biomas: Dungeon, Caverna (placeholder)
+         - Preço: 20 moedas (placeholder)
+         - Biomas: Dungeon, Caverna 
+
+      - `Algemas` — comum (cinza)
+         - Atributos: +2 Letalidade +1 Maldição
+         - Habilidade ativa: —
+         - Habilidade passiva: —
+         - Preço: 40 moedas 
+         - Biomas: Dungeon 
+
+      - `Calçados de nobre` — comum (cinza)
+         - Atributos: +2 Velocidade +1 Inteligência
+         - Habilidade ativa: —
+         - Habilidade passiva: —
+         - Preço: 40 moedas 
+         - Biomas: Mansão
+
+      - `Diário de expedição` — comum (cinza)
+         - Atributos: +2 Vigor +1 Conhecimento
+         - Habilidade ativa: —
+         - Habilidade passiva: —
+         - Preço: 40 moedas 
+         - Biomas: Caverna
+
+      - `Poção de cura pequena` — comum (cinza)
+         - Atributos: —
+         - Habilidade ativa (consumível): Recupera 20% da vida máxima ao longo de 3 segundos.
+         - Habilidade passiva: —
+         - Preço: 60 moedas 
+         - Biomas: Caverna, Mansão, Dungeon
+
 
    - **7.7 Fórmulas & escalas provisórias**
       - Dano final de arma: `dano = dano_base + (dano_base × 0,05 × atributo_chave)` até limite de +200%. Armas poderão ajustar coeficientes próprios.

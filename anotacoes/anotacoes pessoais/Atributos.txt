@@ -7,12 +7,29 @@
              - Recarga da habilidade — tempo (s) para reutilizar a habilidade da arma.
              - Raridade — categoria de raridade do item.
 
-- **Atributos de ataque (atributos-chave de armas)**
-	            - Constituição — escala dano de armas cujo atributo chave é Constituição.
- 	            - Força — escala dano de armas cujo atributo chave é Força.
- 	            - Foco — escala dano de armas cujo atributo chave é Foco.
-  	            - Misticismo — escala dano de armas cujo atributo chave é Misticismo.
-  	            - Conhecimento — escala dano de armas cujo atributo chave é Conhecimento.
+ **Atributos principais**
+             - Poder — aumenta em porcentagem o dano causado por armas e habilidades em geral.
+             - Defesa — determina a porcentagem de redução de dano recebida; fórmula com retorno decrescente (curva logarítmica) para evitar invulnerabilidade.
+             - Vigor — controla a vida máxima do personagem.
+             - Velocidade — afeta a velocidade de deslocamento.
+             - Destreza — aumenta os ataques por segundo (cadência) das armas.
+             - Inteligência — requisito para portas/puzzles e reduz recarga de habilidades em porcentagem.
+
+          - **Atributos de ataque (atributos-chave de armas)**
+             - Constituição — escala dano de armas cujo atributo chave é Constituição.
+             - Força — escala dano de armas cujo atributo chave é Força.
+             - Foco — escala dano de armas cujo atributo chave é Foco.
+             - Misticismo — escala dano de armas cujo atributo chave é Misticismo.
+             - Conhecimento — escala dano de armas cujo atributo chave é Conhecimento.
+
+          - **Atributos secundários** (jogador)
+             - Vampirismo — chance (%) de recuperar vida ao eliminar um oponente.
+             - Letalidade — aumenta chance de golpes críticos. Cada arma define chance base e ganho adicional por ponto de Letalidade, além do multiplicador aplicado ao dano crítico.
+             - Redução de dano — valor fixo subtraído do dano recebido (mínimo de 1 ponto de dano passa).
+             - Desvio — chance (%) de evitar automaticamente um ataque recebido.
+             - Alcance de coleta — aumento (%) no raio de coleta de moedas e itens (também pode ser ampliado por itens/metaprogressão).
+             - Sorte — aumento (%) na chance de encontrar mais moedas e itens.
+             - Maldição — aumento (%) nos atributos dos inimigos (usado para efeitos de risco/recompensa).
 
 **Atributos de equipamentos (armaduras/acessórios)**
              - Podem conceder qualquer combinação dos atributos listados acima.
@@ -45,7 +62,7 @@ Só alguns exemplos, quando eu estiver escrevendo o código eu faço mais. Não 
 
 Equipamentos:
 {
-nome, atributos, habilidade ativa, cd da habilidade, tipo de habilidade, habilidade passiva, raridade;
+nome, atributos, habilidade ativa, cd da habilidade, tipo de habilidade, habilidade passiva, raridade, bioma, preço;
 chapéu do aventureiro, +2 vitalidade +5 de sorte, NULL, NULL, NULL, NULL, raro;
 capa do hemomante, +5 vampirismo +5 de letalidade, NULL, NULL, NULL, colheita: inimigos que morrem tem chance de deixar um orbe de sangue no chão, que ao ser coletado concede +2 de poder cada um que acumula até 5 vezes (+10 de poder) e duram até o fim do combate atual, épico;
 pedra lunar, +2 misticismo +2 inteligência, sensitivo: sente qual tipo de sala está atrás de uma porta trancada, 560 segundos, aventureiro, NULL, raro;

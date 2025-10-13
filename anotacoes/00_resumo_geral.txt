@@ -28,6 +28,7 @@ Objetivo do resumo
 - Atributos do jogador: Poder, Defesa, Vigor, Velocidade, Destreza (APS), Inteligência; secundários incluem Vampirismo, Letalidade, Redução de dano, Desvio, Alcance de coleta, Sorte, Maldição.
 - Armas: exibem dano com fórmula, APS, tipo (Corte, Força bruta, Projétil, Laser), precisão, habilidades ativas/passivas, raridade.
 - Itens (armas/equipamentos) agora registram preço base e biomas onde podem aparecer; armas seguem regra de 30 moedas por tier de raridade; lojas permitem venda de itens por 80% do preço base.
+- Tabelas iniciais de itens por bioma foram catalogadas com placeholders de raridade para orientar testes e definição de droprates.
 - Forja: combinação 2 itens + moedas com chance de sucesso baseada em investimento; falha pode quebrar a forja.
 - Saves: JSON interno + cifragem ChaCha20-Poly1305; arquivos `save_run.json`, `save_meta.json`, `config.json` previstos.
 - Salas especiais (chefe, loja, forja, puzzle, baú) usam layout fixo por código; lojas abrem interface de compra via interação com NPC; sala de baú possui porta trancada e único baú central com pool própria.
