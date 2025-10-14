@@ -27,7 +27,7 @@
 PROJECT_NAME       ?= game
 RAYLIB_VERSION     ?= 3.0.0
 RAYLIB_API_VERSION ?= 300
-RAYLIB_PATH        ?= ..\..
+RAYLIB_PATH        ?= C:/raylib/raylib
 
 # Define compiler path on Windows
 COMPILER_PATH      ?= C:/raylib/w64devkit/bin
@@ -368,10 +368,9 @@ rwildcard=$(foreach d,$(wildcard $1*),$(call rwildcard,$d/,$2) $(filter $(subst 
 SRC_DIR = src
 OBJ_DIR = obj
 
-# Define all object files from source files
-SRC = $(call rwildcard, *.c, *.h)
-#OBJS = $(SRC:$(SRC_DIR)/%.c=$(OBJ_DIR)/%.o)
-OBJS ?= main.c
+# Define all source and object files (C++)
+SRC = $(wildcard $(SRC_DIR)/*.cpp)
+OBJS = $(SRC:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
 
 # For Android platform we call a custom Makefile.Android
 ifeq ($(PLATFORM),PLATFORM_ANDROID)
@@ -394,7 +393,8 @@ $(PROJECT_NAME): $(OBJS)
 # Compile source files
 # NOTE: This pattern will compile every module defined on $(OBJS)
 #%.o: %.c
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.c
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+	@cmd /C "if not exist $(OBJ_DIR) mkdir $(OBJ_DIR)"
 	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE_PATHS) -D$(PLATFORM)
 
 # Clean everything
