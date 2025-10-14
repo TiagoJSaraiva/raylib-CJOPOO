@@ -1,0 +1,80 @@
+### Arquitetura Técnica — Módulo de Salas e Biomas (Fase 1)
+
+Objetivo desta fase: implementar geração, gerenciamento e renderização base de salas, garantindo aderência às regras de documentação antes de avançar para sistemas adicionais.
+
+1. Estrutura de Dados Core
+   - `TileSize`: constante global `constexpr int TILE_SIZE = 64;` disponível para qualquer módulo que precise de conversão grid ↔ pixel.
+   - `RoomType` (enum class): `Normal`, `Shop`, `Forge`, `Chest`, `Boss`, `Puzzle`, `Unknown`. Usado para probabilidade e lógica especial.
+   - `RoomCoords`: struct `{ int x; int y; }` representando posição da sala no grafo (grid infinito em offsets). Supporte hashing/comparação para uso em `unordered_map`.
+   - `RoomSeedData`: struct com `uint64_t seed`, `RoomType type`, dimensões em tiles (`int widthTiles`, `int heightTiles`), estado (limpa, visitada, portas descobertas) e referências a layout/objetos.
+   - `RoomLayout`: guarda grade lógica (`std::vector<TileKind>` ou matriz 2D), lista de portas (`struct Door { RoomCoords target; Direction dir; IntRect areaPx; }`), e objetos estáticos instanciados.
+   - `RoomGraph`: `std::unordered_map<RoomCoords, std::unique_ptr<Room>>` onde `Room` combina `RoomSeedData`, `RoomLayout` e ponteiros para entidades runtime (quando renderizado).
+
+2. Gerenciadores
+   - `RoomManager`
+     - Responsável pelo grafo global, seleção de tipo (probabilidades dinâmicas), geração procedural e streaming.
+     - API base:
+       - `void Initialize(uint64_t worldSeed);`
+       - `void EnsureRoomLoaded(const RoomCoords& coords);` (gera seed + layout se necessário, instancia render se sala estiver dentro do raio de streaming).
+       - `void UpdateActiveRooms(const RoomCoords& playerRoom);` (mantém sala atual + vizinhas físicas, descarrega demais).
+       - `Room& GetRoom(const RoomCoords& coords);`
+     - Mantém `std::mt19937_64 rng` derivado de `worldSeed` e `coords` para geração determinística.
+   - `RoomRenderer`
+     - Camada fina com referência ao `RoomManager`, responsável por desenhar piso, paredes (sem espessura), objetos e portas.
+     - Interfaces:
+       - `void Draw(const Room& room, const Camera2D& camera);`
+       - `void DrawMinimap(const RoomGraph& graph);` (placeholder, pode ficar stub).
+
+3. Fluxo de Geração
+   1. Na inicialização do jogo, `RoomManager::Initialize(seed)` cria sala inicial `RoomCoords{0,0}` e sorteia bioma inicial.
+   2. Ao entrar em nova sala, chamamos `UpdateActiveRooms(currentCoords)`:
+      - Garante que até 1 salto de distância está gerado fisicamente (`EnsureRoomLoaded` para todas as quatro direções)
+      - Mantém dados lógicos das demais (seed, tipo, portas) sem instanciar meshes/desenho.
+   3. `EnsureRoomLoaded` verifica se já existe. Caso contrário:
+      - Seleciona tipo via acumuladores de probabilidade (ajusta chance de chefe conforme documentação).
+      - Define dimensões: se tipo especial, usa tamanho fixo (loja/forja/baú = 8×8; chefe = 12×12). Para salas normais, sorteia largura e altura independentes dentro do intervalo 10–20 tiles.
+      - Para cada porta potencial, sorteia deslocamento entre 2 e 4 tiles a partir da parede da sala atual (profundidade do corredor). Calcula o retângulo axis-aligned (AABB) da possível sala destino e verifica sobreposição contra todas as salas existentes;
+        - Caso haja colisão, descarta a porta e tenta outra direção ou, se necessário, re-sorteia dimensões/offsets até atingir uma combinação válida.
+      - Armazena metadados de layout: limites da sala em tiles (`IntRect tilesBounds`), portas aprovadas, e para salas normais gera novas portas respeitando a regra de “alcance mínimo 10×10” (sala destino deve caber sem invadir retângulos existentes; permitir portas nos cantos desde que o AABB não colida).
+      - Gera layout/parede/objetos (incluindo lista de objetos com suas respectivas bounds) com RNG determinístico `hash(worldSeed, coords)`.
+
+4. Renderização & Colisão
+   - `RoomRenderer` recebe `RoomLayout` para desenhar pisos e paredes. Como parede externa não tem espessura, o contorno é desenhado como face única com sombra para indicar limite.
+   - Colisão: ainda que visualmente não haja parede espessa, o grid externo marca tiles como `Blocked`. O PlayerController fará query no layout.
+   - Portas: desenhar placeholders (porta fechada/aberta). Hitbox das portas = 2 tiles de largura (128 px) centralizados na parede correspondente.
+
+5. Requisitos de Integração com o loop atual
+   - `main.cpp` deve criar instâncias globais ou singleton leve para RoomManager/RoomRenderer.
+   - Loop principal:
+     ```cpp
+     RoomCoords currentRoom = roomManager.CurrentRoom();
+     roomManager.UpdateActiveRooms(currentRoom);
+     const Room& room = roomManager.GetRoom(currentRoom);
+     roomRenderer.Draw(room, camera);
+     ```
+   - Input temporário: teclas para mover o jogador entre salas (ex.: `QWEASD` para testes) até existir movimentação real.
+
+6. Pendências/Decisões Abertas
+   - Definir forma final de armazenamento de seed: opção 1) `worldSeed` + hash(coords) → seed local; opção 2) guardar seed individual por sala. Documentar escolha ao implementar.
+   - Estrutura de portas/ligações: decidir se manteremos adjacency explícita (`std::vector<RoomCoords> neighbors`) ou derivaremos on-the-fly.
+   - Metadados de objetos: decidir se manteremos apenas bounds (tile AABB) ou representação detalhada por tile para objetos maiores; necessário para re-renderização consistente e colisões destrutíveis.
+   - Minimap/HUD: ficarão para etapa posterior.
+   - Persistência do RoomGraph: integrar com sistema de save na fase futura.
+
+7. Próximas tarefas de código (ordem sugerida)
+   1. Configurar novos arquivos fonte: `room_manager.h/cpp`, `room_renderer.h/cpp`, `room_types.h`.
+   2. Implementar enum/structs e RNG determinístico.
+   3. Implementar lógica de seleção de tipo + dimensões.
+   4. Implementar `EnsureRoomLoaded` com verificação de sobreposição e geração de layout base (piso + contorno).
+   5. Criar draw simples em `main.cpp` mostrando grid de tiles coloridos (piso vs. parede) para validar dimensões.
+   6. Adicionar navegação debug para transitar entre salas e validar streaming.
+
+8. Atualização Outubro/2025 — Passagens contínuas sem “clique”
+   - **Corridores como faixa compartilhada**: `Doorway::corridorTiles` agora representa o retângulo absoluto usado tanto pela sala de origem quanto pela sala destino. `TryGenerateDoorTarget` garante que, ao abrir uma porta, ambos os lados compartilham o mesmo `offset`, `width`, `corridorLength` e `corridorTiles`, evitando portas sem par (“fantasmas”).
+   - **Transição sem teleporte**: o loop principal deixou de reposicionar o jogador ao trocar de sala (`EntryPositionFromRatio` removido). A transição só ocorre se o input estiver apontando para a direção da porta (`IsInputMovingToward`), e a posição do jogador não é alterada – ele simplesmente continua no corredor já desenhado, eliminando o salto visual.
+   - **Clamp unificado**: `ClampPlayerToAccessibleArea` trata o piso da sala e cada corredor como regiões válidas individuais. As hitboxes das pistas de passagem são levemente expandidas (`CheckCollisionCircleRec` + tolerância) para impedir “paredes invisíveis” na junção sala ↔ corredor.
+   - **Renderização**: Enquanto o jogador estiver dentro de um corredor (detectado pela colisão com `DoorInteractionArea`), ambos os ambientes permanecem visíveis. Isso evita pop-in e dá feedback suave de continuidade.
+   - **Estados de geração**: `EnsureNeighborsGenerated` continua a gerar vizinhos até o raio definido, mas agora a troca de sala não depende de reposicionamento; basta que o corredor esteja válido. Logs de debug (`DEBUG_DOOR_GENERATION`) reportam cada sincronização para acelerar diagnóstico.
+   - **Pendências**: revisar spawn de inimigos/loot para garantir que os corredores permaneçam vazios, e auditar o raio de renderização quando houver efeitos de câmera/corte de luz (particularmente se adotarmos pós-processamento).
+
+Mantenha este arquivo atualizado conforme decisões de arquitetura evoluírem.

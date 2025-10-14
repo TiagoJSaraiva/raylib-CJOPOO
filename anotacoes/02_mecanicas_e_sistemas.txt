@@ -96,10 +96,13 @@
        - Estado das salas visitadas precisa ser armazenado para permitir retorno e interação pós-luta.
        - Tipos especiais de sala:
           - Salas de chefe, loja, forja, puzzle (fora do protótipo inicial) e baú têm layout/objetos definidos manualmente no código, sem variação procedural de formato ou decoração.
-          - Sala de baú: porta trancada, contém apenas um baú central com sprite próprio por bioma; interação por clique ou `E` abre o baú e sorteia item de uma pool específica (definição posterior).
+          - Sala de baú: porta trancada, contém apenas um baú central com sprite próprio por bioma; interação por clique ou `E` abre o baú e sorteia item de uma pool específica (esta pool será definida quando o código estiver na etapa de fazer a sala do baú). Dimensão fixa de 8×8 tiles.
+          - Sala de loja: palco fixo com NPC central, interface dedicada e dimensão fixa de 8×8 tiles.
+          - Sala de forja: mesma lógica (layout fixo em 8×8 tiles) com bigorna central e UI dedicada.
+          - Salas de chefe usam arenas de 12×12 tiles para garantir espaço consistente durante a luta.
        - **Algoritmo de geração da sala (estrutura e layout)**:
           - Representar cada sala em uma grade regular de "quadrados" (tiles) de 64 px que delimita posições válidas de portas, paredes internas e objetos; essa abordagem simplifica colisão e evita colocar elementos em pixels arbitrários.
-          - Sortear dimensões (largura e altura) dentro de um intervalo mínimo/máximo definido por bioma. As dimensões sorteadas são convertidas para número de tiles, respeitando proporção mínima para comportar portas e áreas de combate.
+          - Sortear dimensões (largura e altura) dentro de um intervalo mínimo/máximo definido por bioma (prototipagem: entre 10×10 e 20×20 tiles). Largura e altura são sorteadas de forma independente para permitir salas ímpares ou pares, aumentando a variedade visual. As dimensões sorteadas são convertidas para número de tiles, respeitando proporção mínima para comportar portas e áreas de combate.
           - Determinar a quantidade de portas (1 a 3) de forma aleatória ponderada, garantindo conectividade do grafo de salas. Portas são alinhadas à grade e posicionadas em paredes distintas sempre que possível.
           - Antes de fixar uma porta, validar se o lado escolhido aponta para uma coordenada ainda livre no grafo global de salas; se a próxima sala potencial já existir (ou estiver reservada), descartar a porta ou tentar outra direção para evitar sobreposição.
           - Ao gerar uma nova sala adjacente, verificar se a área proposta (bounding box baseada no tamanho em tiles) não colide com salas existentes. Se todas as direções estiverem bloqueadas, registrar a sala como beco sem saída e não criar portas adicionais nela.
