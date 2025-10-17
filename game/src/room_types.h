@@ -7,12 +7,21 @@ constexpr int TILE_SIZE = 64;
 constexpr int DOOR_WIDTH_TILES = 2;
 
 enum class RoomType {
+    Lobby,
     Normal,
     Shop,
     Forge,
     Chest,
     Boss,
     Puzzle,
+    Unknown
+};
+
+enum class BiomeType {
+    Lobby,
+    Cave,
+    Mansion,
+    Dungeon,
     Unknown
 };
 

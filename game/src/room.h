@@ -19,6 +19,7 @@ struct Doorway {
 
 struct RoomSeedData {
     RoomType type{RoomType::Unknown};
+    BiomeType biome{BiomeType::Unknown};
     std::uint64_t seed{0};
 };
 
@@ -35,6 +36,7 @@ public:
 
     RoomCoords GetCoords() const { return coords_; }
     RoomType GetType() const { return seedData_.type; }
+    BiomeType GetBiome() const { return seedData_.biome; }
     std::uint64_t GetSeed() const { return seedData_.seed; }
 
     RoomLayout& Layout() { return layout_; }

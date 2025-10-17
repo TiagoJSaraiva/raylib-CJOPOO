@@ -34,6 +34,8 @@ private:
     bool TryGenerateDoorTarget(Room& room, Doorway& door);
     RoomType PickRoomType(const RoomCoords& coords);
     void RegisterRoomDiscovery(RoomType type);
+    BiomeType DetermineBiomeForRoom(const Room& originRoom, const RoomCoords& coords);
+    BiomeType PickInitialBiome();
     void EnsureDoorsGenerated(Room& room);
     void EnsureNeighborsRecursive(const RoomCoords& coords, int depth, std::unordered_set<RoomCoords, RoomCoordsHash>& visited);
 
@@ -49,4 +51,5 @@ private:
     int roomsDiscovered_{0};
     bool bossSpawned_{false};
     int roomsSinceBoss_{0};
+    BiomeType activeBiome_{BiomeType::Unknown};
 };

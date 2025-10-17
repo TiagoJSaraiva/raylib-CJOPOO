@@ -43,6 +43,14 @@ struct DoorSpan {
     int endX; // Exclusive
 };
 
+struct RoomGeometry {
+    Rectangle floorRect;
+    std::unordered_set<TilePos, TilePosHash> walkableTiles;
+    std::vector<DoorSpan> northDoorSpans;
+    std::vector<DoorSpan> southDoorSpans;
+    std::vector<TileRect> corridorRects;
+};
+
 void AddTilesForRect(const TileRect& rect, std::unordered_set<TilePos, TilePosHash>& tiles) {
     if (rect.width <= 0 || rect.height <= 0) {
         return;
@@ -55,18 +63,19 @@ void AddTilesForRect(const TileRect& rect, std::unordered_set<TilePos, TilePosHa
     }
 }
 
-Color RandomWallColorForTile(int tileX, int tileY) {
+unsigned char ClampToByte(int value);
+
+Color RandomWallColorForTile(int tileX, int tileY, Color baseColor) {
     std::uint64_t seedX = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileX));
     std::uint64_t seedY = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileY));
     std::uint64_t seed = seedX * 0x9e3779b97f4a7c15ULL ^ seedY;
     seed ^= (seed >> 23);
     std::mt19937_64 rng(seed);
-    std::uniform_int_distribution<int> baseDist(90, 160);
-    std::uniform_int_distribution<int> accentDist(50, 120);
-    unsigned char r = static_cast<unsigned char>(baseDist(rng));
-    unsigned char g = static_cast<unsigned char>(baseDist(rng));
-    unsigned char b = static_cast<unsigned char>(accentDist(rng));
-    return Color{r, g, b, 255};
+    std::uniform_int_distribution<int> delta(-12, 12);
+    baseColor.r = ClampToByte(static_cast<int>(baseColor.r) + delta(rng));
+    baseColor.g = ClampToByte(static_cast<int>(baseColor.g) + delta(rng));
+    baseColor.b = ClampToByte(static_cast<int>(baseColor.b) + delta(rng));
+    return baseColor;
 }
 
 unsigned char ClampToByte(int value) {
@@ -138,25 +147,46 @@ void DrawSouthWallColumn(int tileX, int floorTileY, const Color& baseColor) {
     }
 }
 
-} // namespace
+Color FloorColorForBiome(BiomeType biome) {
+    switch (biome) {
+        case BiomeType::Cave:
+            return Color{58, 62, 70, 255};
+        case BiomeType::Mansion:
+            return Color{72, 54, 42, 255};
+        case BiomeType::Dungeon:
+            return Color{46, 66, 56, 255};
+        case BiomeType::Lobby:
+            return Color{50, 52, 63, 255};
+        default:
+            return Color{50, 52, 63, 255};
+    }
+}
 
-void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
-    const RoomLayout& layout = room.Layout();
-    Rectangle floor = TileRectToPixels(layout.tileBounds);
+Color WallBaseColorForBiome(BiomeType biome) {
+    switch (biome) {
+        case BiomeType::Cave:
+            return Color{108, 108, 116, 255};
+        case BiomeType::Mansion:
+            return Color{128, 88, 56, 255};
+        case BiomeType::Dungeon:
+            return Color{76, 126, 86, 255};
+        case BiomeType::Lobby:
+            return Color{90, 92, 110, 255};
+        default:
+            return Color{90, 92, 110, 255};
+    }
+}
 
-    DrawRectangleRec(floor, Color{50, 52, 63, 255});
+RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
+    RoomGeometry geometry{};
+    geometry.floorRect = TileRectToPixels(layout.tileBounds);
 
-
-    std::unordered_set<TilePos, TilePosHash> walkableTiles;
-    AddTilesForRect(layout.tileBounds, walkableTiles);
-
-    std::vector<DoorSpan> northDoorSpans;
-    std::vector<DoorSpan> southDoorSpans;
+    AddTilesForRect(layout.tileBounds, geometry.walkableTiles);
 
     for (const auto& door : layout.doors) {
         if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0 && !door.sealed) {
-            DrawRectangleRec(TileRectToPixels(door.corridorTiles), Color{80, 80, 80, 255});
-            AddTilesForRect(door.corridorTiles, walkableTiles);
+            geometry.corridorRects.push_back(door.corridorTiles);
+            AddTilesForRect(door.corridorTiles, geometry.walkableTiles);
         }
 
         if (door.sealed) {
@@ -168,12 +198,12 @@ void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
             span.rowY = layout.tileBounds.y;
             span.startX = layout.tileBounds.x + door.offset;
             span.endX = span.startX + door.width;
-            northDoorSpans.push_back(span);
+            geometry.northDoorSpans.push_back(span);
 
             if (door.corridorTiles.height > 0) {
                 for (int y = door.corridorTiles.y; y < door.corridorTiles.y + door.corridorTiles.height; ++y) {
                     DoorSpan corridorSpan{y, door.corridorTiles.x, door.corridorTiles.x + door.corridorTiles.width};
-                    northDoorSpans.push_back(corridorSpan);
+                    geometry.northDoorSpans.push_back(corridorSpan);
                 }
             }
         } else if (door.direction == Direction::South) {
@@ -181,28 +211,59 @@ void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
             span.rowY = layout.tileBounds.y + layout.heightTiles - 1;
             span.startX = layout.tileBounds.x + door.offset;
             span.endX = span.startX + door.width;
-            southDoorSpans.push_back(span);
+            geometry.southDoorSpans.push_back(span);
 
             if (door.corridorTiles.height > 0) {
                 for (int y = door.corridorTiles.y; y < door.corridorTiles.y + door.corridorTiles.height; ++y) {
                     DoorSpan corridorSpan{y, door.corridorTiles.x, door.corridorTiles.x + door.corridorTiles.width};
-                    southDoorSpans.push_back(corridorSpan);
+                    geometry.southDoorSpans.push_back(corridorSpan);
                 }
             }
         }
     }
 
-    for (const TilePos& tile : walkableTiles) {
+    return geometry;
+}
+
+} // namespace
+
+void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive) const {
+    const RoomLayout& layout = room.Layout();
+    RoomGeometry geometry = BuildRoomGeometry(layout);
+
+    Color floorColor = FloorColorForBiome(room.GetBiome());
+    DrawRectangleRec(geometry.floorRect, floorColor);
+
+    Color corridorColor = OffsetRgb(floorColor, 14);
+    for (const TileRect& corridor : geometry.corridorRects) {
+        DrawRectangleRec(TileRectToPixels(corridor), corridorColor);
+    }
+
+    Color wallBase = WallBaseColorForBiome(room.GetBiome());
+    for (const TilePos& tile : geometry.walkableTiles) {
         TilePos northNeighbor{tile.x, tile.y - 1};
-        if (walkableTiles.find(northNeighbor) == walkableTiles.end() && !TileInDoorSpan(tile, northDoorSpans)) {
-            Color wallColor = RandomWallColorForTile(tile.x, tile.y - 1);
+        if (geometry.walkableTiles.find(northNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.northDoorSpans)) {
+            Color wallColor = RandomWallColorForTile(tile.x, tile.y - 1, wallBase);
             DrawNorthWallColumn(tile.x, tile.y, wallColor);
         }
+    }
+}
 
+void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive) const {
+    const RoomLayout& layout = room.Layout();
+    RoomGeometry geometry = BuildRoomGeometry(layout);
+
+    Color wallBase = WallBaseColorForBiome(room.GetBiome());
+    for (const TilePos& tile : geometry.walkableTiles) {
         TilePos southNeighbor{tile.x, tile.y + 1};
-        if (walkableTiles.find(southNeighbor) == walkableTiles.end() && !TileInDoorSpan(tile, southDoorSpans)) {
-            Color wallColor = RandomWallColorForTile(tile.x, tile.y + 1);
+        if (geometry.walkableTiles.find(southNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.southDoorSpans)) {
+            Color wallColor = RandomWallColorForTile(tile.x, tile.y + 1, wallBase);
             DrawSouthWallColumn(tile.x, tile.y, wallColor);
         }
     }
+}
+
+void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
+    DrawRoomBackground(room, isActive);
+    DrawRoomForeground(room, isActive);
 }

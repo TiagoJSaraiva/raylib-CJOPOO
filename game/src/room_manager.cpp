@@ -1,6 +1,7 @@
 #include "room_manager.h"
 
 #include <algorithm>
+#include <array>
 #include <cmath>
 #include <iostream>
 #include <random>
@@ -185,7 +186,7 @@ RoomManager::RoomManager(std::uint64_t worldSeed)
 
 Room& RoomManager::CreateInitialRoom() {
     RoomCoords coords{0, 0};
-    RoomSeedData seedData{RoomType::Normal, MakeRoomSeed(worldSeed_, coords)};
+    RoomSeedData seedData{RoomType::Lobby, BiomeType::Lobby, MakeRoomSeed(worldSeed_, coords)};
 
     constexpr int kInitialRoomSize = 12;
 
@@ -497,7 +498,8 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     originDoor.targetGenerated = true;
     originDoor.sealed = false;
 
-    RoomSeedData seedData{selectedType, MakeRoomSeed(worldSeed_, targetCoords)};
+    BiomeType biome = DetermineBiomeForRoom(originRoom, targetCoords);
+    RoomSeedData seedData{selectedType, biome, MakeRoomSeed(worldSeed_, targetCoords)};
     RoomLayout layout{};
     layout.widthTiles = widthTiles;
     layout.heightTiles = heightTiles;
@@ -799,6 +801,31 @@ void RoomManager::RegisterRoomDiscovery(RoomType type) {
             ++roomsSinceBoss_;
         }
     }
+}
+
+BiomeType RoomManager::DetermineBiomeForRoom(const Room& originRoom, const RoomCoords&) {
+    BiomeType originBiome = originRoom.GetBiome();
+    if (originBiome != BiomeType::Unknown && originBiome != BiomeType::Lobby) {
+        return originBiome;
+    }
+
+    if (activeBiome_ == BiomeType::Unknown) {
+        activeBiome_ = PickInitialBiome();
+    }
+
+    return activeBiome_;
+}
+
+BiomeType RoomManager::PickInitialBiome() {
+    static constexpr std::array<BiomeType, 3> kAvailableBiomes{
+        BiomeType::Cave,
+        BiomeType::Mansion,
+        BiomeType::Dungeon
+    };
+
+    std::mt19937_64 rng(MakeRoomSeed(worldSeed_, RoomCoords{0, 0}, 0xB10B1EULL));
+    std::uniform_int_distribution<std::size_t> dist(0, kAvailableBiomes.size() - 1);
+    return kAvailableBiomes[dist(rng)];
 }
 
 bool RoomManager::IsSpaceAvailable(const TileRect& candidateBounds) const {

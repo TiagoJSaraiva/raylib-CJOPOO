@@ -1,0 +1,13 @@
+Atributos de todos os "Projectile":
+dano, desvio (precisão do disparo em relação a onde o mouse está apontado)
+
+Atributos de ShootingProjectile que herdam de Projectile:
+alcance(lifespan), tamanho do projetil, quantidade de ricochetes em inimigos, quantidade de projeteis, quantidade de ricochete em parede,
+nível de "homing".
+
+Características específicas de projétil do tipo Blunt (herdam de ShootingProjectile):
+- Projétil tem forma de arco de circunferência.
+
+Então os itens que usam projétil de tipo Blunt, instanciam o projeto Blunt apenas enviando a característica do projétil do item como parâmetro (características estas que estarão armazenadas no item) pra uma função construtora? 
+Ou é ideal criar uma classe separada que herda do tipo de projétil para cada projétil de cada arma que têm características diferentes?
+Na minha cabeça faz sentido essa arquitetura, mas se o padrão for algo totalmente diferente, pode me falar.
