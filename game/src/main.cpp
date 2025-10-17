@@ -1,30 +1,10 @@
-/*******************************************************************************************
-*
-*   raylib [core] example - Basic window
-*
-*   Welcome to raylib!
-*
-*   To test examples, just press F6 and execute raylib_compile_execute script
-*   Note that compiled executable is placed in the same folder as .c file
-*
-*   You can find all basic examples on C:\raylib\raylib\examples folder or
-*   raylib official webpage: www.raylib.com
-*
-*   Enjoy using raylib. :)
-*
-*   This example has been created using raylib 1.0 (www.raylib.com)
-*   raylib is licensed under an unmodified zlib/libpng license (View raylib.h for details)
-*
-*   Copyright (c) 2014 Ramon Santamaria (@raysan5)
-*
-********************************************************************************************/
-
 #include "raylib.h"
 #include "raymath.h"
 
 #include <algorithm>
 #include <chrono>
 #include <cstdint>
+#include <optional>
 #include <limits>
 #include <iostream>
 #include <random>
@@ -39,7 +19,8 @@ namespace {
 constexpr int SCREEN_WIDTH = 1280;
 constexpr int SCREEN_HEIGHT = 720;
 constexpr float PLAYER_SPEED = 240.0f;
-constexpr float PLAYER_RADIUS = 18.0f;
+constexpr float PLAYER_HALF_SIZE = 18.0f;
+constexpr float PLAYER_RENDER_HALF_SIZE = PLAYER_HALF_SIZE - 3.0f;
 
 std::uint64_t GenerateWorldSeed() {
     std::random_device rd;
@@ -101,6 +82,15 @@ Rectangle DoorRectInsideRoom(const RoomLayout& layout, const Doorway& door) {
     return rect;
 }
 
+Rectangle PlayerBounds(const Vector2& center) {
+    return Rectangle{
+        center.x - PLAYER_HALF_SIZE,
+        center.y - PLAYER_HALF_SIZE,
+        PLAYER_HALF_SIZE * 2.0f,
+        PLAYER_HALF_SIZE * 2.0f
+    };
+}
+
 Vector2 RoomCenter(const RoomLayout& layout) {
     Rectangle bounds = TileRectToPixels(layout.tileBounds);
     return Vector2{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
@@ -128,26 +118,26 @@ bool IsInputMovingToward(Direction direction, const Vector2& input) {
     return false;
 }
 
-bool IsPointInsideRectWithRadius(const Rectangle& rect, const Vector2& position, float radius, float tolerance = 0.0f) {
+bool IsSquareInsideRect(const Rectangle& rect, const Vector2& position, float halfSize, float tolerance = 0.0f) {
     if (rect.width <= 0.0f || rect.height <= 0.0f) {
         return false;
     }
-    const float minX = rect.x + radius - tolerance;
-    const float maxX = rect.x + rect.width - radius + tolerance;
-    const float minY = rect.y + radius - tolerance;
-    const float maxY = rect.y + rect.height - radius + tolerance;
+    const float minX = rect.x + halfSize - tolerance;
+    const float maxX = rect.x + rect.width - halfSize + tolerance;
+    const float minY = rect.y + halfSize - tolerance;
+    const float maxY = rect.y + rect.height - halfSize + tolerance;
     return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
 }
 
-Vector2 ClampPointToRect(const Rectangle& rect, const Vector2& position, float radius, float tolerance = 0.0f) {
+Vector2 ClampSquareToRect(const Rectangle& rect, const Vector2& position, float halfSize, float tolerance = 0.0f) {
     if (rect.width <= 0.0f || rect.height <= 0.0f) {
         return position;
     }
 
-    float minX = rect.x + radius - tolerance;
-    float maxX = rect.x + rect.width - radius + tolerance;
-    float minY = rect.y + radius - tolerance;
-    float maxY = rect.y + rect.height - radius + tolerance;
+    float minX = rect.x + halfSize - tolerance;
+    float maxX = rect.x + rect.width - halfSize + tolerance;
+    float minY = rect.y + halfSize - tolerance;
+    float maxY = rect.y + rect.height - halfSize + tolerance;
 
     if (minX > maxX) {
         float midX = rect.x + rect.width * 0.5f;
@@ -164,13 +154,14 @@ Vector2 ClampPointToRect(const Rectangle& rect, const Vector2& position, float r
     return clamped;
 }
 
-void ClampPlayerToAccessibleArea(Vector2& position, float radius, const RoomLayout& layout) {
-    constexpr float tolerance = PLAYER_RADIUS;
+void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLayout& layout) {
+    constexpr float tolerance = 4.0f;
 
     Rectangle floor = TileRectToPixels(layout.tileBounds);
 
     struct AccessibleRegion {
-        Rectangle rect;
+        Rectangle clampRect;
+        Rectangle detectRect;
         Direction direction;
         bool isCorridor{false};
     };
@@ -185,42 +176,60 @@ void ClampPlayerToAccessibleArea(Vector2& position, float radius, const RoomLayo
 
         Rectangle doorway = DoorRectInsideRoom(layout, door);
         if (doorway.width > 0.0f && doorway.height > 0.0f) {
-            doorRegions.push_back(AccessibleRegion{doorway, door.direction, false});
+            doorRegions.push_back(AccessibleRegion{doorway, doorway, door.direction, false});
         }
 
         Rectangle corridor = TileRectToPixels(door.corridorTiles);
         if (corridor.width > 0.0f && corridor.height > 0.0f) {
-            doorRegions.push_back(AccessibleRegion{corridor, door.direction, true});
+            Rectangle detectCorridor = corridor;
+            const float extension = TILE_SIZE * 0.5f;
+            switch (door.direction) {
+                case Direction::North:
+                    detectCorridor.height += extension;
+                    break;
+                case Direction::South:
+                    detectCorridor.y -= extension;
+                    detectCorridor.height += extension;
+                    break;
+                case Direction::East:
+                    detectCorridor.x -= extension;
+                    detectCorridor.width += extension;
+                    break;
+                case Direction::West:
+                    detectCorridor.width += extension;
+                    break;
+            }
+            doorRegions.push_back(AccessibleRegion{corridor, detectCorridor, door.direction, true});
         }
     }
 
-    if (IsPointInsideRectWithRadius(floor, position, radius, tolerance)) {
+    if (IsSquareInsideRect(floor, position, halfSize, tolerance)) {
         return;
     }
 
     auto isInsideRegion = [&](const AccessibleRegion& region) {
         if (!region.isCorridor) {
-            return IsPointInsideRectWithRadius(region.rect, position, radius, tolerance);
+            return IsSquareInsideRect(region.detectRect, position, halfSize, tolerance);
         }
 
-        const Rectangle& rect = region.rect;
+        const Rectangle& rect = region.detectRect;
         if (rect.width <= 0.0f || rect.height <= 0.0f) {
             return false;
         }
 
         if (region.direction == Direction::North || region.direction == Direction::South) {
-                float minX = rect.x + radius - tolerance;
-                float maxX = rect.x + rect.width - radius + tolerance;
-                float minY = rect.y - tolerance;
-                float maxY = rect.y + rect.height + tolerance;
-            return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
+            float minCenterX = rect.x + halfSize - tolerance;
+            float maxCenterX = rect.x + rect.width - halfSize + tolerance;
+            float minCenterY = rect.y - halfSize - tolerance;
+            float maxCenterY = rect.y + rect.height + halfSize + tolerance;
+            return position.x >= minCenterX && position.x <= maxCenterX && position.y >= minCenterY && position.y <= maxCenterY;
         }
 
-        float minY = rect.y + radius - tolerance;
-        float maxY = rect.y + rect.height - radius + tolerance;
-        float minX = rect.x - tolerance;
-        float maxX = rect.x + rect.width + tolerance;
-        return position.y >= minY && position.y <= maxY && position.x >= minX && position.x <= maxX;
+        float minCenterY = rect.y + halfSize - tolerance;
+        float maxCenterY = rect.y + rect.height - halfSize + tolerance;
+        float minCenterX = rect.x - halfSize - tolerance;
+        float maxCenterX = rect.x + rect.width + halfSize + tolerance;
+        return position.y >= minCenterY && position.y <= maxCenterY && position.x >= minCenterX && position.x <= maxCenterX;
     };
 
     bool insideDoorRegion = false;
@@ -237,18 +246,77 @@ void ClampPlayerToAccessibleArea(Vector2& position, float radius, const RoomLayo
 
     Vector2 bestPosition = position;
     float bestDistanceSq = std::numeric_limits<float>::max();
+    bool foundCandidate = false;
 
-    auto consider = [&](const AccessibleRegion& region) {
-        const Rectangle& rect = region.rect;
+    auto clampWithinCorridor = [&](const AccessibleRegion& region) -> std::optional<Vector2> {
+        const Rectangle& rect = region.clampRect;
         if (rect.width <= 0.0f || rect.height <= 0.0f) {
-            return;
+            return std::nullopt;
         }
 
-        Vector2 candidate = ClampPointToRect(rect, position, radius, tolerance);
+        float minX = rect.x + halfSize - tolerance;
+        float maxX = rect.x + rect.width - halfSize + tolerance;
+        float minY = rect.y + halfSize - tolerance;
+        float maxY = rect.y + rect.height - halfSize + tolerance;
+
+        Vector2 clamped = position;
+
+        switch (region.direction) {
+            case Direction::North:
+                if (position.y > maxY) {
+                    return std::nullopt;
+                }
+                clamped.x = std::clamp(clamped.x, minX, maxX);
+                clamped.y = std::clamp(clamped.y, minY, maxY);
+                break;
+            case Direction::South:
+                if (position.y < minY) {
+                    return std::nullopt;
+                }
+                clamped.x = std::clamp(clamped.x, minX, maxX);
+                clamped.y = std::clamp(clamped.y, minY, maxY);
+                break;
+            case Direction::East:
+                if (position.x < minX) {
+                    return std::nullopt;
+                }
+                clamped.y = std::clamp(clamped.y, minY, maxY);
+                clamped.x = std::clamp(clamped.x, minX, maxX);
+                break;
+            case Direction::West:
+                if (position.x > maxX) {
+                    return std::nullopt;
+                }
+                clamped.y = std::clamp(clamped.y, minY, maxY);
+                clamped.x = std::clamp(clamped.x, minX, maxX);
+                break;
+        }
+
+        return clamped;
+    };
+
+    auto consider = [&](const AccessibleRegion& region) {
+        Vector2 candidate = position;
+
+        if (!region.isCorridor) {
+            const Rectangle& rect = region.clampRect;
+            if (rect.width <= 0.0f || rect.height <= 0.0f) {
+                return;
+            }
+            candidate = ClampSquareToRect(rect, position, halfSize, tolerance);
+        } else {
+            std::optional<Vector2> corridorClamp = clampWithinCorridor(region);
+            if (!corridorClamp.has_value()) {
+                return;
+            }
+            candidate = corridorClamp.value();
+        }
+
         float distSq = Vector2DistanceSqr(position, candidate);
         if (distSq < bestDistanceSq) {
             bestDistanceSq = distSq;
             bestPosition = candidate;
+            foundCandidate = true;
         }
     };
 
@@ -256,43 +324,65 @@ void ClampPlayerToAccessibleArea(Vector2& position, float radius, const RoomLayo
         consider(region);
     }
 
-    consider(AccessibleRegion{floor, Direction::North, false});
+    Vector2 floorClamp = ClampSquareToRect(floor, position, halfSize, tolerance);
+    float floorDistSq = Vector2DistanceSqr(position, floorClamp);
+    if (!foundCandidate || floorDistSq < bestDistanceSq) {
+        bestPosition = floorClamp;
+    }
 
     position = bestPosition;
 }
 
-bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position) {
+bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, const Vector2& movement) {
+    constexpr float kForwardEpsilon = 0.05f;
+
     const Rectangle corridor = TileRectToPixels(door.corridorTiles);
     if (corridor.width > 0.0f && corridor.height > 0.0f) {
-        constexpr float kLateralTolerance = 8.0f;
-        constexpr float kDepthFactor = 0.45f; // require the player to step modestly into the corridor
+    constexpr float kLateralTolerance = 8.0f;
+        constexpr float kForwardDepth = PLAYER_HALF_SIZE - 4.0f;
         const float corridorLeft = corridor.x;
         const float corridorRight = corridor.x + corridor.width;
         const float corridorTop = corridor.y;
         const float corridorBottom = corridor.y + corridor.height;
-        const float depthOffset = PLAYER_RADIUS * kDepthFactor;
+        const Rectangle playerRect = PlayerBounds(position);
+        const float playerLeft = playerRect.x;
+        const float playerRight = playerRect.x + playerRect.width;
+        const float playerTop = playerRect.y;
+        const float playerBottom = playerRect.y + playerRect.height;
 
         switch (door.direction) {
             case Direction::North:
-                if (position.x < corridorLeft - kLateralTolerance || position.x > corridorRight + kLateralTolerance) {
+                if (movement.y >= -kForwardEpsilon) {
                     return false;
                 }
-                return position.y <= (corridorBottom - depthOffset);
+                if (playerRight < corridorLeft - kLateralTolerance || playerLeft > corridorRight + kLateralTolerance) {
+                    return false;
+                }
+                return playerTop <= (corridorBottom - kForwardDepth);
             case Direction::South:
-                if (position.x < corridorLeft - kLateralTolerance || position.x > corridorRight + kLateralTolerance) {
+                if (movement.y <= kForwardEpsilon) {
                     return false;
                 }
-                return position.y >= (corridorTop + depthOffset);
+                if (playerRight < corridorLeft - kLateralTolerance || playerLeft > corridorRight + kLateralTolerance) {
+                    return false;
+                }
+                return playerBottom >= (corridorTop + kForwardDepth);
             case Direction::East:
-                if (position.y < corridorTop - kLateralTolerance || position.y > corridorBottom + kLateralTolerance) {
+                if (movement.x <= kForwardEpsilon) {
                     return false;
                 }
-                return position.x >= (corridorLeft + depthOffset);
+                if (playerBottom < corridorTop - kLateralTolerance || playerTop > corridorBottom + kLateralTolerance) {
+                    return false;
+                }
+                return playerRight >= (corridorLeft + kForwardDepth);
             case Direction::West:
-                if (position.y < corridorTop - kLateralTolerance || position.y > corridorBottom + kLateralTolerance) {
+                if (movement.x >= -kForwardEpsilon) {
                     return false;
                 }
-                return position.x <= (corridorRight - depthOffset);
+                if (playerBottom < corridorTop - kLateralTolerance || playerTop > corridorBottom + kLateralTolerance) {
+                    return false;
+                }
+                return playerLeft <= (corridorRight - kForwardDepth);
         }
     }
 
@@ -334,7 +424,9 @@ int main() {
         }
 
         Room& activeRoom = roomManager.GetCurrentRoom();
-        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_RADIUS, activeRoom.Layout());
+        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_SIZE, activeRoom.Layout());
+
+        Vector2 movementDelta = Vector2Subtract(desiredPosition, playerPosition);
 
         Room* currentRoomPtr = &activeRoom;
         bool movedRoom = false;
@@ -345,9 +437,10 @@ int main() {
             }
 
             Rectangle interact = DoorInteractionArea(activeRoom.Layout(), door);
-            bool colliding = CheckCollisionCircleRec(desiredPosition, PLAYER_RADIUS, interact);
+            Rectangle playerRect = PlayerBounds(desiredPosition);
+            bool colliding = CheckCollisionRecs(playerRect, interact);
             bool movingToward = IsInputMovingToward(door.direction, input);
-            bool shouldTransition = ShouldTransitionThroughDoor(door, desiredPosition);
+            bool shouldTransition = ShouldTransitionThroughDoor(door, desiredPosition, movementDelta);
 
             if (colliding && movingToward && !shouldTransition) {
                 std::cout << "Transition blocked | door dir=" << static_cast<int>(door.direction)
@@ -374,7 +467,7 @@ int main() {
             roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
         }
 
-        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_RADIUS, currentRoomPtr->Layout());
+        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_SIZE, currentRoomPtr->Layout());
         playerPosition = desiredPosition;
 
         camera.target = playerPosition;
@@ -389,14 +482,16 @@ int main() {
             roomRenderer.DrawRoom(room, isActive);
         }
 
-        DrawCircleV(playerPosition, PLAYER_RADIUS, Color{120, 180, 220, 255});
-        DrawCircleLines(static_cast<int>(playerPosition.x), static_cast<int>(playerPosition.y), PLAYER_RADIUS, Color{30, 60, 90, 255});
+        Rectangle renderRect{
+            playerPosition.x - PLAYER_RENDER_HALF_SIZE,
+            playerPosition.y - PLAYER_RENDER_HALF_SIZE,
+            PLAYER_RENDER_HALF_SIZE * 2.0f,
+            PLAYER_RENDER_HALF_SIZE * 2.0f
+        };
+        DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
+        DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
 
         EndMode2D();
-
-        DrawText("WASD: mover | Aproximar-se de uma porta para trocar de sala", 20, 20, 20, RAYWHITE);
-    DrawText(TextFormat("Salas geradas: %d", static_cast<int>(roomManager.Rooms().size())), 20, 50, 18, Color{200, 200, 220, 255});
-    DrawText(TextFormat("Seed: %llu", static_cast<unsigned long long>(roomManager.GetWorldSeed())), 20, 80, 18, Color{200, 200, 220, 255});
 
         EndDrawing();
     }
