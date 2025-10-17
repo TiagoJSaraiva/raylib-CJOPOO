@@ -43,6 +43,14 @@ struct DoorSpan {
     int endX; // Exclusive
 };
 
+struct RoomGeometry {
+    Rectangle floorRect;
+    std::unordered_set<TilePos, TilePosHash> walkableTiles;
+    std::vector<DoorSpan> northDoorSpans;
+    std::vector<DoorSpan> southDoorSpans;
+    std::vector<TileRect> corridorRects;
+};
+
 void AddTilesForRect(const TileRect& rect, std::unordered_set<TilePos, TilePosHash>& tiles) {
     if (rect.width <= 0 || rect.height <= 0) {
         return;
@@ -138,25 +146,16 @@ void DrawSouthWallColumn(int tileX, int floorTileY, const Color& baseColor) {
     }
 }
 
-} // namespace
+RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
+    RoomGeometry geometry{};
+    geometry.floorRect = TileRectToPixels(layout.tileBounds);
 
-void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
-    const RoomLayout& layout = room.Layout();
-    Rectangle floor = TileRectToPixels(layout.tileBounds);
-
-    DrawRectangleRec(floor, Color{50, 52, 63, 255});
-
-
-    std::unordered_set<TilePos, TilePosHash> walkableTiles;
-    AddTilesForRect(layout.tileBounds, walkableTiles);
-
-    std::vector<DoorSpan> northDoorSpans;
-    std::vector<DoorSpan> southDoorSpans;
+    AddTilesForRect(layout.tileBounds, geometry.walkableTiles);
 
     for (const auto& door : layout.doors) {
         if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0 && !door.sealed) {
-            DrawRectangleRec(TileRectToPixels(door.corridorTiles), Color{80, 80, 80, 255});
-            AddTilesForRect(door.corridorTiles, walkableTiles);
+            geometry.corridorRects.push_back(door.corridorTiles);
+            AddTilesForRect(door.corridorTiles, geometry.walkableTiles);
         }
 
         if (door.sealed) {
@@ -168,12 +167,12 @@ void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
             span.rowY = layout.tileBounds.y;
             span.startX = layout.tileBounds.x + door.offset;
             span.endX = span.startX + door.width;
-            northDoorSpans.push_back(span);
+            geometry.northDoorSpans.push_back(span);
 
             if (door.corridorTiles.height > 0) {
                 for (int y = door.corridorTiles.y; y < door.corridorTiles.y + door.corridorTiles.height; ++y) {
                     DoorSpan corridorSpan{y, door.corridorTiles.x, door.corridorTiles.x + door.corridorTiles.width};
-                    northDoorSpans.push_back(corridorSpan);
+                    geometry.northDoorSpans.push_back(corridorSpan);
                 }
             }
         } else if (door.direction == Direction::South) {
@@ -181,28 +180,55 @@ void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
             span.rowY = layout.tileBounds.y + layout.heightTiles - 1;
             span.startX = layout.tileBounds.x + door.offset;
             span.endX = span.startX + door.width;
-            southDoorSpans.push_back(span);
+            geometry.southDoorSpans.push_back(span);
 
             if (door.corridorTiles.height > 0) {
                 for (int y = door.corridorTiles.y; y < door.corridorTiles.y + door.corridorTiles.height; ++y) {
                     DoorSpan corridorSpan{y, door.corridorTiles.x, door.corridorTiles.x + door.corridorTiles.width};
-                    southDoorSpans.push_back(corridorSpan);
+                    geometry.southDoorSpans.push_back(corridorSpan);
                 }
             }
         }
     }
 
-    for (const TilePos& tile : walkableTiles) {
+    return geometry;
+}
+
+} // namespace
+
+void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive) const {
+    const RoomLayout& layout = room.Layout();
+    RoomGeometry geometry = BuildRoomGeometry(layout);
+
+    DrawRectangleRec(geometry.floorRect, Color{50, 52, 63, 255});
+
+    for (const TileRect& corridor : geometry.corridorRects) {
+        DrawRectangleRec(TileRectToPixels(corridor), Color{80, 80, 80, 255});
+    }
+
+    for (const TilePos& tile : geometry.walkableTiles) {
         TilePos northNeighbor{tile.x, tile.y - 1};
-        if (walkableTiles.find(northNeighbor) == walkableTiles.end() && !TileInDoorSpan(tile, northDoorSpans)) {
+        if (geometry.walkableTiles.find(northNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.northDoorSpans)) {
             Color wallColor = RandomWallColorForTile(tile.x, tile.y - 1);
             DrawNorthWallColumn(tile.x, tile.y, wallColor);
         }
+    }
+}
 
+void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive) const {
+    const RoomLayout& layout = room.Layout();
+    RoomGeometry geometry = BuildRoomGeometry(layout);
+
+    for (const TilePos& tile : geometry.walkableTiles) {
         TilePos southNeighbor{tile.x, tile.y + 1};
-        if (walkableTiles.find(southNeighbor) == walkableTiles.end() && !TileInDoorSpan(tile, southDoorSpans)) {
+        if (geometry.walkableTiles.find(southNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.southDoorSpans)) {
             Color wallColor = RandomWallColorForTile(tile.x, tile.y + 1);
             DrawSouthWallColumn(tile.x, tile.y, wallColor);
         }
     }
+}
+
+void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
+    DrawRoomBackground(room, isActive);
+    DrawRoomForeground(room, isActive);
 }
