@@ -31,6 +31,9 @@ struct ProjectileCommonParams {
     float projectileSize{0.0f};
     int projectilesPerShot{1};
     float randomSpreadDegrees{0.0f};
+    std::vector<float> angleOffsetsDegrees{};
+    std::vector<Vector2> positionalOffsets{};
+    float delayBetweenProjectiles{0.0f};
     Color debugColor{200, 200, 255, 255};
     std::string spriteId{};
     WeaponDisplayMode displayMode{WeaponDisplayMode::Hidden};
@@ -86,6 +89,9 @@ struct LaserProjectileParams {
     float length{360.0f};
     float thickness{14.0f};
     float duration{0.3f};
+    float startOffset{0.0f};
+    float fadeOutDuration{0.18f};
+    float staffHoldExtraSeconds{0.35f};
 };
 
 struct ProjectileBlueprint {

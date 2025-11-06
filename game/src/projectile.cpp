@@ -10,6 +10,56 @@ namespace {
 
 constexpr float kRadToDeg = 180.0f / PI;
 
+struct LaserAssets {
+    Texture2D body{};
+    Texture2D staff{};
+    bool attemptedLoad{false};
+};
+
+LaserAssets g_laserAssets{};
+
+bool IsTextureLoaded(const Texture2D& texture) {
+    return texture.id != 0;
+}
+
+Texture2D LoadTextureIfAvailable(const char* path) {
+    if (FileExists(path)) {
+        Texture2D texture = LoadTexture(path);
+        if (texture.id != 0) {
+            SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+            return texture;
+        }
+    }
+    return Texture2D{};
+}
+
+void EnsureLaserAssetsLoaded() {
+    if (g_laserAssets.attemptedLoad) {
+        return;
+    }
+
+    g_laserAssets.attemptedLoad = true;
+    g_laserAssets.body = LoadTextureIfAvailable("assets/img/projectiles/laser_body.png");
+    g_laserAssets.staff = LoadTextureIfAvailable("assets/img/weapons/cajado_de_carvalho.png");
+}
+
+void UnloadLaserAssets() {
+    if (!g_laserAssets.attemptedLoad) {
+        return;
+    }
+
+    auto unload = [](Texture2D& texture) {
+        if (texture.id != 0) {
+            UnloadTexture(texture);
+            texture = Texture2D{};
+        }
+    };
+
+    unload(g_laserAssets.body);
+    unload(g_laserAssets.staff);
+    g_laserAssets.attemptedLoad = false;
+}
+
 float Clamp01(float value) {
     if (value < 0.0f) return 0.0f;
     if (value > 1.0f) return 1.0f;
@@ -394,6 +444,39 @@ public:
         DrawTriangle(shaftLeft, shaftRight, tip, common_.debugColor);
     }
 
+    void CollectHitEvents(const Vector2& targetCenter,
+                          float targetRadius,
+                          std::mt19937& rng,
+                          std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
+        if (damageApplied_ || expired_ || common_.damage <= 0.0f || currentDistance_ <= 1e-3f) {
+            return;
+        }
+
+        const Vector2 base = origin_;
+        const Vector2 tip = Vector2Add(origin_, Vector2Scale(direction_, currentDistance_));
+        float distance = DistancePointToSegment(targetCenter, base, tip);
+        float effectiveRadius = (std::max(params_.shaftThickness * 0.5f, params_.tipLength * 0.5f)) + targetRadius;
+
+        if (distance > effectiveRadius) {
+            return;
+        }
+
+        ProjectileSystem::DamageEvent event{};
+        event.amount = common_.damage;
+
+        if (common_.criticalChance > 0.0f) {
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < common_.criticalChance) {
+                event.isCritical = true;
+                float multiplier = (common_.criticalMultiplier > 0.0f) ? common_.criticalMultiplier : 1.0f;
+                event.amount *= multiplier;
+            }
+        }
+
+        damageApplied_ = true;
+        outEvents.push_back(event);
+    }
+
     bool IsExpired() const override {
         return expired_;
     }
@@ -407,6 +490,7 @@ private:
     float elapsed_{0.0f};
     float currentDistance_{0.0f};
     bool expired_{false};
+    bool damageApplied_{false};
 };
 
 class FullCircleSwingProjectile final : public ProjectileSystem::ProjectileInstance {
@@ -463,6 +547,42 @@ public:
         DrawRectanglePro(rect, pivot, currentAngleDeg_, common_.debugColor);
     }
 
+    void CollectHitEvents(const Vector2& targetCenter,
+                          float targetRadius,
+                          std::mt19937& rng,
+                          std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
+        if (damageApplied_ || expired_ || common_.damage <= 0.0f || params_.length <= 1e-3f) {
+            return;
+        }
+
+        const float angleRad = currentAngleDeg_ * DEG2RAD;
+        Vector2 direction{std::cos(angleRad), std::sin(angleRad)};
+        Vector2 start = origin_;
+        Vector2 end = Vector2Add(start, Vector2Scale(direction, params_.length));
+
+        float distance = DistancePointToSegment(targetCenter, start, end);
+        float effectiveRadius = params_.thickness * 0.5f + targetRadius;
+
+        if (distance > effectiveRadius) {
+            return;
+        }
+
+        ProjectileSystem::DamageEvent event{};
+        event.amount = common_.damage;
+
+        if (common_.criticalChance > 0.0f) {
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < common_.criticalChance) {
+                event.isCritical = true;
+                float multiplier = (common_.criticalMultiplier > 0.0f) ? common_.criticalMultiplier : 1.0f;
+                event.amount *= multiplier;
+            }
+        }
+
+        damageApplied_ = true;
+        outEvents.push_back(event);
+    }
+
     bool IsExpired() const override {
         return expired_;
     }
@@ -476,6 +596,7 @@ private:
     float totalRotationDeg_{0.0f};
     float elapsed_{0.0f};
     bool expired_{false};
+    bool damageApplied_{false};
 };
 
 class AmmunitionProjectile final : public ProjectileSystem::ProjectileInstance {
@@ -532,6 +653,38 @@ public:
         DrawCircleV(projectilePosition_, params_.radius, common_.debugColor);
     }
 
+    void CollectHitEvents(const Vector2& targetCenter,
+                          float targetRadius,
+                          std::mt19937& rng,
+                          std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
+        if (damageApplied_ || expired_ || common_.damage <= 0.0f) {
+            return;
+        }
+
+        float distance = Vector2Distance(projectilePosition_, targetCenter);
+        float effectiveRadius = params_.radius + targetRadius;
+
+        if (distance > effectiveRadius) {
+            return;
+        }
+
+        ProjectileSystem::DamageEvent event{};
+        event.amount = common_.damage;
+
+        if (common_.criticalChance > 0.0f) {
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < common_.criticalChance) {
+                event.isCritical = true;
+                float multiplier = (common_.criticalMultiplier > 0.0f) ? common_.criticalMultiplier : 1.0f;
+                event.amount *= multiplier;
+            }
+        }
+
+        damageApplied_ = true;
+        expired_ = true;
+        outEvents.push_back(event);
+    }
+
     bool IsExpired() const override {
         return expired_;
     }
@@ -549,6 +702,7 @@ private:
     float traveled_{0.0f};
     float elapsed_{0.0f};
     bool expired_{false};
+    bool damageApplied_{false};
 };
 
 class LaserProjectile final : public ProjectileSystem::ProjectileInstance {
@@ -557,19 +711,43 @@ public:
                     const LaserProjectileParams& params,
                     Vector2 weaponOrigin,
                     const Vector2* followTarget,
-                                        Vector2 weaponOffset,
-                                        Vector2 direction)
+                    Vector2 weaponOffset,
+                    Vector2 direction)
         : common_(common),
           params_(params),
           weaponOrigin_(weaponOrigin),
           followTarget_(followTarget),
           weaponOffset_(weaponOffset),
-                    direction_(Vector2Normalize(direction)) {
+          direction_(Vector2Normalize(direction)) {
+        EnsureLaserAssetsLoaded();
         if (Vector2LengthSqr(direction_) <= 1e-6f) {
             direction_ = Vector2{1.0f, 0.0f};
         }
-                aimAngleDeg_ = DirectionToDegrees(direction_);
-                displayState_ = ComputeWeaponDisplayState(common_, direction_, aimAngleDeg_);
+        aimAngleDeg_ = DirectionToDegrees(direction_);
+        displayState_ = ComputeWeaponDisplayState(common_, direction_, aimAngleDeg_);
+
+        beamDuration_ = (params_.duration > 0.0f) ? params_.duration : common_.lifespanSeconds;
+        if (beamDuration_ <= 0.0f && common_.lifespanSeconds > 0.0f) {
+            beamDuration_ = common_.lifespanSeconds;
+        }
+
+        if (common_.displayHoldSeconds > 0.0f) {
+            staffHoldDuration_ = std::max(beamDuration_, common_.displayHoldSeconds);
+        } else if (beamDuration_ > 0.0f && params_.staffHoldExtraSeconds > 0.0f) {
+            staffHoldDuration_ = beamDuration_ + params_.staffHoldExtraSeconds;
+        } else if (params_.staffHoldExtraSeconds > 0.0f) {
+            staffHoldDuration_ = params_.staffHoldExtraSeconds;
+        } else {
+            staffHoldDuration_ = beamDuration_;
+        }
+
+        finalLifetime_ = staffHoldDuration_;
+        if (common_.lifespanSeconds > 0.0f) {
+            finalLifetime_ = std::max(finalLifetime_, common_.lifespanSeconds);
+        }
+        if (beamDuration_ > 0.0f) {
+            finalLifetime_ = std::max(finalLifetime_, beamDuration_);
+        }
     }
 
     void Update(float deltaSeconds) override {
@@ -578,11 +756,13 @@ public:
         }
 
         elapsed_ += deltaSeconds;
-        const float duration = (params_.duration > 0.0f) ? params_.duration : common_.lifespanSeconds;
-        if (duration > 0.0f && elapsed_ >= duration) {
-            expired_ = true;
+        if (!beamExpired_ && beamDuration_ > 0.0f && elapsed_ >= beamDuration_) {
+            beamExpired_ = true;
         }
-        if (!expired_ && common_.lifespanSeconds > 0.0f && elapsed_ >= common_.lifespanSeconds) {
+
+        if (finalLifetime_ > 0.0f && elapsed_ >= finalLifetime_) {
+            expired_ = true;
+        } else if (finalLifetime_ <= 0.0f && common_.lifespanSeconds > 0.0f && elapsed_ >= common_.lifespanSeconds) {
             expired_ = true;
         }
     }
@@ -592,21 +772,94 @@ public:
             return;
         }
 
-        Vector2 displayBase = Vector2Add(weaponOrigin_, displayState_.offset);
+        Vector2 displayBase{};
+        Vector2 beamStart{};
+        Vector2 beamEnd{};
+        ComputeBeamGeometry(displayBase, beamStart, beamEnd);
+
         const bool showDisplay = (common_.displayMode != WeaponDisplayMode::Hidden) &&
-                                 (common_.displayHoldSeconds <= 0.0f || elapsed_ < common_.displayHoldSeconds);
+                                 (staffHoldDuration_ <= 0.0f || elapsed_ < staffHoldDuration_);
         if (showDisplay) {
-            DrawWeaponDisplay(common_, displayBase, displayState_.angleDeg);
+            if (IsTextureLoaded(g_laserAssets.staff)) {
+                const float thickness = std::max(common_.displayThickness, 1.0f);
+                const float length = std::max(common_.displayLength, 1.0f);
+                Rectangle src{0.0f, 0.0f, static_cast<float>(g_laserAssets.staff.width), static_cast<float>(g_laserAssets.staff.height)};
+                Rectangle dest{displayBase.x, displayBase.y, thickness, length};
+                Vector2 origin{thickness * 0.5f, 0.0f};
+                float rotation = displayState_.angleDeg - 90.0f;
+                DrawTexturePro(g_laserAssets.staff, src, dest, origin, rotation, WHITE);
+            } else {
+                DrawWeaponDisplay(common_, displayBase, displayState_.angleDeg);
+            }
         }
 
-        Vector2 beamStart = displayBase;
-        if (common_.displayMode != WeaponDisplayMode::Hidden) {
-            Vector2 forward{common_.displayLength, 0.0f};
-            Vector2 rotated = Vector2Rotate(forward, displayState_.angleDeg * DEG2RAD);
-            beamStart = Vector2Add(displayBase, rotated);
+    const float beamLength = Vector2Distance(beamStart, beamEnd);
+    const float beamThickness = std::max(params_.thickness, 1.0f);
+    const float beamAngle = DirectionToDegrees(direction_) - 90.0f;
+    const bool beamVisible = (beamDuration_ <= 0.0f) || !beamExpired_;
+
+        if (beamVisible) {
+            float beamAlpha = 1.0f;
+            if (beamDuration_ > 0.0f && params_.fadeOutDuration > 0.0f) {
+                float fadeStart = beamDuration_ - params_.fadeOutDuration;
+                if (elapsed_ >= fadeStart) {
+                    float remaining = beamDuration_ - elapsed_;
+                    beamAlpha = Clamp01(remaining / std::max(params_.fadeOutDuration, 1e-3f));
+                }
+            }
+
+            Color beamTint = ColorAlpha(WHITE, beamAlpha);
+
+            if (IsTextureLoaded(g_laserAssets.body)) {
+                Rectangle bodySrc{0.0f, 0.0f, static_cast<float>(g_laserAssets.body.width), static_cast<float>(g_laserAssets.body.height)};
+                Rectangle bodyDest{beamStart.x, beamStart.y, beamThickness, beamLength};
+                Vector2 bodyOrigin{beamThickness * 0.5f, 0.0f};
+                DrawTexturePro(g_laserAssets.body, bodySrc, bodyDest, bodyOrigin, beamAngle, beamTint);
+            } else {
+                Color lineColor = ColorAlpha(common_.debugColor, beamAlpha);
+                DrawLineEx(beamStart, beamEnd, params_.thickness, lineColor);
+            }
         }
-        Vector2 beamEnd = Vector2Add(beamStart, Vector2Scale(direction_, params_.length));
-        DrawLineEx(beamStart, beamEnd, params_.thickness, common_.debugColor);
+    }
+
+    void CollectHitEvents(const Vector2& targetCenter,
+                          float targetRadius,
+                          std::mt19937& rng,
+                          std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
+        if (damageApplied_ || expired_ || common_.damage <= 0.0f) {
+            return;
+        }
+
+        if (beamExpired_) {
+            return;
+        }
+
+        Vector2 displayBase{};
+        Vector2 beamStart{};
+        Vector2 beamEnd{};
+        ComputeBeamGeometry(displayBase, beamStart, beamEnd);
+
+        float distance = DistancePointToSegment(targetCenter, beamStart, beamEnd);
+        float effectiveRadius = params_.thickness * 0.5f + targetRadius;
+
+        if (distance > effectiveRadius) {
+            return;
+        }
+
+        ProjectileSystem::DamageEvent event{};
+        event.amount = common_.damage;
+
+        if (common_.criticalChance > 0.0f) {
+            std::uniform_real_distribution<float> dist(0.0f, 1.0f);
+            if (dist(rng) < common_.criticalChance) {
+                event.isCritical = true;
+                float multiplier = (common_.criticalMultiplier > 0.0f) ? common_.criticalMultiplier : 1.0f;
+                event.amount *= multiplier;
+            }
+        }
+
+        damageApplied_ = true;
+        outEvents.push_back(event);
     }
 
     bool IsExpired() const override {
@@ -624,13 +877,37 @@ private:
     WeaponDisplayState displayState_{};
     float elapsed_{0.0f};
     bool expired_{false};
+    bool damageApplied_{false};
+    float beamDuration_{0.0f};
+    float staffHoldDuration_{0.0f};
+    float finalLifetime_{0.0f};
+    bool beamExpired_{false};
+
+    void ComputeBeamGeometry(Vector2& outDisplayBase, Vector2& outBeamStart, Vector2& outBeamEnd) const {
+        outDisplayBase = Vector2Add(weaponOrigin_, displayState_.offset);
+        // Ajuste displayState_.offset para mover a arma em relação ao jogador.
+        outBeamStart = outDisplayBase;
+        if (common_.displayMode != WeaponDisplayMode::Hidden) {
+            Vector2 forward{common_.displayLength, 0.0f};
+            Vector2 rotated = Vector2Rotate(forward, displayState_.angleDeg * DEG2RAD);
+            outBeamStart = Vector2Add(outDisplayBase, rotated);
+        }
+        if (params_.startOffset > 0.0f) {
+            Vector2 offset = Vector2Scale(direction_, params_.startOffset);
+            // Ajuste params_.startOffset para aproximar ou afastar o laser do jogador.
+            outBeamStart = Vector2Add(outBeamStart, offset);
+        }
+        outBeamEnd = Vector2Add(outBeamStart, Vector2Scale(direction_, params_.length));
+    }
 };
 
 } // namespace
 
 ProjectileSystem::ProjectileSystem() : rng_(std::random_device{}()) {}
 
-ProjectileSystem::~ProjectileSystem() = default;
+ProjectileSystem::~ProjectileSystem() {
+    UnloadLaserAssets();
+}
 
 void ProjectileSystem::Update(float deltaSeconds) {
     for (auto& projectile : projectiles_) {
@@ -666,14 +943,27 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
     baseAim = Vector2Normalize(baseAim);
     float baseAngle = DirectionToDegrees(baseAim);
 
-    for (int i = 0; i < blueprint.common.projectilesPerShot; ++i) {
+    const int projectileCount = blueprint.common.projectilesPerShot;
+    float accumulatedDelay = 0.0f;
+
+    for (int i = 0; i < projectileCount; ++i) {
         float spreadOffset = (blueprint.common.randomSpreadDegrees > 0.0f) ? spreadDist(rng_) : 0.0f;
+        float staticAngleOffset = (i < static_cast<int>(blueprint.common.angleOffsetsDegrees.size()))
+            ? blueprint.common.angleOffsetsDegrees[i]
+            : 0.0f;
+        Vector2 positionalOffset = (i < static_cast<int>(blueprint.common.positionalOffsets.size()))
+            ? blueprint.common.positionalOffsets[i]
+            : Vector2{0.0f, 0.0f};
+
+        float totalAngleOffset = spreadOffset + staticAngleOffset;
+        float finalAngle = baseAngle + totalAngleOffset;
+        Vector2 spawnOrigin = Vector2Add(context.origin, positionalOffset);
+
         switch (blueprint.kind) {
             case ProjectileKind::Blunt: {
-                float aimAngle = baseAngle + spreadOffset;
                 float halfTravel = blueprint.blunt.travelDegrees * 0.5f;
-                float startCenter = aimAngle - halfTravel;
-                float endCenter = aimAngle + halfTravel;
+                float startCenter = finalAngle - halfTravel;
+                float endCenter = finalAngle + halfTravel;
 
                 const Vector2* followPtr = (blueprint.blunt.followOwner && context.followTarget != nullptr)
                     ? context.followTarget
@@ -682,17 +972,16 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                 projectiles_.push_back(std::make_unique<BluntProjectile>(
                     blueprint.common,
                     blueprint.blunt,
-                    context.origin,
+                    spawnOrigin,
                     followPtr,
                     startCenter,
                     endCenter));
                 break;
             }
             case ProjectileKind::Swing: {
-                float aimAngle = baseAngle + spreadOffset;
                 float halfTravel = blueprint.swing.travelDegrees * 0.5f;
-                float startCenter = aimAngle - halfTravel;
-                float endCenter = aimAngle + halfTravel;
+                float startCenter = finalAngle - halfTravel;
+                float endCenter = finalAngle + halfTravel;
 
                 const Vector2* followPtr = (blueprint.swing.followOwner && context.followTarget != nullptr)
                     ? context.followTarget
@@ -701,17 +990,14 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                 projectiles_.push_back(std::make_unique<SwingProjectile>(
                     blueprint.common,
                     blueprint.swing,
-                    context.origin,
+                    spawnOrigin,
                     followPtr,
                     startCenter,
                     endCenter));
                 break;
             }
             case ProjectileKind::Spear: {
-                Vector2 aimDir = baseAim;
-                if (spreadOffset != 0.0f) {
-                    aimDir = Vector2Rotate(baseAim, spreadOffset * DEG2RAD);
-                }
+                Vector2 aimDir = Vector2Rotate(baseAim, totalAngleOffset * DEG2RAD);
                 const Vector2* followPtr = (blueprint.spear.followOwner && context.followTarget != nullptr)
                     ? context.followTarget
                     : nullptr;
@@ -719,14 +1005,12 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                 projectiles_.push_back(std::make_unique<SpearProjectile>(
                     blueprint.common,
                     blueprint.spear,
-                    context.origin,
+                    spawnOrigin,
                     followPtr,
                     aimDir));
                 break;
             }
             case ProjectileKind::FullCircleSwing: {
-                float aimAngle = baseAngle + spreadOffset;
-
                 const Vector2* followPtr = (blueprint.fullCircle.followOwner && context.followTarget != nullptr)
                     ? context.followTarget
                     : nullptr;
@@ -734,55 +1018,56 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                 projectiles_.push_back(std::make_unique<FullCircleSwingProjectile>(
                     blueprint.common,
                     blueprint.fullCircle,
-                    context.origin,
+                    spawnOrigin,
                     followPtr,
-                    aimAngle));
+                    finalAngle));
                 break;
             }
             case ProjectileKind::Ammunition: {
-                Vector2 aimDir = baseAim;
-                if (spreadOffset != 0.0f) {
-                    aimDir = Vector2Rotate(baseAim, spreadOffset * DEG2RAD);
-                }
+                Vector2 aimDir = Vector2Rotate(baseAim, totalAngleOffset * DEG2RAD);
 
                 const Vector2* followPtr = context.followTarget;
                 Vector2 weaponOffset{0.0f, 0.0f};
                 if (followPtr != nullptr) {
-                    weaponOffset = Vector2Subtract(context.origin, *followPtr);
+                    weaponOffset = Vector2Subtract(spawnOrigin, *followPtr);
                 }
 
                 projectiles_.push_back(std::make_unique<AmmunitionProjectile>(
                     blueprint.common,
                     blueprint.ammunition,
-                    context.origin,
+                    spawnOrigin,
                     followPtr,
                     weaponOffset,
                     aimDir));
                 break;
             }
             case ProjectileKind::Laser: {
-                Vector2 aimDir = baseAim;
-                if (spreadOffset != 0.0f) {
-                    aimDir = Vector2Rotate(baseAim, spreadOffset * DEG2RAD);
-                }
+                Vector2 aimDir = Vector2Rotate(baseAim, totalAngleOffset * DEG2RAD);
 
                 const Vector2* followPtr = context.followTarget;
                 Vector2 weaponOffset{0.0f, 0.0f};
                 if (followPtr != nullptr) {
-                    weaponOffset = Vector2Subtract(context.origin, *followPtr);
+                    weaponOffset = Vector2Subtract(spawnOrigin, *followPtr);
                 }
 
                 projectiles_.push_back(std::make_unique<LaserProjectile>(
                     blueprint.common,
                     blueprint.laser,
-                    context.origin,
+                    spawnOrigin,
                     followPtr,
                     weaponOffset,
                     aimDir));
                 break;
             }
         }
+
+        if (blueprint.common.delayBetweenProjectiles > 0.0f && i < projectileCount - 1) {
+            accumulatedDelay += blueprint.common.delayBetweenProjectiles;
+            // Future enhancement: enqueue delayed spawns when scheduling is supported.
+        }
     }
+
+    (void)accumulatedDelay;
 }
 
 std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents(const Vector2& targetCenter, float targetRadius) {

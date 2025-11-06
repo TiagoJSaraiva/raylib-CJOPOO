@@ -18,11 +18,14 @@
 #include "projectile.h"
 #include "player.h"
 #include "weapon.h"
+#include "weapon_blueprints.h"
+#include "raygui.h"
+#include "ui_inventory.h"
 
 namespace {
 
-constexpr int SCREEN_WIDTH = 1280;
-constexpr int SCREEN_HEIGHT = 720;
+constexpr int SCREEN_WIDTH = 1920;
+constexpr int SCREEN_HEIGHT = 1080;
 constexpr float PLAYER_HALF_SIZE = 18.0f;
 constexpr float PLAYER_RENDER_HALF_SIZE = PLAYER_HALF_SIZE - 3.0f;
 
@@ -78,6 +81,53 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
         Vector2 drawPos{number.position.x - measure.x * 0.5f, number.position.y - measure.y};
         DrawTextEx(font, text.c_str(), drawPos, fontSize, 0.0f, baseColor);
     }
+}
+
+PlayerAttributes GatherWeaponPassiveBonuses(const WeaponState& leftWeapon,
+                                            const WeaponState& rightWeapon) {
+    PlayerAttributes totals{};
+    if (leftWeapon.blueprint != nullptr) {
+        totals = AddAttributes(totals, leftWeapon.blueprint->passiveBonuses);
+    }
+    if (rightWeapon.blueprint != nullptr) {
+        totals = AddAttributes(totals, rightWeapon.blueprint->passiveBonuses);
+    }
+    return totals;
+}
+
+void RefreshPlayerWeaponBonuses(PlayerCharacter& player,
+                                const WeaponState& leftWeapon,
+                                const WeaponState& rightWeapon) {
+    player.weaponBonuses = GatherWeaponPassiveBonuses(leftWeapon, rightWeapon);
+    player.RecalculateStats();
+}
+
+bool SyncWeaponStateFromSlot(const InventoryUIState& inventoryUI,
+                             int slotIndex,
+                             WeaponState& weaponState) {
+    int itemId = (slotIndex < static_cast<int>(inventoryUI.weaponSlotIds.size()))
+                     ? inventoryUI.weaponSlotIds[slotIndex]
+                     : 0;
+    const WeaponBlueprint* desiredBlueprint = (itemId > 0) ? ResolveWeaponBlueprint(inventoryUI, itemId) : nullptr;
+    if (itemId > 0 && desiredBlueprint == nullptr) {
+        return false;
+    }
+    if (weaponState.blueprint != desiredBlueprint) {
+        weaponState.blueprint = desiredBlueprint;
+        weaponState.cooldownTimer = 0.0f;
+        weaponState.derived = WeaponDerivedStats{};
+        return true;
+    }
+    return false;
+}
+
+bool SyncEquippedWeapons(const InventoryUIState& inventoryUI,
+                         WeaponState& leftWeapon,
+                         WeaponState& rightWeapon) {
+    bool changed = false;
+    changed |= SyncWeaponStateFromSlot(inventoryUI, 0, leftWeapon);
+    changed |= SyncWeaponStateFromSlot(inventoryUI, 1, rightWeapon);
+    return changed;
 }
 
 struct TrainingDummy {
@@ -452,237 +502,6 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
 
     return true;
 }
-
-ProjectileBlueprint MakeBroquelProjectileBlueprint() {
-    ProjectileBlueprint blueprint{};
-    blueprint.kind = ProjectileKind::Blunt;
-    blueprint.common.damage = 8.0f;
-    blueprint.common.lifespanSeconds = 0.8f;
-    blueprint.common.projectileSpeed = 0.0f;
-    blueprint.common.projectileSize = 32.0f;
-    blueprint.common.projectilesPerShot = 1;
-    blueprint.common.randomSpreadDegrees = 0.0f;
-    blueprint.common.debugColor = Color{210, 240, 160, 255};
-    blueprint.common.spriteId = "broquel_projectile";
-    blueprint.common.damage = 10.0f;
-
-    blueprint.blunt.radius = 60.0f;
-    blueprint.blunt.travelDegrees = 0.0f;
-    blueprint.blunt.arcSpanDegrees = 60.0f;
-    blueprint.blunt.thickness = 18.0f;
-    blueprint.blunt.followOwner = true;
-
-    return blueprint;
-}
-
-WeaponBlueprint MakeBroquelWeaponBlueprint() {
-    WeaponBlueprint blueprint{};
-    blueprint.name = "Broquel";
-    blueprint.projectile = MakeBroquelProjectileBlueprint();
-    blueprint.cooldownSeconds = 1.0f / 1.5f;
-    blueprint.holdToFire = false;
-    blueprint.attributeKey = WeaponAttributeKey::Constitution;
-    blueprint.damage.baseDamage = 10.0f;
-    blueprint.damage.attributeScaling = 1.5f;
-    blueprint.cadence.baseAttacksPerSecond = 1.5f;
-    blueprint.cadence.dexterityGainPerPoint = 0.2f;
-    blueprint.cadence.attacksPerSecondCap = 3.0f;
-    blueprint.critical.baseChance = 0.05f;
-    blueprint.critical.chancePerLetalidade = 0.005f;
-    blueprint.critical.multiplier = 1.2f;
-    blueprint.passiveBonuses.primary.defesa = 5;
-    return blueprint;
-}
-
-const WeaponBlueprint& GetBroquelWeaponBlueprint() {
-    static WeaponBlueprint blueprint = MakeBroquelWeaponBlueprint();
-    return blueprint;
-}
-
-ProjectileBlueprint MakeLongswordProjectileBlueprint() {
-    ProjectileBlueprint blueprint{};
-    blueprint.kind = ProjectileKind::Swing;
-    blueprint.common.damage = 12.0f;
-    blueprint.common.lifespanSeconds = 0.35f;
-    blueprint.common.projectilesPerShot = 1;
-    blueprint.common.randomSpreadDegrees = 0.0f;
-    blueprint.common.debugColor = Color{240, 210, 180, 255};
-    blueprint.common.spriteId = "longsword_swing";
-    blueprint.common.damage = 12.0f;
-
-    blueprint.swing.length = 110.0f;
-    blueprint.swing.thickness = 28.0f;
-    blueprint.swing.travelDegrees = 110.0f;
-    blueprint.swing.followOwner = true;
-
-    return blueprint;
-}
-
-WeaponBlueprint MakeLongswordWeaponBlueprint() {
-    WeaponBlueprint blueprint{};
-    blueprint.name = "Espada Longa";
-    blueprint.projectile = MakeLongswordProjectileBlueprint();
-    blueprint.cooldownSeconds = 1.0f / 0.8f;
-    blueprint.holdToFire = false;
-    blueprint.attributeKey = WeaponAttributeKey::Strength;
-    blueprint.damage.baseDamage = 12.0f;
-    blueprint.damage.attributeScaling = 1.5f;
-    blueprint.cadence.baseAttacksPerSecond = 0.8f;
-    blueprint.cadence.dexterityGainPerPoint = 0.1f;
-    blueprint.cadence.attacksPerSecondCap = 2.5f;
-    blueprint.critical.baseChance = 0.08f;
-    blueprint.critical.chancePerLetalidade = 0.006f;
-    blueprint.critical.multiplier = 1.3f;
-    return blueprint;
-}
-
-const WeaponBlueprint& GetLongswordWeaponBlueprint() {
-    static WeaponBlueprint blueprint = MakeLongswordWeaponBlueprint();
-    return blueprint;
-}
-
-ProjectileBlueprint MakeSpearProjectileBlueprint() {
-    ProjectileBlueprint blueprint{};
-    blueprint.kind = ProjectileKind::Spear;
-    blueprint.common.damage = 10.0f;
-    blueprint.common.lifespanSeconds = 0.6f;
-    blueprint.common.projectilesPerShot = 1;
-    blueprint.common.randomSpreadDegrees = 0.0f;
-    blueprint.common.debugColor = Color{200, 220, 255, 255};
-    blueprint.common.spriteId = "spear_thrust";
-
-    blueprint.spear.extendDistance = 160.0f;
-    blueprint.spear.shaftThickness = 16.0f;
-    blueprint.spear.tipLength = 26.0f;
-    blueprint.spear.extendDuration = 0.3f;
-    blueprint.spear.retractDuration = 0.3f;
-    blueprint.spear.followOwner = true;
-
-    return blueprint;
-}
-
-WeaponBlueprint MakeSpearWeaponBlueprint() {
-    WeaponBlueprint blueprint{};
-    blueprint.name = "Investida Lanca";
-    blueprint.projectile = MakeSpearProjectileBlueprint();
-    blueprint.cooldownSeconds = 0.8f;
-    blueprint.holdToFire = false;
-    return blueprint;
-}
-
-[[maybe_unused]] const WeaponBlueprint& GetSpearWeaponBlueprint() {
-    static WeaponBlueprint blueprint = MakeSpearWeaponBlueprint();
-    return blueprint;
-}
-
-ProjectileBlueprint MakeFullCircleSwingProjectileBlueprint() {
-    ProjectileBlueprint blueprint{};
-    blueprint.kind = ProjectileKind::FullCircleSwing;
-    blueprint.common.damage = 16.0f;
-    blueprint.common.lifespanSeconds = 0.0f; // Derived from revolutions and speed
-    blueprint.common.projectilesPerShot = 1;
-    blueprint.common.randomSpreadDegrees = 0.0f;
-    blueprint.common.debugColor = Color{255, 200, 140, 255};
-    blueprint.common.spriteId = "full_circle_swing";
-
-    blueprint.fullCircle.length = 120.0f;
-    blueprint.fullCircle.thickness = 30.0f;
-    blueprint.fullCircle.revolutions = 1.5f;
-    blueprint.fullCircle.angularSpeedDegreesPerSecond = 420.0f;
-    blueprint.fullCircle.followOwner = true;
-
-    return blueprint;
-}
-
-WeaponBlueprint MakeFullCircleSwingAbilityBlueprint() {
-    WeaponBlueprint blueprint{};
-    blueprint.name = "Sword Cyclone";
-    blueprint.projectile = MakeFullCircleSwingProjectileBlueprint();
-    blueprint.cooldownSeconds = 3.0f;
-    blueprint.holdToFire = false;
-    return blueprint;
-}
-
-[[maybe_unused]] const WeaponBlueprint& GetFullCircleSwingAbilityBlueprint() {
-    static WeaponBlueprint blueprint = MakeFullCircleSwingAbilityBlueprint();
-    return blueprint;
-}
-
-ProjectileBlueprint MakeArcaneBowProjectileBlueprint() {
-    ProjectileBlueprint blueprint{};
-    blueprint.kind = ProjectileKind::Ammunition;
-    blueprint.common.damage = 9.0f;
-    blueprint.common.lifespanSeconds = 1.6f;
-    blueprint.common.projectilesPerShot = 1;
-    blueprint.common.randomSpreadDegrees = 4.0f;
-    blueprint.common.debugColor = Color{255, 240, 180, 255};
-    blueprint.common.spriteId = "arcane_bow_shot";
-    blueprint.common.displayMode = WeaponDisplayMode::AimAligned;
-    blueprint.common.displayOffset = Vector2{28.0f, -6.0f};
-    blueprint.common.displayLength = 46.0f;
-    blueprint.common.displayThickness = 8.0f;
-    blueprint.common.displayColor = Color{210, 190, 140, 255};
-    blueprint.common.displayHoldSeconds = 0.35f;
-
-    blueprint.ammunition.speed = 560.0f;
-    blueprint.ammunition.maxDistance = 860.0f;
-    blueprint.ammunition.radius = 6.0f;
-    blueprint.ammunition.muzzleOffset = 34.0f;
-
-    return blueprint;
-}
-
-WeaponBlueprint MakeArcaneBowWeaponBlueprint() {
-    WeaponBlueprint blueprint{};
-    blueprint.name = "Arco Arcano";
-    blueprint.projectile = MakeArcaneBowProjectileBlueprint();
-    blueprint.cooldownSeconds = 0.35f;
-    blueprint.holdToFire = false;
-    return blueprint;
-}
-
-[[maybe_unused]] const WeaponBlueprint& GetArcaneBowWeaponBlueprint() {
-    static WeaponBlueprint blueprint = MakeArcaneBowWeaponBlueprint();
-    return blueprint;
-}
-
-ProjectileBlueprint MakePrismaticBeamProjectileBlueprint() {
-    ProjectileBlueprint blueprint{};
-    blueprint.kind = ProjectileKind::Laser;
-    blueprint.common.damage = 4.0f;
-    blueprint.common.lifespanSeconds = 0.3f;
-    blueprint.common.projectilesPerShot = 1;
-    blueprint.common.randomSpreadDegrees = 0.0f;
-    blueprint.common.debugColor = Color{160, 240, 255, 235};
-    blueprint.common.spriteId = "prismatic_beam";
-    blueprint.common.displayMode = WeaponDisplayMode::AimAligned;
-    blueprint.common.displayOffset = Vector2{30.0f, -4.0f};
-    blueprint.common.displayLength = 52.0f;
-    blueprint.common.displayThickness = 12.0f;
-    blueprint.common.displayColor = Color{100, 200, 255, 220};
-    blueprint.common.displayHoldSeconds = 0.5f;
-
-    blueprint.laser.length = 540.0f;
-    blueprint.laser.thickness = 12.0f;
-    blueprint.laser.duration = 0.22f;
-
-    return blueprint;
-}
-
-WeaponBlueprint MakePrismaticBeamWeaponBlueprint() {
-    WeaponBlueprint blueprint{};
-    blueprint.name = "Cajado Prismático";
-    blueprint.projectile = MakePrismaticBeamProjectileBlueprint();
-    blueprint.cooldownSeconds = 0.5f;
-    blueprint.holdToFire = false;
-    return blueprint;
-}
-
-[[maybe_unused]] const WeaponBlueprint& GetPrismaticBeamWeaponBlueprint() {
-    static WeaponBlueprint blueprint = MakePrismaticBeamWeaponBlueprint();
-    return blueprint;
-}
-
 } // namespace
 
 int main() {
@@ -695,20 +514,14 @@ int main() {
     ProjectileSystem projectileSystem;
     PlayerCharacter player = CreateKnightCharacter();
     WeaponState leftHandWeapon;
-    leftHandWeapon.blueprint = &GetBroquelWeaponBlueprint();
+    leftHandWeapon.blueprint = &GetEspadaCurtaWeaponBlueprint();
     WeaponState rightHandWeapon;
-    rightHandWeapon.blueprint = &GetLongswordWeaponBlueprint();
+    rightHandWeapon.blueprint = &GetArcoSimplesWeaponBlueprint();
 
-    PlayerAttributes weaponPassiveTotals{};
-    auto accumulateWeaponPassive = [&](const WeaponState& weaponState) {
-        if (weaponState.blueprint != nullptr) {
-            weaponPassiveTotals = AddAttributes(weaponPassiveTotals, weaponState.blueprint->passiveBonuses);
-        }
-    };
-    accumulateWeaponPassive(leftHandWeapon);
-    accumulateWeaponPassive(rightHandWeapon);
-    player.weaponBonuses = weaponPassiveTotals;
-    player.RecalculateStats();
+    InventoryUIState inventoryUI;
+    InitializeInventoryUIDummyData(inventoryUI);
+
+    RefreshPlayerWeaponBonuses(player, leftHandWeapon, rightHandWeapon);
 
     leftHandWeapon.RecalculateDerivedStats(player);
     rightHandWeapon.RecalculateDerivedStats(player);
@@ -733,17 +546,34 @@ int main() {
     while (!WindowShouldClose()) {
         const float delta = GetFrameTime();
 
-    leftHandWeapon.Update(delta);
-    rightHandWeapon.Update(delta);
+        if (IsKeyPressed(KEY_TAB) || IsKeyPressed(KEY_I)) {
+            inventoryUI.open = !inventoryUI.open;
+        }
 
-    leftHandWeapon.RecalculateDerivedStats(player);
-    rightHandWeapon.RecalculateDerivedStats(player);
+        if (SyncEquippedWeapons(inventoryUI, leftHandWeapon, rightHandWeapon)) {
+            RefreshPlayerWeaponBonuses(player, leftHandWeapon, rightHandWeapon);
+        }
+
+        leftHandWeapon.Update(delta);
+        rightHandWeapon.Update(delta);
+
+        leftHandWeapon.RecalculateDerivedStats(player);
+        rightHandWeapon.RecalculateDerivedStats(player);
+
+        if (!inventoryUI.weaponSlots.empty()) {
+            inventoryUI.weaponSlots[0] = leftHandWeapon.blueprint ? leftHandWeapon.blueprint->name : "--";
+        }
+        if (inventoryUI.weaponSlots.size() >= 2) {
+            inventoryUI.weaponSlots[1] = rightHandWeapon.blueprint ? rightHandWeapon.blueprint->name : "--";
+        }
 
         Vector2 input{0.0f, 0.0f};
-        if (IsKeyDown(KEY_W)) input.y -= 1.0f;
-        if (IsKeyDown(KEY_S)) input.y += 1.0f;
-        if (IsKeyDown(KEY_A)) input.x -= 1.0f;
-        if (IsKeyDown(KEY_D)) input.x += 1.0f;
+        if (!inventoryUI.open) {
+            if (IsKeyDown(KEY_W)) input.y -= 1.0f;
+            if (IsKeyDown(KEY_S)) input.y += 1.0f;
+            if (IsKeyDown(KEY_A)) input.x -= 1.0f;
+            if (IsKeyDown(KEY_D)) input.x += 1.0f;
+        }
 
         Vector2 desiredPosition = playerPosition;
         if (Vector2LengthSqr(input) > 0.0f) {
@@ -812,18 +642,27 @@ int main() {
         spawnContext.followTarget = &playerPosition;
         spawnContext.aimDirection = aim;
 
-        if (leftHandWeapon.CanFire() && IsMouseButtonPressed(MOUSE_LEFT_BUTTON)) {
-            ProjectileBlueprint projectileConfig = leftHandWeapon.blueprint->projectile;
-            leftHandWeapon.ApplyDerivedToProjectile(projectileConfig);
-            projectileSystem.SpawnProjectile(projectileConfig, spawnContext);
-            leftHandWeapon.ResetCooldown();
-        }
+        if (!inventoryUI.open) {
+            auto weaponInputActive = [](const WeaponState& weapon, int mouseButton) {
+                if (weapon.blueprint == nullptr) {
+                    return false;
+                }
+                return weapon.blueprint->holdToFire ? IsMouseButtonDown(mouseButton) : IsMouseButtonPressed(mouseButton);
+            };
 
-        if (rightHandWeapon.CanFire() && IsMouseButtonPressed(MOUSE_RIGHT_BUTTON)) {
-            ProjectileBlueprint projectileConfig = rightHandWeapon.blueprint->projectile;
-            rightHandWeapon.ApplyDerivedToProjectile(projectileConfig);
-            projectileSystem.SpawnProjectile(projectileConfig, spawnContext);
-            rightHandWeapon.ResetCooldown();
+            if (leftHandWeapon.CanFire() && weaponInputActive(leftHandWeapon, MOUSE_LEFT_BUTTON)) {
+                ProjectileBlueprint projectileConfig = leftHandWeapon.blueprint->projectile;
+                leftHandWeapon.ApplyDerivedToProjectile(projectileConfig);
+                projectileSystem.SpawnProjectile(projectileConfig, spawnContext);
+                leftHandWeapon.ResetCooldown();
+            }
+
+            if (rightHandWeapon.CanFire() && weaponInputActive(rightHandWeapon, MOUSE_RIGHT_BUTTON)) {
+                ProjectileBlueprint projectileConfig = rightHandWeapon.blueprint->projectile;
+                rightHandWeapon.ApplyDerivedToProjectile(projectileConfig);
+                projectileSystem.SpawnProjectile(projectileConfig, spawnContext);
+                rightHandWeapon.ResetCooldown();
+            }
         }
 
         projectileSystem.Update(delta);
@@ -891,6 +730,11 @@ int main() {
         }
 
         EndMode2D();
+
+        if (inventoryUI.open) {
+            RenderInventoryUI(inventoryUI, player, leftHandWeapon, rightHandWeapon,
+                              Vector2{static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())});
+        }
 
         EndDrawing();
     }

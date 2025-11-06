@@ -1,0 +1,94 @@
+Inventario - estado dos itens (06/11/2025)
+
+Resumo geral:
+- Todos os itens abaixo estao registrados em InitializeInventoryUIDummyData.
+- Cada definicao ja possui nome, descricao curta, categoria, raridade e valor base (valor final calculado automaticamente por CalculateItemPrice).
+- Nenhum sprite/icone especifico foi ligado no inventario; os blueprints de arma usam apenas identificadores de debug.
+
+[Armas]
+ID 1 - Espada Curta
+Criado: arma rara 2 com valor base 80; blueprint associado GetLongswordWeaponBlueprint; equipada no slot 0 por padrao.
+Pendente: sprite dedicado; revisao de atributos finais da arma (usa parametros do blueprint generico).
+
+ID 2 - Machadinha
+Criado: arma rara 2, valor base 70; blueprint associado GetSpearWeaponBlueprint; presente no inventario inicial.
+Pendente: sprite/icone; ajustar parametros especificos caso a arma deva diferir do spear blueprint.
+
+ID 3 - Arco Simples
+Criado: arma rara 2, valor base 100; blueprint GetArcaneBowWeaponBlueprint; adicionada ao inventario inicial.
+Pendente: sprite/icone; validar comportamento do blueprint para um arco fisico.
+
+ID 4 - Cajado de Carvalho
+Criado: arma rara 3, valor base 100; blueprint GetPrismaticBeamWeaponBlueprint; presente no inventario inicial.
+Pendente: sprite; revisar efeitos visuais descritos no blueprint laser.
+
+ID 19 - Espada Runica
+Criado: arma rara 5, valor base 320; blueprint GetFullCircleSwingAbilityBlueprint; resultado da receita de forja (Lingote de Ferro + Pergaminho Runico).
+Pendente: sprite/icone; definir atributos unicos adicionais caso deseje diferenciar do ataque circular padrao.
+
+ID 21 - Broquel
+Criado: arma rara 3, valor base 90; blueprint GetBroquelWeaponBlueprint; incluido no inventario seed.
+Pendente: sprite/icone; avaliar se vai para slot de arma ou requer logica de escudo dedicada.
+
+[Armaduras]
+ID 5 - Escudo de Madeira
+Criado: armadura rara 2, valor base 50; aparece em slots de equipamento seed.
+Pendente: sprite/icone; bonus defensivos ainda nao aplicados em gameplay (equipar apenas ocupa o slot).
+
+ID 6 - Peitoral de Couro
+Criado: armadura rara 3, valor base 70; equipado inicialmente.
+Pendente: sprite; definir estatisticas de defesa/agilidade quando o sistema de equipamentos estiver pronto.
+
+ID 7 - Elmo Simples
+Criado: armadura rara 2, valor base 55; equipado inicialmente.
+Pendente: sprite; bonus especificos ainda nao implementados.
+
+ID 8 - Luvas Reforcadas
+Criado: armadura rara 2, valor base 40; equipado inicialmente.
+Pendente: sprite; efeitos de empunhadura nao aplicados no codigo atual.
+
+ID 9 - Botas Ageis
+Criado: armadura rara 2, valor base 45; equipado inicialmente.
+Pendente: sprite; bonus de mobilidade nao aplicado ainda.
+
+ID 10 - Amuleto Antigo
+Criado: armadura rara 4, valor base 130; equipado inicialmente.
+Pendente: sprite; efeitos magicos/passivos ainda nao definidos.
+
+ID 20 - Amuleto Radiante
+Criado: armadura rara 5, valor base 280; resultado de forja (Amuleto Antigo + Gema Brilhante).
+Pendente: sprite; definir efeitos luminosos ou passivos quando o sistema suportar.
+
+[Consumiveis]
+ID 11 - Pocao de Cura
+Criado: consumivel comum 1, valor base 25; empilhavel ate 10 unidades, aparece no inventario seed e pode ser vendido.
+Pendente: logica de uso/efeito de cura ainda nao implementada; sprite/icone.
+
+ID 12 - Pocao de Energia
+Criado: consumivel comum 1, valor base 35; empilhavel ate 10 unidades, incluido no inventario seed.
+Pendente: logica de uso para restaurar vigor ainda nao criada; sprite/icone.
+
+[Materiais]
+ID 13 - Lingote de Ferro
+Criado: material comum 1, valor base 10; empilhavel ate 99; usado na receita da Espada Runica.
+Pendente: sprite; decidir demais usos em forjas/loja.
+
+ID 14 - Gema Brilhante
+Criado: material raro 3, valor base 30; empilhavel ate 99; usado na receita do Amuleto Radiante.
+Pendente: sprite; possiveis usos adicionais.
+
+ID 15 - Pergaminho Runico
+Criado: material incomum 2, valor base 35; empilhavel ate 99; parte da receita da Espada Runica.
+Pendente: sprite; definir se tera consumo em outras mecanicas.
+
+ID 16 - Essencia Arcana
+Criado: material raro 3, valor base 25; empilhavel ate 99.
+Pendente: sprite; ainda sem receita/uso dedicado.
+
+ID 17 - Madeira Refinada
+Criado: material comum 1, valor base 5; empilhavel ate 99.
+Pendente: sprite; sem usos definidos ainda.
+
+ID 18 - Couro Tratado
+Criado: material comum 1, valor base 8; empilhavel ate 99.
+Pendente: sprite; designar receitas ou upgrades futuros.
