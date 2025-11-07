@@ -2,6 +2,7 @@
 
 #include "raylib.h"
 
+#include <cstdint>
 #include <memory>
 #include <random>
 #include <string>
@@ -36,6 +37,8 @@ struct ProjectileCommonParams {
     float delayBetweenProjectiles{0.0f};
     Color debugColor{200, 200, 255, 255};
     std::string spriteId{};
+    std::string weaponSpritePath{};
+    std::string projectileSpritePath{};
     WeaponDisplayMode displayMode{WeaponDisplayMode::Hidden};
     Vector2 displayOffset{24.0f, -8.0f};
     float displayLength{36.0f};
@@ -44,6 +47,7 @@ struct ProjectileCommonParams {
     float displayHoldSeconds{0.0f};
     float criticalChance{0.0f};
     float criticalMultiplier{1.0f};
+    float perTargetHitCooldownSeconds{0.0f};
 };
 
 struct BluntProjectileParams {
@@ -127,9 +131,13 @@ public:
     struct DamageEvent {
         float amount{0.0f};
         bool isCritical{false};
+        float suggestedImmunitySeconds{0.0f};
     };
 
-    std::vector<DamageEvent> CollectDamageEvents(const Vector2& targetCenter, float targetRadius);
+    std::vector<DamageEvent> CollectDamageEvents(const Vector2& targetCenter,
+                                                float targetRadius,
+                                                std::uintptr_t targetId = 0,
+                                                float targetImmunitySeconds = 0.0f);
 
     struct ProjectileInstance;
 

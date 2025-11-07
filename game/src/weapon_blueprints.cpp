@@ -15,13 +15,14 @@ ProjectileBlueprint MakeBroquelProjectileBlueprint() {
     ProjectileBlueprint blueprint{}; // Container with default projectile values
     blueprint.kind = ProjectileKind::Blunt; // Shield bash uses the blunt (arc) hitbox logic
     blueprint.common.damage = 10.0f; // Baseline damage in case no weapon scaling overrides it
-    blueprint.common.lifespanSeconds = 0.8f; // Hitbox persists long enough to cover the bash animation
+    blueprint.common.lifespanSeconds = 1.0f; // Hitbox persists long enough to cover the bash animation
     blueprint.common.projectileSpeed = 0.0f; // Arc stays attached to the wielder instead of travelling
     blueprint.common.projectileSize = 32.0f; // Rough radius used by generic collision helpers
     blueprint.common.projectilesPerShot = 1; // Single swing per activation
     blueprint.common.randomSpreadDegrees = 0.0f; // No spread because the arc is deterministic
     blueprint.common.debugColor = Color{210, 240, 160, 255}; // Light green tint for debugging visuals
     blueprint.common.spriteId = "broquel_projectile"; // Placeholder sprite identifier for future art
+    blueprint.common.perTargetHitCooldownSeconds = 0.5f; // Pequeno intervalo de invulnerabilidade por alvo
 
     blueprint.blunt.radius = 60.0f; // Distance from the player that the arc covers
     blueprint.blunt.travelDegrees = 0.0f; // Bash stays in place rather than sweeping around
@@ -61,6 +62,7 @@ ProjectileBlueprint MakeEspadaCurtaProjectileBlueprint() {
     blueprint.common.randomSpreadDegrees = 0.0f; // Swords do not randomize their swing angle
     blueprint.common.debugColor = Color{240, 210, 180, 255}; // Light beige for debug overlays
     blueprint.common.spriteId = "espada_curta_swing"; // Placeholder sprite name for the slash effect
+    blueprint.common.perTargetHitCooldownSeconds = 0.50f; // Cooldown por alvo para evitar multi-hits absurdos
 
     blueprint.swing.length = 110.0f; // Length from the player to the tip of the swing
     blueprint.swing.thickness = 28.0f; // Width of the arc area to hit enemies
@@ -99,6 +101,7 @@ ProjectileBlueprint MakeMachadinhaProjectileBlueprint() {
     blueprint.common.randomSpreadDegrees = 0.0f; // Thrust always follows the same angle
     blueprint.common.debugColor = Color{210, 190, 160, 255}; // Warm tone for debug visualization
     blueprint.common.spriteId = "machadinha_thrust"; // Placeholder sprite id for the thrust effect
+    blueprint.common.perTargetHitCooldownSeconds = 0.60f; // Invulnerabilidade curta apos o golpe de machadinha
 
     blueprint.spear.extendDistance = 118.0f; // Reach of the lunge from the wielder's hands
     blueprint.spear.shaftThickness = 26.0f; // Effective width of the hatchet shaft during the thrust
@@ -139,6 +142,7 @@ ProjectileBlueprint MakeEspadaRunicaProjectileBlueprint() {
     blueprint.common.randomSpreadDegrees = 0.0f; // Spin always follows the same trajectory
     blueprint.common.debugColor = Color{255, 200, 140, 255}; // Amber tone for debug visuals
     blueprint.common.spriteId = "espada_runica_spin"; // Placeholder sprite for the rune spin effect
+    blueprint.common.perTargetHitCooldownSeconds = 0.7f; // Permite multihits com janela controlada
 
     blueprint.fullCircle.length = 130.0f; // Spin reaches slightly further than a typical sword
     blueprint.fullCircle.thickness = 34.0f; // Wide arc to cover the entire spin radius
@@ -228,11 +232,14 @@ ProjectileBlueprint MakeCajadoDeCarvalhoProjectileBlueprint() {
     blueprint.common.displayThickness = 12.0f; // Visual thickness for rendering the staff
     blueprint.common.displayColor = Color{100, 200, 255, 220}; // Tint used during sprite rendering
     blueprint.common.displayHoldSeconds = 0.5f; // How long the staff stays lit after firing
+    blueprint.common.perTargetHitCooldownSeconds = 0.08f; // Tique rapido do laser antes de poder aplicar de novo
+    blueprint.common.weaponSpritePath = "assets/img/weapons/Cajado_de_Carvalho.png"; // Caminho do sprite da arma
+    blueprint.common.projectileSpritePath = "assets/img/projectiles/laser_body.png"; // Caminho do sprite do feixe
 
     blueprint.laser.length = 540.0f; // Maximum reach of the beam in world units
     blueprint.laser.thickness = 12.0f; // Collision thickness of the beam
     blueprint.laser.duration = 0.22f; // Time the laser stays active per activation
-    blueprint.laser.startOffset = 20.0f; // Spawn beam slightly ahead of the staff tip so art is visible
+    blueprint.laser.startOffset = 10.0f; // Spawn beam slightly ahead of the staff tip so art is visible
     blueprint.laser.fadeOutDuration = 0.16f; // Tempo usado pelo fade-out; ajuste para acelerar ou desacelerar o sumiço
     blueprint.laser.staffHoldExtraSeconds = 0.75f; // Quanto tempo extra o cajado permanece desenhado apos o feixe
 
@@ -243,10 +250,11 @@ WeaponBlueprint MakeCajadoDeCarvalhoWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Blueprint defining the nature staff behaviour
     blueprint.name = "Cajado de Carvalho"; // UI-facing name
     blueprint.projectile = MakeCajadoDeCarvalhoProjectileBlueprint(); // Uses the beam projectile above
-    blueprint.cooldownSeconds = 0.3f; // Base delay between beam pulses before cadence modifiers
+    blueprint.cooldownSeconds = 0.2f; // Base delay between beam pulses before cadence modifiers
     blueprint.holdToFire = true; // Each pulse needs a tap; hold-to-channel can be added later
+    blueprint.usesSeparateProjectileSprite = true; // Arma e projetil possuem sprites distintos
     blueprint.attributeKey = WeaponAttributeKey::Knowledge; // Damage scales with Knowledge for casters
-    blueprint.damage.baseDamage = 7.5f; // Base damage per beam tick
+    blueprint.damage.baseDamage = 2.0f; // Base damage per beam tick
     blueprint.damage.attributeScaling = 1.9f; // Strong scaling to emphasize spellcasting stats
     blueprint.cadence.baseAttacksPerSecond = 1.6f; // Moderate fire rate suitable for a staff
     blueprint.cadence.dexterityGainPerPoint = 0.08f; // Dexterity slightly speeds up pulses

@@ -134,6 +134,8 @@ struct TrainingDummy {
     Vector2 position{};
     float radius{48.0f};
     RoomCoords homeRoom{};
+    bool isImmune{false};
+    float immunitySecondsRemaining{0.0f};
 };
 
 std::uint64_t GenerateWorldSeed() {
@@ -654,22 +656,37 @@ int main() {
                 ProjectileBlueprint projectileConfig = leftHandWeapon.blueprint->projectile;
                 leftHandWeapon.ApplyDerivedToProjectile(projectileConfig);
                 projectileSystem.SpawnProjectile(projectileConfig, spawnContext);
-                leftHandWeapon.ResetCooldown();
+                float appliedCooldown = leftHandWeapon.ResetCooldown();
+                rightHandWeapon.EnforceMinimumCooldown(appliedCooldown);
             }
 
             if (rightHandWeapon.CanFire() && weaponInputActive(rightHandWeapon, MOUSE_RIGHT_BUTTON)) {
                 ProjectileBlueprint projectileConfig = rightHandWeapon.blueprint->projectile;
                 rightHandWeapon.ApplyDerivedToProjectile(projectileConfig);
                 projectileSystem.SpawnProjectile(projectileConfig, spawnContext);
-                rightHandWeapon.ResetCooldown();
+                float appliedCooldown = rightHandWeapon.ResetCooldown();
+                leftHandWeapon.EnforceMinimumCooldown(appliedCooldown);
             }
         }
 
         projectileSystem.Update(delta);
 
+        if (trainingDummy.isImmune) {
+            trainingDummy.immunitySecondsRemaining -= delta;
+            if (trainingDummy.immunitySecondsRemaining <= 0.0f) {
+                trainingDummy.immunitySecondsRemaining = 0.0f;
+                trainingDummy.isImmune = false;
+            }
+        }
+
         bool dummyActive = (roomManager.GetCurrentCoords() == trainingDummy.homeRoom);
         if (dummyActive) {
-            std::vector<ProjectileSystem::DamageEvent> damageEvents = projectileSystem.CollectDamageEvents(trainingDummy.position, trainingDummy.radius);
+            float dummyImmunity = trainingDummy.isImmune ? trainingDummy.immunitySecondsRemaining : 0.0f;
+            std::vector<ProjectileSystem::DamageEvent> damageEvents = projectileSystem.CollectDamageEvents(
+                trainingDummy.position,
+                trainingDummy.radius,
+                reinterpret_cast<std::uintptr_t>(&trainingDummy),
+                dummyImmunity);
             for (const auto& event : damageEvents) {
                 DamageNumber number{};
                 number.amount = event.amount;
@@ -682,6 +699,10 @@ int main() {
                     trainingDummy.position.y - trainingDummy.radius + static_cast<float>(jitterY)
                 };
                 damageNumbers.push_back(number);
+
+                trainingDummy.immunitySecondsRemaining = std::max(trainingDummy.immunitySecondsRemaining,
+                                                                   event.suggestedImmunitySeconds);
+                trainingDummy.isImmune = trainingDummy.immunitySecondsRemaining > 0.0f;
             }
         }
 

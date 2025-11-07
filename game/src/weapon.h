@@ -28,6 +28,7 @@ struct WeaponBlueprint {
     ProjectileBlueprint projectile{};
     float cooldownSeconds{0.3f};
     bool holdToFire{false};
+    bool usesSeparateProjectileSprite{false};
     WeaponAttributeKey attributeKey{WeaponAttributeKey::Strength};
     WeaponDamageParams damage{};
     WeaponCadenceParams cadence{};
@@ -93,13 +94,27 @@ struct WeaponState {
         return blueprint != nullptr && cooldownTimer <= 0.0f;
     }
 
-    void ResetCooldown() {
+    float ResetCooldown() {
         if (blueprint == nullptr) {
+            return 0.0f;
+        }
+
+        float interval = (derived.attackIntervalSeconds > 0.0f)
+            ? derived.attackIntervalSeconds
+            : blueprint->cooldownSeconds;
+        interval = std::max(0.0f, interval);
+        cooldownTimer = interval;
+        return interval;
+    }
+
+    void EnforceMinimumCooldown(float seconds) {
+        if (blueprint == nullptr || seconds <= 0.0f) {
             return;
         }
 
-        float interval = (derived.attackIntervalSeconds > 0.0f) ? derived.attackIntervalSeconds : blueprint->cooldownSeconds;
-        cooldownTimer = std::max(0.0f, interval);
+        if (cooldownTimer < seconds) {
+            cooldownTimer = seconds;
+        }
     }
 
     void ApplyDerivedToProjectile(ProjectileBlueprint& projectile) const {
