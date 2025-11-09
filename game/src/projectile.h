@@ -15,8 +15,7 @@ enum class ProjectileKind {
     Swing,
     Spear,
     FullCircleSwing,
-    Ammunition,
-    Laser
+    Ranged
 };
 
 enum class WeaponDisplayMode {
@@ -39,6 +38,8 @@ struct ProjectileCommonParams {
     std::string spriteId{};
     std::string weaponSpritePath{};
     std::string projectileSpritePath{};
+    float projectileRotationOffsetDegrees{0.0f};
+    float projectileForwardOffset{0.0f};
     WeaponDisplayMode displayMode{WeaponDisplayMode::Hidden};
     Vector2 displayOffset{24.0f, -8.0f};
     float displayLength{36.0f};
@@ -52,8 +53,8 @@ struct ProjectileCommonParams {
 
 struct BluntProjectileParams {
     float radius{48.0f};
-    float travelDegrees{140.0f};
-    float arcSpanDegrees{60.0f};
+    float travelDegrees{0.0f};
+    float length{48.0f};
     float thickness{20.0f};
     bool followOwner{true};
 };
@@ -66,12 +67,14 @@ struct SwingProjectileParams {
 };
 
 struct SpearProjectileParams {
-    float extendDistance{140.0f};
-    float shaftThickness{14.0f};
-    float tipLength{22.0f};
-    float extendDuration{0.25f};
-    float retractDuration{0.25f};
+    float length{96.0f};
+    float thickness{16.0f};
+    float reach{96.0f};
+    float extendDuration{0.2f};
+    float idleTime{0.0f};
+    float retractDuration{0.2f};
     bool followOwner{true};
+    Vector2 offset{0.0f, 0.0f};
 };
 
 struct FullCircleSwingParams {
@@ -86,7 +89,6 @@ struct AmmunitionProjectileParams {
     float speed{420.0f};
     float maxDistance{480.0f};
     float radius{6.0f};
-    float muzzleOffset{24.0f};
 };
 
 struct LaserProjectileParams {
@@ -98,6 +100,19 @@ struct LaserProjectileParams {
     float staffHoldExtraSeconds{0.35f};
 };
 
+enum class ThrownProjectileKind {
+    Ammunition,
+    Laser
+};
+
+struct ThrownProjectileBlueprint {
+    ThrownProjectileKind kind{ThrownProjectileKind::Ammunition};
+    ProjectileCommonParams common{};
+    AmmunitionProjectileParams ammunition{};
+    LaserProjectileParams laser{};
+    bool followOwner{false};
+};
+
 struct ProjectileBlueprint {
     ProjectileKind kind{ProjectileKind::Blunt};
     ProjectileCommonParams common{};
@@ -105,8 +120,8 @@ struct ProjectileBlueprint {
     SwingProjectileParams swing{};
     SpearProjectileParams spear{};
     FullCircleSwingParams fullCircle{};
-    AmmunitionProjectileParams ammunition{};
-    LaserProjectileParams laser{};
+    float thrownSpawnForwardOffset{0.0f};
+    std::vector<ThrownProjectileBlueprint> thrownProjectiles{};
 };
 
 struct ProjectileSpawnContext {
@@ -122,7 +137,6 @@ public:
 
     ProjectileSystem(const ProjectileSystem&) = delete;
     ProjectileSystem& operator=(const ProjectileSystem&) = delete;
-
     void Update(float deltaSeconds);
     void Draw() const;
 

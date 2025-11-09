@@ -26,8 +26,19 @@ namespace {
 
 constexpr int SCREEN_WIDTH = 1920;
 constexpr int SCREEN_HEIGHT = 1080;
-constexpr float PLAYER_HALF_SIZE = 18.0f;
-constexpr float PLAYER_RENDER_HALF_SIZE = PLAYER_HALF_SIZE - 3.0f;
+constexpr float PLAYER_HALF_WIDTH = 20.0f;
+constexpr float PLAYER_HALF_HEIGHT = 16.0f;
+constexpr float PLAYER_RENDER_HALF_WIDTH = PLAYER_HALF_WIDTH - 3.0f;
+constexpr float PLAYER_RENDER_HALF_HEIGHT = PLAYER_HALF_HEIGHT - 3.0f;
+
+struct CharacterSpriteResources {
+    Texture2D idle{};
+    Texture2D walking{};
+    CharacterAnimationClip clip{};
+    int frameCount{0};
+    float animationTimer{0.0f};
+    int currentFrame{0};
+};
 
 struct DamageNumber {
     Vector2 position{};
@@ -81,6 +92,141 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
         Vector2 drawPos{number.position.x - measure.x * 0.5f, number.position.y - measure.y};
         DrawTextEx(font, text.c_str(), drawPos, fontSize, 0.0f, baseColor);
     }
+}
+
+Texture2D LoadTextureIfExists(const std::string& path) {
+    if (path.empty()) {
+        return Texture2D{};
+    }
+
+    if (!FileExists(path.c_str())) {
+        std::cerr << "[Character] Sprite nao encontrado: " << path << std::endl;
+        return Texture2D{};
+    }
+
+    Texture2D texture = LoadTexture(path.c_str());
+    if (texture.id != 0) {
+        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    }
+    return texture;
+}
+
+void UnloadTextureIfValid(Texture2D& texture) {
+    if (texture.id != 0) {
+        UnloadTexture(texture);
+        texture = Texture2D{};
+    }
+}
+
+void UnloadCharacterSprites(CharacterSpriteResources& resources) {
+    UnloadTextureIfValid(resources.idle);
+    UnloadTextureIfValid(resources.walking);
+    resources.frameCount = 0;
+    resources.animationTimer = 0.0f;
+    resources.currentFrame = 0;
+}
+
+void LoadCharacterSprites(const CharacterAppearanceBlueprint& appearance, CharacterSpriteResources& outResources) {
+    UnloadCharacterSprites(outResources);
+
+    outResources.idle = LoadTextureIfExists(appearance.idleSpritePath);
+    outResources.walking = LoadTextureIfExists(appearance.walking.spriteSheetPath);
+    outResources.clip = appearance.walking;
+
+    if (outResources.walking.id != 0) {
+        if (outResources.clip.frameWidth <= 0) {
+            outResources.clip.frameWidth = outResources.walking.width;
+        }
+        if (outResources.clip.frameHeight <= 0) {
+            if (appearance.walking.verticalLayout) {
+                outResources.clip.frameHeight = (appearance.walking.frameCount > 0)
+                    ? outResources.walking.height / appearance.walking.frameCount
+                    : outResources.walking.height;
+            } else {
+                outResources.clip.frameHeight = outResources.walking.height;
+            }
+        }
+
+        if (outResources.clip.verticalLayout) {
+            if (outResources.clip.frameHeight > 0) {
+                outResources.frameCount = outResources.walking.height / outResources.clip.frameHeight;
+            }
+        } else {
+            if (outResources.clip.frameWidth > 0) {
+                outResources.frameCount = outResources.walking.width / outResources.clip.frameWidth;
+            }
+        }
+    }
+
+    if (outResources.frameCount <= 0) {
+        outResources.frameCount = std::max(appearance.walking.frameCount, 1);
+    }
+}
+
+void UpdateCharacterAnimation(CharacterSpriteResources& resources, bool isMoving, float deltaSeconds) {
+    if (resources.walking.id == 0 || resources.frameCount <= 1) {
+        resources.currentFrame = 0;
+        resources.animationTimer = 0.0f;
+        return;
+    }
+
+    if (!isMoving) {
+        resources.currentFrame = 0;
+        resources.animationTimer = 0.0f;
+        return;
+    }
+
+    float frameDuration = (resources.clip.secondsPerFrame > 0.0f) ? resources.clip.secondsPerFrame : 0.12f;
+    resources.animationTimer += deltaSeconds;
+
+    while (resources.animationTimer >= frameDuration) {
+        resources.animationTimer -= frameDuration;
+        resources.currentFrame = (resources.currentFrame + 1) % std::max(resources.frameCount, 1);
+    }
+}
+
+bool DrawCharacterSprite(const CharacterSpriteResources& resources,
+                         Vector2 anchorPosition,
+                         bool isMoving) {
+    const Texture2D* texture = nullptr;
+    Rectangle src{0.0f, 0.0f, 0.0f, 0.0f};
+    float spriteWidth = 0.0f;
+    float spriteHeight = 0.0f;
+
+    if (isMoving && resources.walking.id != 0 && resources.frameCount > 0) {
+        texture = &resources.walking;
+        spriteWidth = static_cast<float>((resources.clip.frameWidth > 0) ? resources.clip.frameWidth : resources.walking.width);
+        spriteHeight = static_cast<float>((resources.clip.frameHeight > 0) ? resources.clip.frameHeight : resources.walking.height);
+        src.width = spriteWidth;
+        src.height = spriteHeight;
+
+        if (resources.clip.verticalLayout) {
+            src.y = spriteHeight * static_cast<float>(resources.currentFrame % resources.frameCount);
+        } else {
+            src.x = spriteWidth * static_cast<float>(resources.currentFrame % resources.frameCount);
+        }
+    } else if (resources.idle.id != 0) {
+        texture = &resources.idle;
+        spriteWidth = static_cast<float>(resources.idle.width);
+        spriteHeight = static_cast<float>(resources.idle.height);
+        src.width = spriteWidth;
+        src.height = spriteHeight;
+    }
+
+    if (texture == nullptr || texture->id == 0 || spriteWidth <= 0.0f || spriteHeight <= 0.0f) {
+        return false;
+    }
+
+    float bottomY = anchorPosition.y + PLAYER_HALF_HEIGHT;
+    Rectangle dest{
+        anchorPosition.x - spriteWidth * 0.5f,
+        bottomY - spriteHeight,
+        spriteWidth,
+        spriteHeight
+    };
+
+    DrawTexturePro(*texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, WHITE);
+    return true;
 }
 
 PlayerAttributes GatherWeaponPassiveBonuses(const WeaponState& leftWeapon,
@@ -200,10 +346,10 @@ Rectangle DoorRectInsideRoom(const RoomLayout& layout, const Doorway& door) {
 
 Rectangle PlayerBounds(const Vector2& center) {
     return Rectangle{
-        center.x - PLAYER_HALF_SIZE,
-        center.y - PLAYER_HALF_SIZE,
-        PLAYER_HALF_SIZE * 2.0f,
-        PLAYER_HALF_SIZE * 2.0f
+        center.x - PLAYER_HALF_WIDTH,
+        center.y - PLAYER_HALF_HEIGHT,
+        PLAYER_HALF_WIDTH * 2.0f,
+        PLAYER_HALF_HEIGHT * 2.0f
     };
 }
 
@@ -234,26 +380,34 @@ bool IsInputMovingToward(Direction direction, const Vector2& input) {
     return false;
 }
 
-bool IsSquareInsideRect(const Rectangle& rect, const Vector2& position, float halfSize, float tolerance = 0.0f) {
+bool IsBoxInsideRect(const Rectangle& rect,
+                     const Vector2& position,
+                     float halfWidth,
+                     float halfHeight,
+                     float tolerance = 0.0f) {
     if (rect.width <= 0.0f || rect.height <= 0.0f) {
         return false;
     }
-    const float minX = rect.x + halfSize - tolerance;
-    const float maxX = rect.x + rect.width - halfSize + tolerance;
-    const float minY = rect.y + halfSize - tolerance;
-    const float maxY = rect.y + rect.height - halfSize + tolerance;
+    const float minX = rect.x + halfWidth - tolerance;
+    const float maxX = rect.x + rect.width - halfWidth + tolerance;
+    const float minY = rect.y + halfHeight - tolerance;
+    const float maxY = rect.y + rect.height - halfHeight + tolerance;
     return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
 }
 
-Vector2 ClampSquareToRect(const Rectangle& rect, const Vector2& position, float halfSize, float tolerance = 0.0f) {
+Vector2 ClampBoxToRect(const Rectangle& rect,
+                       const Vector2& position,
+                       float halfWidth,
+                       float halfHeight,
+                       float tolerance = 0.0f) {
     if (rect.width <= 0.0f || rect.height <= 0.0f) {
         return position;
     }
 
-    float minX = rect.x + halfSize - tolerance;
-    float maxX = rect.x + rect.width - halfSize + tolerance;
-    float minY = rect.y + halfSize - tolerance;
-    float maxY = rect.y + rect.height - halfSize + tolerance;
+    float minX = rect.x + halfWidth - tolerance;
+    float maxX = rect.x + rect.width - halfWidth + tolerance;
+    float minY = rect.y + halfHeight - tolerance;
+    float maxY = rect.y + rect.height - halfHeight + tolerance;
 
     if (minX > maxX) {
         float midX = rect.x + rect.width * 0.5f;
@@ -270,8 +424,11 @@ Vector2 ClampSquareToRect(const Rectangle& rect, const Vector2& position, float 
     return clamped;
 }
 
-void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLayout& layout) {
-    constexpr float tolerance = 4.0f;
+void ClampPlayerToAccessibleArea(Vector2& position,
+                                 float halfWidth,
+                                 float halfHeight,
+                                 const RoomLayout& layout) {
+    constexpr float tolerance = 0.0f;
 
     Rectangle floor = TileRectToPixels(layout.tileBounds);
 
@@ -319,13 +476,13 @@ void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLa
         }
     }
 
-    if (IsSquareInsideRect(floor, position, halfSize, tolerance)) {
+    if (IsBoxInsideRect(floor, position, halfWidth, halfHeight, tolerance)) {
         return;
     }
 
     auto isInsideRegion = [&](const AccessibleRegion& region) {
         if (!region.isCorridor) {
-            return IsSquareInsideRect(region.detectRect, position, halfSize, tolerance);
+            return IsBoxInsideRect(region.detectRect, position, halfWidth, halfHeight, tolerance);
         }
 
         const Rectangle& rect = region.detectRect;
@@ -334,17 +491,17 @@ void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLa
         }
 
         if (region.direction == Direction::North || region.direction == Direction::South) {
-            float minCenterX = rect.x + halfSize - tolerance;
-            float maxCenterX = rect.x + rect.width - halfSize + tolerance;
-            float minCenterY = rect.y - halfSize - tolerance;
-            float maxCenterY = rect.y + rect.height + halfSize + tolerance;
+            float minCenterX = rect.x + halfWidth - tolerance;
+            float maxCenterX = rect.x + rect.width - halfWidth + tolerance;
+            float minCenterY = rect.y - halfHeight - tolerance;
+            float maxCenterY = rect.y + rect.height + halfHeight + tolerance;
             return position.x >= minCenterX && position.x <= maxCenterX && position.y >= minCenterY && position.y <= maxCenterY;
         }
 
-        float minCenterY = rect.y + halfSize - tolerance;
-        float maxCenterY = rect.y + rect.height - halfSize + tolerance;
-        float minCenterX = rect.x - halfSize - tolerance;
-        float maxCenterX = rect.x + rect.width + halfSize + tolerance;
+        float minCenterY = rect.y + halfHeight - tolerance;
+        float maxCenterY = rect.y + rect.height - halfHeight + tolerance;
+        float minCenterX = rect.x - halfWidth - tolerance;
+        float maxCenterX = rect.x + rect.width + halfWidth + tolerance;
         return position.y >= minCenterY && position.y <= maxCenterY && position.x >= minCenterX && position.x <= maxCenterX;
     };
 
@@ -370,10 +527,10 @@ void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLa
             return std::nullopt;
         }
 
-        float minX = rect.x + halfSize - tolerance;
-        float maxX = rect.x + rect.width - halfSize + tolerance;
-        float minY = rect.y + halfSize - tolerance;
-        float maxY = rect.y + rect.height - halfSize + tolerance;
+    float minX = rect.x + halfWidth - tolerance;
+    float maxX = rect.x + rect.width - halfWidth + tolerance;
+    float minY = rect.y + halfHeight - tolerance;
+    float maxY = rect.y + rect.height - halfHeight + tolerance;
 
         Vector2 clamped = position;
 
@@ -419,7 +576,7 @@ void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLa
             if (rect.width <= 0.0f || rect.height <= 0.0f) {
                 return;
             }
-            candidate = ClampSquareToRect(rect, position, halfSize, tolerance);
+            candidate = ClampBoxToRect(rect, position, halfWidth, halfHeight, tolerance);
         } else {
             std::optional<Vector2> corridorClamp = clampWithinCorridor(region);
             if (!corridorClamp.has_value()) {
@@ -440,7 +597,7 @@ void ClampPlayerToAccessibleArea(Vector2& position, float halfSize, const RoomLa
         consider(region);
     }
 
-    Vector2 floorClamp = ClampSquareToRect(floor, position, halfSize, tolerance);
+    Vector2 floorClamp = ClampBoxToRect(floor, position, halfWidth, halfHeight, tolerance);
     float floorDistSq = Vector2DistanceSqr(position, floorClamp);
     if (!foundCandidate || floorDistSq < bestDistanceSq) {
         bestPosition = floorClamp;
@@ -454,8 +611,9 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
 
     const Rectangle corridor = TileRectToPixels(door.corridorTiles);
     if (corridor.width > 0.0f && corridor.height > 0.0f) {
-    constexpr float kLateralTolerance = 8.0f;
-        constexpr float kForwardDepth = PLAYER_HALF_SIZE - 4.0f;
+        constexpr float kLateralTolerance = 8.0f;
+        constexpr float kForwardDepthVertical = PLAYER_HALF_HEIGHT - 4.0f;
+        constexpr float kForwardDepthHorizontal = PLAYER_HALF_WIDTH - 4.0f;
         const float corridorLeft = corridor.x;
         const float corridorRight = corridor.x + corridor.width;
         const float corridorTop = corridor.y;
@@ -474,7 +632,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
                 if (playerRight < corridorLeft - kLateralTolerance || playerLeft > corridorRight + kLateralTolerance) {
                     return false;
                 }
-                return playerTop <= (corridorBottom - kForwardDepth);
+                return playerTop <= (corridorBottom - kForwardDepthVertical);
             case Direction::South:
                 if (movement.y <= kForwardEpsilon) {
                     return false;
@@ -482,7 +640,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
                 if (playerRight < corridorLeft - kLateralTolerance || playerLeft > corridorRight + kLateralTolerance) {
                     return false;
                 }
-                return playerBottom >= (corridorTop + kForwardDepth);
+                return playerBottom >= (corridorTop + kForwardDepthVertical);
             case Direction::East:
                 if (movement.x <= kForwardEpsilon) {
                     return false;
@@ -490,7 +648,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
                 if (playerBottom < corridorTop - kLateralTolerance || playerTop > corridorBottom + kLateralTolerance) {
                     return false;
                 }
-                return playerRight >= (corridorLeft + kForwardDepth);
+                return playerRight >= (corridorLeft + kForwardDepthHorizontal);
             case Direction::West:
                 if (movement.x >= -kForwardEpsilon) {
                     return false;
@@ -498,7 +656,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
                 if (playerBottom < corridorTop - kLateralTolerance || playerTop > corridorBottom + kLateralTolerance) {
                     return false;
                 }
-                return playerLeft <= (corridorRight - kForwardDepth);
+                return playerLeft <= (corridorRight - kForwardDepthHorizontal);
         }
     }
 
@@ -515,6 +673,8 @@ int main() {
     RoomRenderer roomRenderer;
     ProjectileSystem projectileSystem;
     PlayerCharacter player = CreateKnightCharacter();
+    CharacterSpriteResources playerSprites{};
+    LoadCharacterSprites(player.appearance, playerSprites);
     WeaponState leftHandWeapon;
     leftHandWeapon.blueprint = &GetEspadaCurtaWeaponBlueprint();
     WeaponState rightHandWeapon;
@@ -544,6 +704,8 @@ int main() {
     camera.offset = Vector2{SCREEN_WIDTH * 0.5f, SCREEN_HEIGHT * 0.5f};
     camera.target = playerPosition;
     camera.zoom = 1.0f;
+
+    bool playerIsMoving = false;
 
     while (!WindowShouldClose()) {
         const float delta = GetFrameTime();
@@ -584,7 +746,7 @@ int main() {
         }
 
         Room& activeRoom = roomManager.GetCurrentRoom();
-        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_SIZE, activeRoom.Layout());
+        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, activeRoom.Layout());
 
         Vector2 movementDelta = Vector2Subtract(desiredPosition, playerPosition);
 
@@ -627,8 +789,12 @@ int main() {
             roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
         }
 
-        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_SIZE, currentRoomPtr->Layout());
+        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, currentRoomPtr->Layout());
+        movementDelta = Vector2Subtract(desiredPosition, playerPosition);
         playerPosition = desiredPosition;
+        playerIsMoving = Vector2LengthSqr(movementDelta) > 1.0f;
+
+        UpdateCharacterAnimation(playerSprites, playerIsMoving, delta);
 
         camera.target = playerPosition;
 
@@ -729,20 +895,22 @@ int main() {
             DrawTextEx(GetFontDefault(), label, labelPos, labelSize, 0.0f, Color{210, 220, 240, 220});
         }
 
+        if (!DrawCharacterSprite(playerSprites, playerPosition, playerIsMoving)) {
+            Rectangle renderRect{
+                playerPosition.x - PLAYER_RENDER_HALF_WIDTH,
+                playerPosition.y - PLAYER_RENDER_HALF_HEIGHT,
+                PLAYER_RENDER_HALF_WIDTH * 2.0f,
+                PLAYER_RENDER_HALF_HEIGHT * 2.0f
+            };
+            DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
+            DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
+        }
+
         projectileSystem.Draw();
 
         if (!damageNumbers.empty()) {
             DrawDamageNumbers(damageNumbers);
         }
-
-        Rectangle renderRect{
-            playerPosition.x - PLAYER_RENDER_HALF_SIZE,
-            playerPosition.y - PLAYER_RENDER_HALF_SIZE,
-            PLAYER_RENDER_HALF_SIZE * 2.0f,
-            PLAYER_RENDER_HALF_SIZE * 2.0f
-        };
-        DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
-        DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
 
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
@@ -760,6 +928,7 @@ int main() {
         EndDrawing();
     }
 
+    UnloadCharacterSprites(playerSprites);
     CloseWindow();
     return 0;
 }  

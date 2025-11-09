@@ -23,6 +23,13 @@ struct WeaponCriticalParams {
     float multiplier{1.0f};
 };
 
+struct WeaponInventorySprite {
+    std::string spritePath{};
+    Vector2 drawSize{56.0f, 56.0f};
+    Vector2 drawOffset{0.0f, 0.0f};
+    float rotationDegrees{0.0f};
+};
+
 struct WeaponBlueprint {
     std::string name{};
     ProjectileBlueprint projectile{};
@@ -34,6 +41,7 @@ struct WeaponBlueprint {
     WeaponCadenceParams cadence{};
     WeaponCriticalParams critical{};
     PlayerAttributes passiveBonuses{};
+    WeaponInventorySprite inventorySprite{};
 };
 
 struct WeaponDerivedStats {
@@ -123,5 +131,13 @@ struct WeaponState {
         }
         projectile.common.criticalChance = derived.criticalChance;
         projectile.common.criticalMultiplier = derived.criticalMultiplier;
+
+        for (auto& thrown : projectile.thrownProjectiles) {
+            if (derived.damagePerShot > 0.0f) {
+                thrown.common.damage = derived.damagePerShot;
+            }
+            thrown.common.criticalChance = derived.criticalChance;
+            thrown.common.criticalMultiplier = derived.criticalMultiplier;
+        }
     }
 };

@@ -7,9 +7,11 @@
 
 #include <algorithm>
 #include <cmath>
+#include <functional>
 #include <iomanip>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 
 namespace {
 
@@ -35,6 +37,72 @@ constexpr int kConsumableShopMaxStock = 7;
 constexpr int kConsumableMaxStack = 10;
 constexpr int kMaterialMaxStack = 99;
 
+struct InventorySpriteCacheEntry {
+    Texture2D texture{};
+    bool attemptedLoad{false};
+};
+
+std::unordered_map<std::string, InventorySpriteCacheEntry> g_inventorySpriteCache{};
+
+Texture2D LoadInventorySpriteIfAvailable(const std::string& path) {
+    if (path.empty()) {
+        return Texture2D{};
+    }
+
+    if (!FileExists(path.c_str())) {
+        return Texture2D{};
+    }
+
+    Texture2D texture = LoadTexture(path.c_str());
+    if (texture.id != 0) {
+        SetTextureFilter(texture, TEXTURE_FILTER_POINT);
+    }
+    return texture;
+}
+
+Texture2D AcquireInventorySpriteTexture(const std::string& path) {
+    if (path.empty()) {
+        return Texture2D{};
+    }
+
+    auto& entry = g_inventorySpriteCache[path];
+    if (!entry.attemptedLoad) {
+        entry.attemptedLoad = true;
+        entry.texture = LoadInventorySpriteIfAvailable(path);
+    }
+    return entry.texture;
+}
+
+bool DrawWeaponInventorySprite(const WeaponBlueprint& blueprint, const Rectangle& rect) {
+    const WeaponInventorySprite& sprite = blueprint.inventorySprite;
+    if (sprite.spritePath.empty()) {
+        return false;
+    }
+
+    Texture2D texture = AcquireInventorySpriteTexture(sprite.spritePath);
+    if (texture.id == 0) {
+        return false;
+    }
+
+    Vector2 size = sprite.drawSize;
+    if (size.x <= 0.0f) {
+        size.x = static_cast<float>(texture.width);
+    }
+    if (size.y <= 0.0f) {
+        size.y = static_cast<float>(texture.height);
+    }
+
+    Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
+    Vector2 center{
+        rect.x + rect.width * 0.5f + sprite.drawOffset.x,
+        rect.y + rect.height * 0.5f + sprite.drawOffset.y
+    };
+    Rectangle dest{center.x, center.y, size.x, size.y};
+    Vector2 origin{size.x * 0.5f, size.y * 0.5f};
+    DrawTexturePro(texture, src, dest, origin, sprite.rotationDegrees, WHITE);
+    return true;
+}
+
 void ShowMessage(InventoryUIState& state, const std::string& text) {
     state.feedbackMessage = text;
     state.feedbackTimer = kFeedbackDuration;
@@ -58,138 +126,457 @@ std::string FormatFloat(float value, int decimals) {
     return oss.str();
 }
 
-const char* WeaponAttributeLabel(WeaponAttributeKey key) {
+constexpr float kParagraphSpacing = 6.0f;
+
+constexpr const char* kIconPower = "[POD]";
+constexpr const char* kIconStrength = "[FOR]";
+constexpr const char* kIconDexterity = "[DES]";
+constexpr const char* kIconLethality = "[LET]";
+constexpr const char* kIconConstitution = "[CON]";
+constexpr const char* kIconFocus = "[FOC]";
+constexpr const char* kIconMysticism = "[MYS]";
+constexpr const char* kIconKnowledge = "[SAB]";
+constexpr const char* kIconDefense = "[DEF]";
+constexpr const char* kIconVigor = "[VIG]";
+constexpr const char* kIconSpeed = "[VEL]";
+constexpr const char* kIconIntelligence = "[INT]";
+constexpr const char* kIconVampirism = "[VAM]";
+constexpr const char* kIconDodge = "[DESV]";
+constexpr const char* kIconRange = "[ALC]";
+constexpr const char* kIconLuck = "[SOR]";
+constexpr const char* kIconCurse = "[MAL]";
+
+std::string WeaponAttributeIcon(WeaponAttributeKey key) {
     switch (key) {
         case WeaponAttributeKey::Constitution:
-            return "Constituicao";
+            return kIconConstitution;
         case WeaponAttributeKey::Strength:
-            return "Forca";
+            return kIconStrength;
         case WeaponAttributeKey::Focus:
-            return "Foco";
+            return kIconFocus;
         case WeaponAttributeKey::Mysticism:
-            return "Misticismo";
+            return kIconMysticism;
         case WeaponAttributeKey::Knowledge:
-            return "Conhecimento";
+            return kIconKnowledge;
     }
-    return "Atributo";
+    return "[ATR]";
 }
 
-std::string FormatPassiveBonuses(const PlayerAttributes& bonuses) {
-    std::ostringstream oss;
-    int appended = 0;
-
-    auto appendInt = [&](int value, const char* label) {
-        if (value == 0) {
-            return;
-        }
-        if (appended == 0) {
-            oss << "Passivos:\n";
-        }
-        oss << "- " << label << " " << (value > 0 ? "+" : "") << value << "\n";
-        ++appended;
-    };
-
-    auto appendFloat = [&](float value, const char* label, int decimals) {
-        if (std::fabs(value) < 1e-4f) {
-            return;
-        }
-        if (appended == 0) {
-            oss << "Passivos:\n";
-        }
-        oss << "- " << label << " " << (value > 0.0f ? "+" : "") << FormatFloat(value, decimals) << "\n";
-        ++appended;
-    };
-
-    appendInt(bonuses.primary.poder, "Poder");
-    appendInt(bonuses.primary.defesa, "Defesa");
-    appendInt(bonuses.primary.vigor, "Vigor");
-    appendInt(bonuses.primary.velocidade, "Velocidade");
-    appendInt(bonuses.primary.destreza, "Destreza");
-    appendInt(bonuses.primary.inteligencia, "Inteligencia");
-
-    appendInt(bonuses.attack.constituicao, "Constituicao");
-    appendInt(bonuses.attack.forca, "Forca");
-    appendInt(bonuses.attack.foco, "Foco");
-    appendInt(bonuses.attack.misticismo, "Misticismo");
-    appendInt(bonuses.attack.conhecimento, "Conhecimento");
-
-    appendFloat(bonuses.secondary.vampirismo, "Vampirismo", 1);
-    appendFloat(bonuses.secondary.letalidade, "Letalidade", 1);
-    appendFloat(bonuses.secondary.reducaoDano, "Reducao de Dano", 1);
-    appendFloat(bonuses.secondary.desvio, "Desvio", 1);
-    appendFloat(bonuses.secondary.alcanceColeta, "Alcance de Coleta", 1);
-    appendFloat(bonuses.secondary.sorte, "Sorte", 1);
-    appendInt(bonuses.secondary.maldicao, "Maldicao");
-
-    if (appended == 0) {
-        return "Passivos: Nenhum";
+std::string RarityName(int rarity) {
+    switch (rarity) {
+        case 1:
+            return "Comum";
+        case 2:
+            return "Incomum";
+        case 3:
+            return "Raro";
+        case 4:
+            return "Epico";
+        case 5:
+            return "Lendario";
+        case 6:
+            return "Mitico";
+        default:
+            return "Indefinido";
     }
-
-    std::string result = oss.str();
-    if (!result.empty() && result.back() == '\n') {
-        result.pop_back();
-    }
-    return result;
 }
 
-std::string FormatWeaponBlueprintDetails(const WeaponBlueprint& blueprint) {
-    std::string text = "Arma: " + blueprint.name;
-
-    const char* attributeLabel = WeaponAttributeLabel(blueprint.attributeKey);
-    text += "\nAtributo chave: ";
-    text += attributeLabel;
-
-    if (blueprint.damage.baseDamage > 0.0f) {
-        text += "\nDano base: " + FormatFloat(blueprint.damage.baseDamage, 1);
+std::string ItemCategoryLabel(ItemCategory category) {
+    switch (category) {
+        case ItemCategory::Weapon:
+            return "Arma";
+        case ItemCategory::Armor:
+            return "Equipamento";
+        case ItemCategory::Consumable:
+            return "Consumivel";
+        case ItemCategory::Material:
+            return "Recurso";
+        case ItemCategory::Result:
+            return "Resultado";
+        default:
+            return "Item";
     }
-    if (std::fabs(blueprint.damage.attributeScaling) > 1e-4f) {
-        text += "\nEscala: ";
-        if (blueprint.damage.attributeScaling > 0.0f) {
-            text += "+";
+}
+
+std::vector<std::string> WrapTextLines(const std::string& text,
+                                       float maxWidth,
+                                       float fontSize) {
+    std::vector<std::string> lines;
+    if (maxWidth <= 0.0f) {
+        lines.push_back(text);
+        return lines;
+    }
+
+    const Font font = GetFontDefault();
+    size_t start = 0;
+    while (start <= text.size()) {
+        size_t end = text.find('\n', start);
+        std::string paragraph = (end == std::string::npos)
+            ? text.substr(start)
+            : text.substr(start, end - start);
+
+        if (paragraph.empty()) {
+            lines.push_back("");
+        } else {
+            std::istringstream words(paragraph);
+            std::string word;
+            std::string currentLine;
+            while (words >> word) {
+                std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
+                if (MeasureTextEx(font, candidate.c_str(), fontSize, kBodyTextSpacing).x <= maxWidth) {
+                    currentLine = std::move(candidate);
+                } else {
+                    if (!currentLine.empty()) {
+                        lines.push_back(currentLine);
+                        currentLine.clear();
+                    }
+
+                    std::string chunk;
+                    for (char ch : word) {
+                        chunk.push_back(ch);
+                        if (MeasureTextEx(font, chunk.c_str(), fontSize, kBodyTextSpacing).x > maxWidth && chunk.size() > 1) {
+                            lines.push_back(chunk.substr(0, chunk.size() - 1));
+                            chunk.erase(0, chunk.size() - 1);
+                        }
+                    }
+                    currentLine = chunk;
+                }
+            }
+            if (!currentLine.empty()) {
+                lines.push_back(currentLine);
+            }
         }
-        text += FormatFloat(blueprint.damage.attributeScaling, 2);
-        text += " por ponto de ";
-        text += attributeLabel;
-    }
 
-    if (blueprint.cadence.baseAttacksPerSecond > 0.0f) {
-        text += "\nCadencia base: " + FormatFloat(blueprint.cadence.baseAttacksPerSecond, 2) + " disparos/s";
-    }
-    if (blueprint.cadence.dexterityGainPerPoint > 0.0f) {
-        text += "\nGanho por Destreza: +" + FormatFloat(blueprint.cadence.dexterityGainPerPoint, 2) + " disparos/s";
-    }
-    if (blueprint.cadence.attacksPerSecondCap > 0.0f) {
-        text += "\nLimite de cadencia: " + FormatFloat(blueprint.cadence.attacksPerSecondCap, 2) + " disparos/s";
-    }
-
-    if (blueprint.critical.baseChance > 0.0f) {
-        text += "\nCritico base: " + FormatFloat(blueprint.critical.baseChance * 100.0f, 1) + "%";
-    }
-    if (blueprint.critical.chancePerLetalidade > 0.0f) {
-        text += "\nCritico por Letalidade: +" + FormatFloat(blueprint.critical.chancePerLetalidade * 100.0f, 2) + "%";
-    }
-    if (blueprint.critical.multiplier > 0.0f && std::fabs(blueprint.critical.multiplier - 1.0f) > 1e-4f) {
-        text += "\nMultiplicador critico: x" + FormatFloat(blueprint.critical.multiplier, 2);
-    }
-
-    if (blueprint.projectile.kind == ProjectileKind::Ammunition) {
-        if (blueprint.projectile.ammunition.speed > 0.0f) {
-            text += "\nVelocidade do projetil: " + FormatFloat(blueprint.projectile.ammunition.speed, 0) + " px/s";
+        if (end == std::string::npos) {
+            break;
         }
-        if (blueprint.projectile.ammunition.maxDistance > 0.0f) {
-            text += "\nAlcance maximo: " + FormatFloat(blueprint.projectile.ammunition.maxDistance, 0) + " px";
-        }
-        if (blueprint.projectile.ammunition.radius > 0.0f) {
-            text += "\nRaio da hitbox: " + FormatFloat(blueprint.projectile.ammunition.radius, 1) + " px";
+        start = end + 1;
+    }
+
+    if (lines.empty()) {
+        lines.push_back("");
+    }
+    return lines;
+}
+
+float DrawLineList(const std::vector<std::string>& lines,
+                   Vector2 position,
+                   float fontSize,
+                   Color color) {
+    const Font font = GetFontDefault();
+    float y = position.y;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        DrawTextEx(font, lines[i].c_str(), Vector2{position.x, y}, fontSize, kBodyTextSpacing, color);
+        y += fontSize;
+        if (i + 1 < lines.size()) {
+            y += kParagraphSpacing;
         }
     }
+    return lines.empty() ? 0.0f : (y - position.y);
+}
 
-    std::string passiveSummary = FormatPassiveBonuses(blueprint.passiveBonuses);
-    if (!passiveSummary.empty()) {
-        text += "\n" + passiveSummary;
+float DrawWrappedText(Vector2 position,
+                      float maxWidth,
+                      const std::string& text,
+                      float fontSize,
+                      Color color) {
+    std::vector<std::string> lines = WrapTextLines(text, maxWidth, fontSize);
+    return DrawLineList(lines, position, fontSize, color);
+}
+
+void AppendIntBonusLine(std::vector<std::string>& lines,
+                        int value,
+                        const char* label,
+                        const char* icon = nullptr) {
+    if (value == 0) {
+        return;
+    }
+    std::string line;
+    line += (value > 0) ? "+ " : "- ";
+    line += std::to_string(std::abs(value));
+    line += " ";
+    if (icon != nullptr) {
+        line += icon;
+        line += " ";
+    }
+    line += label;
+    lines.push_back(line);
+}
+
+void AppendFloatBonusLine(std::vector<std::string>& lines,
+                          float value,
+                          const char* label,
+                          int decimals,
+                          const char* icon = nullptr) {
+    if (std::fabs(value) < 1e-4f) {
+        return;
+    }
+    std::string line;
+    line += (value > 0.0f) ? "+ " : "- ";
+    line += FormatFloat(std::fabs(value), decimals);
+    line += " ";
+    if (icon != nullptr) {
+        line += icon;
+        line += " ";
+    }
+    line += label;
+    lines.push_back(line);
+}
+
+std::vector<std::string> CollectPassiveBonusLines(const PlayerAttributes& bonuses) {
+    std::vector<std::string> lines;
+    AppendIntBonusLine(lines, bonuses.primary.poder, "Poder", kIconPower);
+    AppendIntBonusLine(lines, bonuses.primary.defesa, "Defesa", kIconDefense);
+    AppendIntBonusLine(lines, bonuses.primary.vigor, "Vigor", kIconVigor);
+    AppendIntBonusLine(lines, bonuses.primary.velocidade, "Velocidade", kIconSpeed);
+    AppendIntBonusLine(lines, bonuses.primary.destreza, "Destreza", kIconDexterity);
+    AppendIntBonusLine(lines, bonuses.primary.inteligencia, "Inteligencia", kIconIntelligence);
+
+    AppendIntBonusLine(lines, bonuses.attack.constituicao, "Constituicao", kIconConstitution);
+    AppendIntBonusLine(lines, bonuses.attack.forca, "Forca", kIconStrength);
+    AppendIntBonusLine(lines, bonuses.attack.foco, "Foco", kIconFocus);
+    AppendIntBonusLine(lines, bonuses.attack.misticismo, "Misticismo", kIconMysticism);
+    AppendIntBonusLine(lines, bonuses.attack.conhecimento, "Conhecimento", kIconKnowledge);
+
+    AppendFloatBonusLine(lines, bonuses.secondary.vampirismo, "Vampirismo", 1, kIconVampirism);
+    AppendFloatBonusLine(lines, bonuses.secondary.letalidade, "Letalidade", 1, kIconLethality);
+    AppendFloatBonusLine(lines, bonuses.secondary.reducaoDano, "Reducao de Dano", 1);
+    AppendFloatBonusLine(lines, bonuses.secondary.desvio, "Desvio", 1, kIconDodge);
+    AppendFloatBonusLine(lines, bonuses.secondary.alcanceColeta, "Alcance de Coleta", 1, kIconRange);
+    AppendFloatBonusLine(lines, bonuses.secondary.sorte, "Sorte", 1, kIconLuck);
+    AppendIntBonusLine(lines, bonuses.secondary.maldicao, "Maldicao", kIconCurse);
+    return lines;
+}
+
+std::string BuildAbilityPlaceholder(ItemCategory category) {
+    switch (category) {
+        case ItemCategory::Weapon:
+        case ItemCategory::Armor:
+            return "Habilidade Passiva:\nEste equipamento nao possui habilidade passiva.\n\nHabilidade Ativa:\nEste equipamento nao possui habilidade ativa.";
+        case ItemCategory::Consumable:
+            return "Habilidade Ativa:\nConsuma para receber o efeito imediatamente.\n\nObservacoes:\nPlaceholder ate definirmos o comportamento final.";
+        case ItemCategory::Material:
+            return "Habilidades:\nNao possui habilidades. Utilizado como recurso de forja.";
+        case ItemCategory::Result:
+            return "Habilidades:\nResultado temporario de forja.";
+        default:
+            return "Habilidades:\nDetalhes ainda nao definidos.";
+    }
+}
+
+Color RarityToColor(int rarity);
+void AppendForgeCombos(const InventoryUIState& state, int itemId, std::string& text);
+
+void DrawItemDetailPanel(InventoryUIState& state,
+                         const Rectangle& area,
+                         const PlayerCharacter& player,
+                         const ItemDefinition* itemDef,
+                         const WeaponBlueprint* weaponBlueprint,
+                         const WeaponState* weaponState,
+                         int itemId) {
+    const Color textColor{58, 68, 96, 255};
+    const float headingFont = 24.0f;
+    const float bodyFont = 18.0f;
+    const float padding = 12.0f;
+
+    if (itemDef == nullptr && weaponBlueprint == nullptr) {
+        DrawTextEx(GetFontDefault(),
+                   "Dados indisponiveis para este item.",
+                   Vector2{area.x + padding, area.y + padding},
+                   bodyFont,
+                   kBodyTextSpacing,
+                   textColor);
+        return;
     }
 
-    return text;
+    const WeaponBlueprint* iconBlueprint = weaponBlueprint;
+    if (iconBlueprint == nullptr && itemDef != nullptr) {
+        iconBlueprint = itemDef->weaponBlueprint;
+    }
+
+    Rectangle iconRect{area.x + padding, area.y + padding, 64.0f, 64.0f};
+    DrawRectangleLinesEx(iconRect, 2.0f, Color{120, 132, 160, 255});
+    bool drewIcon = false;
+    if (iconBlueprint != nullptr) {
+        drewIcon = DrawWeaponInventorySprite(*iconBlueprint, iconRect);
+    }
+    if (!drewIcon) {
+        DrawRectangleRec(iconRect, Color{90, 100, 128, 255});
+    }
+
+    std::string name = itemDef ? itemDef->name : (iconBlueprint ? iconBlueprint->name : "Item");
+    ItemCategory category = itemDef ? itemDef->category : ItemCategory::Weapon;
+    int rarity = itemDef ? itemDef->rarity : 0;
+    std::string typeLine = ItemCategoryLabel(category) + " - " + RarityName(rarity);
+
+    Vector2 namePos{iconRect.x + iconRect.width + 14.0f, area.y + padding};
+    DrawTextEx(GetFontDefault(), name.c_str(), namePos, headingFont, kBodyTextSpacing, textColor);
+
+    Vector2 typePos{namePos.x, namePos.y + headingFont + 4.0f};
+    DrawTextEx(GetFontDefault(), typeLine.c_str(), typePos, bodyFont, kBodyTextSpacing, RarityToColor(rarity));
+
+    float cursorY = iconRect.y + iconRect.height + 18.0f;
+    float contentWidth = area.width - padding * 2.0f;
+
+    std::vector<std::string> statsLines;
+    if (weaponBlueprint != nullptr) {
+        WeaponState localState{};
+        const WeaponState* displayState = weaponState;
+        if (displayState == nullptr) {
+            localState.blueprint = weaponBlueprint;
+            localState.RecalculateDerivedStats(player);
+            displayState = &localState;
+        }
+
+        const float attackAttributeValue = static_cast<float>(player.GetAttackAttributeValue(weaponBlueprint->attributeKey));
+        const float powerValue = static_cast<float>(player.totalAttributes.primary.poder);
+        const float baseDamage = weaponBlueprint->damage.baseDamage;
+        const float scaling = weaponBlueprint->damage.attributeScaling;
+        const float prePowerDamage = baseDamage + scaling * attackAttributeValue;
+        const float powerMultiplier = 1.0f + powerValue / 100.0f;
+        float currentDamage = displayState->derived.damagePerShot;
+        if (currentDamage <= 0.0f) {
+            currentDamage = prePowerDamage * powerMultiplier;
+        }
+        std::string damageLine = "Dano: " + FormatFloat(currentDamage, 1) + " (" +
+                                  FormatFloat(baseDamage, 1) + " + " +
+                                  FormatFloat(scaling * 100.0f, 0) + "% " +
+                                  WeaponAttributeIcon(weaponBlueprint->attributeKey) +
+                                  ") x (1 + " + kIconPower + "/100)";
+        statsLines.push_back(std::move(damageLine));
+
+        float baseAPS = weaponBlueprint->cadence.baseAttacksPerSecond;
+        if (baseAPS <= 0.0f && weaponBlueprint->cooldownSeconds > 0.0f) {
+            baseAPS = 1.0f / std::max(weaponBlueprint->cooldownSeconds, 0.0001f);
+        }
+        const float dexGain = weaponBlueprint->cadence.dexterityGainPerPoint;
+        const float destreza = static_cast<float>(player.totalAttributes.primary.destreza);
+        float computedAPS = baseAPS + dexGain * destreza;
+        if (weaponBlueprint->cadence.attacksPerSecondCap > 0.0f) {
+            computedAPS = std::min(computedAPS, weaponBlueprint->cadence.attacksPerSecondCap);
+        }
+        if ((computedAPS <= 0.0f || std::isnan(computedAPS)) && displayState->derived.attackIntervalSeconds > 0.0f) {
+            computedAPS = 1.0f / displayState->derived.attackIntervalSeconds;
+        }
+        std::string cadenceLine = "Cadencia: " + FormatFloat(computedAPS, 2) + " a/s";
+        if (baseAPS > 0.0f || dexGain > 0.0f) {
+            cadenceLine += " (" + FormatFloat(baseAPS, 2) + " + " +
+                           FormatFloat(dexGain * 100.0f, 0) + "% " + kIconDexterity + ")";
+            if (weaponBlueprint->cadence.attacksPerSecondCap > 0.0f) {
+                cadenceLine += " (Limite: " + FormatFloat(weaponBlueprint->cadence.attacksPerSecondCap, 2) + " a/s)";
+            }
+        }
+        statsLines.push_back(std::move(cadenceLine));
+
+        const float baseCrit = weaponBlueprint->critical.baseChance;
+        const float critGain = weaponBlueprint->critical.chancePerLetalidade;
+        const float letalidade = player.totalAttributes.secondary.letalidade;
+        float computedCrit = displayState->derived.criticalChance;
+        if (computedCrit <= 0.0f) {
+            computedCrit = std::clamp(baseCrit + critGain * letalidade, 0.0f, 0.75f);
+        }
+        std::string critLine = "Chance de Critico: " + FormatFloat(computedCrit * 100.0f, 1) + "%";
+        if (baseCrit > 0.0f || critGain > 0.0f) {
+            critLine += " (" + FormatFloat(baseCrit * 100.0f, 1) + "% + " +
+                        FormatFloat(critGain * 100.0f, 2) + "% " + kIconLethality + ")";
+        }
+        statsLines.push_back(std::move(critLine));
+
+        float critMultiplier = displayState->derived.criticalMultiplier;
+        if (critMultiplier <= 0.0f) {
+            critMultiplier = (weaponBlueprint->critical.multiplier > 0.0f)
+                ? weaponBlueprint->critical.multiplier
+                : 1.0f;
+        }
+        statsLines.push_back("Dano de acerto critico: " + FormatFloat(critMultiplier * 100.0f, 0) + "%");
+    } else {
+        statsLines.push_back("Atributos principais: Em definicao.");
+    }
+
+    cursorY += DrawLineList(statsLines, Vector2{area.x + padding, cursorY}, bodyFont, textColor);
+    cursorY += 10.0f;
+
+    DrawTextEx(GetFontDefault(), "Passivos:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
+    cursorY += bodyFont + 4.0f;
+
+    std::vector<std::string> passiveLines;
+    if (weaponBlueprint != nullptr) {
+        passiveLines = CollectPassiveBonusLines(weaponBlueprint->passiveBonuses);
+    }
+    if (passiveLines.empty()) {
+        passiveLines.push_back("Nenhum");
+    }
+    cursorY += DrawLineList(passiveLines, Vector2{area.x + padding + 12.0f, cursorY}, bodyFont, textColor);
+    cursorY += 12.0f;
+
+    DrawTextEx(GetFontDefault(), "Descricao:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
+    cursorY += bodyFont + 4.0f;
+
+    std::string descriptionText;
+    if (itemDef != nullptr && !itemDef->description.empty()) {
+        descriptionText = itemDef->description;
+    } else {
+        descriptionText = "Descricao nao definida.";
+    }
+
+    if (itemDef != nullptr) {
+        descriptionText += "\n\nValor: " + std::to_string(std::max(0, itemDef->value));
+    }
+
+    std::string comboText;
+    AppendForgeCombos(state, itemId, comboText);
+    if (!comboText.empty()) {
+        if (comboText.front() == '\n') {
+            comboText.erase(comboText.begin());
+        }
+        if (!descriptionText.empty()) {
+            descriptionText += "\n\n";
+        }
+        descriptionText += comboText;
+    }
+
+    cursorY += DrawWrappedText(Vector2{area.x + padding, cursorY}, contentWidth, descriptionText, bodyFont, textColor);
+    cursorY += 14.0f;
+
+    float availableHeight = area.y + area.height - cursorY - 12.0f;
+    float abilityHeight = std::max(availableHeight, 120.0f);
+    if (cursorY + abilityHeight > area.y + area.height - 4.0f) {
+        abilityHeight = std::max(80.0f, area.y + area.height - cursorY - 4.0f);
+    }
+    if (abilityHeight <= 0.0f) {
+        abilityHeight = 100.0f;
+    }
+
+    Rectangle abilityBox{area.x + padding, cursorY, area.width - padding * 2.0f, abilityHeight};
+    GuiGroupBox(abilityBox, "Habilidades");
+
+    Rectangle scrollBounds{abilityBox.x + 8.0f, abilityBox.y + 24.0f, abilityBox.width - 16.0f, abilityBox.height - 32.0f};
+    if (scrollBounds.width < 4.0f || scrollBounds.height < 4.0f) {
+        return;
+    }
+
+    std::string abilityText = BuildAbilityPlaceholder(category);
+    float textWidth = std::max(0.0f, scrollBounds.width - 12.0f);
+    std::vector<std::string> abilityLines = WrapTextLines(abilityText, textWidth, bodyFont);
+    float abilityContentHeight = abilityLines.empty()
+        ? bodyFont
+        : abilityLines.size() * (bodyFont + kParagraphSpacing) - kParagraphSpacing;
+    abilityContentHeight = std::max(abilityContentHeight, scrollBounds.height - 6.0f);
+
+    Rectangle inner{0.0f, 0.0f, textWidth, abilityContentHeight};
+    Rectangle view{};
+    GuiScrollPanel(scrollBounds, nullptr, inner, &state.detailAbilityScroll, &view);
+
+    BeginScissorMode(static_cast<int>(view.x),
+                     static_cast<int>(view.y),
+                     static_cast<int>(view.width),
+                     static_cast<int>(view.height));
+    DrawLineList(abilityLines,
+                 Vector2{scrollBounds.x + state.detailAbilityScroll.x + 4.0f,
+                         scrollBounds.y + state.detailAbilityScroll.y + 4.0f},
+                 bodyFont,
+                 textColor);
+    EndScissorMode();
 }
 
 int CalculateItemPrice(int rarity, int baseValue) {
@@ -1061,40 +1448,18 @@ void DrawSlot(const InventoryUIState& state,
         DrawRectangleLinesEx(selectionRect, 1.0f, Color{255, 230, 160, 255});
     }
 
-    if (!label.empty()) {
-        const Font font = GetFontDefault();
+    bool drewInventorySprite = false;
+    if (itemId > 0) {
+        if (const WeaponBlueprint* blueprint = ResolveWeaponBlueprint(state, itemId)) {
+            drewInventorySprite = DrawWeaponInventorySprite(*blueprint, rect);
+        }
+    }
+
+    if (!drewInventorySprite && !label.empty()) {
         const float fontSize = 16.0f;
         Rectangle textBounds{rect.x + 6.0f, rect.y + 6.0f, rect.width - 12.0f, rect.height - 12.0f};
-        std::istringstream words(label);
-        std::string word;
-        std::string currentLine;
-        std::string wrapped;
-        while (words >> word) {
-            std::string candidate = currentLine.empty() ? word : currentLine + " " + word;
-            float width = MeasureTextEx(font, candidate.c_str(), fontSize, kBodyTextSpacing).x;
-            if (width <= textBounds.width) {
-                currentLine = candidate;
-            } else {
-                if (!wrapped.empty()) {
-                    wrapped += '\n';
-                }
-                if (!currentLine.empty()) {
-                    wrapped += currentLine;
-                    currentLine = word;
-                } else {
-                    wrapped += word;
-                    currentLine.clear();
-                }
-            }
-        }
-        if (!currentLine.empty()) {
-            if (!wrapped.empty()) {
-                wrapped += '\n';
-            }
-            wrapped += currentLine;
-        }
-
-        DrawMultilineText(textBounds, wrapped, fontSize);
+        std::vector<std::string> lines = WrapTextLines(label, textBounds.width, fontSize);
+        DrawLineList(lines, Vector2{textBounds.x, textBounds.y}, fontSize, Color{58, 68, 96, 255});
     }
 
     if (showQuantity && quantity >= 0) {
@@ -1447,57 +1812,52 @@ void RenderInventoryUI(InventoryUIState& state,
 
     Rectangle detailContent{detailRect.x + 12.0f, detailRect.y + 26.0f, detailRect.width - 24.0f, detailRect.height - 38.0f};
 
-    std::string detailText = "Clique em um item para ver seus atributos";
+    const ItemDefinition* detailItemDef = nullptr;
+    const WeaponBlueprint* detailWeaponBlueprint = nullptr;
+    const WeaponState* detailWeaponStatePtr = nullptr;
     int detailItemId = 0;
+    bool useItemLayout = false;
+    std::string fallbackDetailText = "Clique em um item para ver seus atributos";
 
     if (state.selectedWeaponIndex >= 0 && state.selectedWeaponIndex < static_cast<int>(state.weaponSlots.size())) {
         const WeaponState& selectedWeapon = (state.selectedWeaponIndex == 0) ? leftWeapon : rightWeapon;
-        if (selectedWeapon.blueprint != nullptr) {
-            detailText = FormatWeaponBlueprintDetails(*selectedWeapon.blueprint);
-            detailText += "\n\nStatus atual:";
-            detailText += "\n- Dano por disparo: " + FormatFloat(selectedWeapon.derived.damagePerShot, 1);
-            detailText += "\n- Intervalo entre disparos: " + FormatFloat(selectedWeapon.derived.attackIntervalSeconds, 2) + " s";
-            detailText += "\n- Critico efetivo: " + FormatFloat(selectedWeapon.derived.criticalChance * 100.0f, 1) + "% (x" + FormatFloat(selectedWeapon.derived.criticalMultiplier, 2) + ")";
-        } else {
-            detailText = "Arma: Slot vazio";
-        }
+        detailWeaponBlueprint = selectedWeapon.blueprint;
+        detailWeaponStatePtr = (selectedWeapon.blueprint != nullptr) ? &selectedWeapon : nullptr;
         if (state.selectedWeaponIndex < static_cast<int>(state.weaponSlotIds.size())) {
             detailItemId = state.weaponSlotIds[state.selectedWeaponIndex];
+            detailItemDef = FindItemDefinition(state, detailItemId);
+        }
+        useItemLayout = (detailWeaponBlueprint != nullptr) || (detailItemDef != nullptr);
+        if (!useItemLayout) {
+            fallbackDetailText = "Arma: Slot vazio";
         }
     } else if (state.selectedEquipmentIndex >= 0 && state.selectedEquipmentIndex < static_cast<int>(state.equipmentSlots.size())) {
-        detailText = "Equipamento: " + state.equipmentSlots[state.selectedEquipmentIndex] + "\nBônus: TBD";
         if (state.selectedEquipmentIndex < static_cast<int>(state.equipmentSlotIds.size())) {
             detailItemId = state.equipmentSlotIds[state.selectedEquipmentIndex];
+            detailItemDef = FindItemDefinition(state, detailItemId);
+        }
+        useItemLayout = (detailItemDef != nullptr);
+        if (!useItemLayout) {
+            fallbackDetailText = "Equipamento: Slot vazio";
         }
     } else if (state.selectedInventoryIndex >= 0 && state.selectedInventoryIndex < static_cast<int>(state.inventoryItems.size())) {
         if (state.selectedInventoryIndex < static_cast<int>(state.inventoryItemIds.size())) {
             detailItemId = state.inventoryItemIds[state.selectedInventoryIndex];
-        }
-
-        const ItemDefinition* def = FindItemDefinition(state, detailItemId);
-        if (def != nullptr) {
-            if (def->category == ItemCategory::Weapon && def->weaponBlueprint != nullptr) {
-                detailText = FormatWeaponBlueprintDetails(*def->weaponBlueprint);
-                if (!def->description.empty()) {
-                    detailText += "\nDescricao: " + def->description;
-                }
-                detailText += "\nValor: " + std::to_string(def->value);
-            } else {
-                detailText = "Item: " + def->name;
-                if (!def->description.empty()) {
-                    detailText += "\nDescricao: " + def->description;
-                }
-                detailText += "\nValor: " + std::to_string(def->value);
+            detailItemDef = FindItemDefinition(state, detailItemId);
+            if (detailItemDef != nullptr) {
+                detailWeaponBlueprint = detailItemDef->weaponBlueprint;
             }
-        } else {
-            detailText = "Item: Slot vazio";
+        }
+        useItemLayout = (detailItemDef != nullptr) || (detailWeaponBlueprint != nullptr);
+        if (!useItemLayout) {
+            fallbackDetailText = (detailItemId == 0) ? "Item: Slot vazio" : "Item: Dados indisponiveis";
         }
     } else if (state.selectedShopIndex >= 0 && state.selectedShopIndex < static_cast<int>(state.shopItems.size())) {
         int stock = (state.selectedShopIndex < static_cast<int>(state.shopStock.size())) ? state.shopStock[state.selectedShopIndex] : 0;
-        detailText = TextFormat("Loja: %s\nPreco: %d\nEstoque: %d",
-                                state.shopItems[state.selectedShopIndex].c_str(),
-                                state.shopPrices[state.selectedShopIndex],
-                                std::max(0, stock));
+        fallbackDetailText = TextFormat("Loja: %s\nPreco: %d\nEstoque: %d",
+                                        state.shopItems[state.selectedShopIndex].c_str(),
+                                        state.shopPrices[state.selectedShopIndex],
+                                        std::max(0, stock));
         if (state.selectedShopIndex < static_cast<int>(state.shopItemIds.size())) {
             detailItemId = state.shopItemIds[state.selectedShopIndex];
         }
@@ -1508,18 +1868,41 @@ void RenderInventoryUI(InventoryUIState& state,
             if (name.empty()) {
                 name = ItemNameFromId(state, state.forgeInputIds[slot]);
             }
-            detailText = "Bigorna: " + name + "\nStatus: Pronto para forjar";
+            fallbackDetailText = "Bigorna: " + name + "\nStatus: Pronto para forjar";
             detailItemId = state.forgeInputIds[slot];
         }
     } else if (state.selectedForgeSlot == 2 && state.forgeResultId != 0) {
         std::string name = state.forgeResultName.empty() ? ItemNameFromId(state, state.forgeResultId) : state.forgeResultName;
-        detailText = "Resultado: " + name + "\nStatus: Aguarda coleta";
+        fallbackDetailText = "Resultado: " + name + "\nStatus: Aguarda coleta";
         detailItemId = state.forgeResultId;
     }
 
-    AppendForgeCombos(state, detailItemId, detailText);
-
-    DrawMultilineText(detailContent, detailText, 18.0f);
+    if (useItemLayout) {
+        int detailKey = detailItemId;
+        if (detailKey == 0 && detailWeaponBlueprint != nullptr) {
+            size_t hashed = std::hash<const WeaponBlueprint*>{}(detailWeaponBlueprint);
+            detailKey = static_cast<int>(hashed & 0x7FFFFFFF);
+        }
+        if (detailKey != state.lastDetailItemId) {
+            state.lastDetailItemId = detailKey;
+            state.detailAbilityScroll = Vector2{0.0f, 0.0f};
+        }
+        DrawItemDetailPanel(state,
+                            detailContent,
+                            player,
+                            detailItemDef,
+                            detailWeaponBlueprint,
+                            detailWeaponStatePtr,
+                            detailItemId);
+    } else {
+        bool fallbackWasEmpty = fallbackDetailText.empty();
+        AppendForgeCombos(state, detailItemId, fallbackDetailText);
+        if (fallbackWasEmpty && !fallbackDetailText.empty() && fallbackDetailText.front() == '\n') {
+            fallbackDetailText.erase(fallbackDetailText.begin());
+        }
+        DrawMultilineText(detailContent, fallbackDetailText, 18.0f);
+        state.lastDetailItemId = -1;
+    }
 
     Rectangle actionButtonLeft{detailRect.x + 12.0f, detailRect.y + detailRect.height - 40.0f, 100.0f, 28.0f};
     Rectangle actionButtonRight{detailRect.x + detailRect.width - 112.0f, detailRect.y + detailRect.height - 40.0f, 100.0f, 28.0f};

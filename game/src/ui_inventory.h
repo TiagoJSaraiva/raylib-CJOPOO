@@ -46,6 +46,7 @@ struct InventoryUIState {
     int selectedWeaponIndex{-1};
     int selectedShopIndex{-1};
     int selectedForgeSlot{-1};
+    int lastDetailItemId{-1};
     float forgeSuccessChance{0.0f};
     int forgeAdjustHundreds{0};
     int forgeAdjustTens{0};
@@ -82,6 +83,7 @@ struct InventoryUIState {
     std::vector<ItemCategory> shopTypes;
     std::unordered_map<uint64_t, int> forgeRecipes;
     std::unordered_map<std::string, int> itemNameToId;
+    Vector2 detailAbilityScroll{0.0f, 0.0f};
 };
 
 void InitializeInventoryUIDummyData(InventoryUIState& state);

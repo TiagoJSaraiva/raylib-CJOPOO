@@ -88,9 +88,25 @@ struct PlayerDerivedStats {
     float damageDealtMultiplierFromCurse{1.0f};
 };
 
+struct CharacterAnimationClip {
+    std::string spriteSheetPath{};
+    int frameWidth{0};
+    int frameHeight{0};
+    int frameCount{0};
+    float secondsPerFrame{0.12f};
+    bool verticalLayout{true};
+};
+
+struct CharacterAppearanceBlueprint {
+    std::string idleSpritePath{};
+    CharacterAnimationClip walking{};
+};
+
 struct PlayerCharacter {
     std::string id{};
     std::string displayName{};
+    std::string description{};
+    CharacterAppearanceBlueprint appearance{};
     PlayerAttributes baseAttributes{};
     PlayerAttributes equipmentBonuses{};
     PlayerAttributes weaponBonuses{};
