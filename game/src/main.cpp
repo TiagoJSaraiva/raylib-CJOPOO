@@ -21,6 +21,7 @@
 #include "weapon_blueprints.h"
 #include "raygui.h"
 #include "ui_inventory.h"
+#include "font_manager.h"
 
 namespace {
 
@@ -66,7 +67,7 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
         return;
     }
 
-    const Font font = GetFontDefault();
+    const Font& font = GetGameFont();
 
     for (const auto& number : numbers) {
         float alpha = 1.0f - (number.age / number.lifetime);
@@ -667,6 +668,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
 int main() {
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Prototype - Room Generation");
     SetTargetFPS(60);
+    LoadGameFont("assets/font/alagard.ttf", 32);
 
     const std::uint64_t worldSeed = GenerateWorldSeed();
     RoomManager roomManager{worldSeed};
@@ -890,9 +892,10 @@ int main() {
 
             const char* label = "Dummy de treino";
             const float labelSize = 20.0f;
-            Vector2 labelMeasure = MeasureTextEx(GetFontDefault(), label, labelSize, 0.0f);
+            const Font& font = GetGameFont();
+            Vector2 labelMeasure = MeasureTextEx(font, label, labelSize, 0.0f);
             Vector2 labelPos{trainingDummy.position.x - labelMeasure.x * 0.5f, trainingDummy.position.y + trainingDummy.radius + 10.0f};
-            DrawTextEx(GetFontDefault(), label, labelPos, labelSize, 0.0f, Color{210, 220, 240, 220});
+            DrawTextEx(font, label, labelPos, labelSize, 0.0f, Color{210, 220, 240, 220});
         }
 
         if (!DrawCharacterSprite(playerSprites, playerPosition, playerIsMoving)) {
@@ -929,6 +932,7 @@ int main() {
     }
 
     UnloadCharacterSprites(playerSprites);
+    UnloadGameFont();
     CloseWindow();
     return 0;
 }  

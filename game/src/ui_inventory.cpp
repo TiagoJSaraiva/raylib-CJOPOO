@@ -4,6 +4,7 @@
 #include "player.h"
 #include "weapon.h"
 #include "weapon_blueprints.h"
+#include "font_manager.h"
 
 #include <algorithm>
 #include <cmath>
@@ -207,7 +208,7 @@ std::vector<std::string> WrapTextLines(const std::string& text,
         return lines;
     }
 
-    const Font font = GetFontDefault();
+    const Font& font = GetGameFont();
     size_t start = 0;
     while (start <= text.size()) {
         size_t end = text.find('\n', start);
@@ -263,7 +264,7 @@ float DrawLineList(const std::vector<std::string>& lines,
                    Vector2 position,
                    float fontSize,
                    Color color) {
-    const Font font = GetFontDefault();
+    const Font& font = GetGameFont();
     float y = position.y;
     for (size_t i = 0; i < lines.size(); ++i) {
         DrawTextEx(font, lines[i].c_str(), Vector2{position.x, y}, fontSize, kBodyTextSpacing, color);
@@ -378,9 +379,10 @@ void DrawItemDetailPanel(InventoryUIState& state,
     const float headingFont = 24.0f;
     const float bodyFont = 18.0f;
     const float padding = 12.0f;
+    const Font& font = GetGameFont();
 
     if (itemDef == nullptr && weaponBlueprint == nullptr) {
-        DrawTextEx(GetFontDefault(),
+        DrawTextEx(font,
                    "Dados indisponiveis para este item.",
                    Vector2{area.x + padding, area.y + padding},
                    bodyFont,
@@ -410,10 +412,10 @@ void DrawItemDetailPanel(InventoryUIState& state,
     std::string typeLine = ItemCategoryLabel(category) + " - " + RarityName(rarity);
 
     Vector2 namePos{iconRect.x + iconRect.width + 14.0f, area.y + padding};
-    DrawTextEx(GetFontDefault(), name.c_str(), namePos, headingFont, kBodyTextSpacing, textColor);
+    DrawTextEx(font, name.c_str(), namePos, headingFont, kBodyTextSpacing, textColor);
 
     Vector2 typePos{namePos.x, namePos.y + headingFont + 4.0f};
-    DrawTextEx(GetFontDefault(), typeLine.c_str(), typePos, bodyFont, kBodyTextSpacing, RarityToColor(rarity));
+    DrawTextEx(font, typeLine.c_str(), typePos, bodyFont, kBodyTextSpacing, RarityToColor(rarity));
 
     float cursorY = iconRect.y + iconRect.height + 18.0f;
     float contentWidth = area.width - padding * 2.0f;
@@ -496,7 +498,7 @@ void DrawItemDetailPanel(InventoryUIState& state,
     cursorY += DrawLineList(statsLines, Vector2{area.x + padding, cursorY}, bodyFont, textColor);
     cursorY += 10.0f;
 
-    DrawTextEx(GetFontDefault(), "Passivos:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
+    DrawTextEx(font, "Passivos:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
     cursorY += bodyFont + 4.0f;
 
     std::vector<std::string> passiveLines;
@@ -509,7 +511,7 @@ void DrawItemDetailPanel(InventoryUIState& state,
     cursorY += DrawLineList(passiveLines, Vector2{area.x + padding + 12.0f, cursorY}, bodyFont, textColor);
     cursorY += 12.0f;
 
-    DrawTextEx(GetFontDefault(), "Descricao:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
+    DrawTextEx(font, "Descricao:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
     cursorY += bodyFont + 4.0f;
 
     std::string descriptionText;
@@ -1464,9 +1466,9 @@ void DrawSlot(const InventoryUIState& state,
 
     if (showQuantity && quantity >= 0) {
         std::string qty = std::to_string(quantity);
-        Vector2 measure = MeasureTextEx(GetFontDefault(), qty.c_str(), 14.0f, 0.0f);
+        Vector2 measure = MeasureTextEx(GetGameFont(), qty.c_str(), 14.0f, 0.0f);
         Vector2 pos{rect.x + rect.width - measure.x - 5.0f, rect.y + rect.height - measure.y - 3.0f};
-        DrawTextEx(GetFontDefault(), qty.c_str(), pos, 14.0f, 0.0f, Color{210, 225, 255, 255});
+        DrawTextEx(GetGameFont(), qty.c_str(), pos, 14.0f, 0.0f, Color{210, 225, 255, 255});
     }
 }
 
@@ -1477,17 +1479,17 @@ bool SlotClicked(Rectangle rect) {
 void DrawAttributeLabel(Vector2 position, const std::string& label, int value) {
     const float fontSize = 20.0f;
     std::string text = label + ": " + std::to_string(value);
-    DrawTextEx(GetFontDefault(), text.c_str(), position, fontSize, kBodyTextSpacing, Color{58, 68, 96, 255});
+    DrawTextEx(GetGameFont(), text.c_str(), position, fontSize, kBodyTextSpacing, Color{58, 68, 96, 255});
 }
 
 void DrawAttributeLabel(Vector2 position, const std::string& label, float value, int decimals = 2) {
     const float fontSize = 20.0f;
     std::string text = label + ": " + std::string(TextFormat("%0.*f", decimals, value));
-    DrawTextEx(GetFontDefault(), text.c_str(), position, fontSize, kBodyTextSpacing, Color{58, 68, 96, 255});
+    DrawTextEx(GetGameFont(), text.c_str(), position, fontSize, kBodyTextSpacing, Color{58, 68, 96, 255});
 }
 
 void DrawMultilineText(const Rectangle& area, const std::string& text, float fontSize) {
-    const Font font = GetFontDefault();
+    const Font& font = GetGameFont();
     float lineSpacing = 6.0f;
     float y = area.y;
     size_t start = 0;
@@ -1942,8 +1944,8 @@ void RenderInventoryUI(InventoryUIState& state,
                  -1,
                  false);
 
-        DrawRectangleLinesEx(arrowRect, 2.0f, Color{200, 200, 220, 255});
-        DrawTextEx(GetFontDefault(), "=>", Vector2{arrowRect.x + 8.0f, arrowRect.y + 8.0f}, 28.0f, 0.0f, Color{230, 230, 240, 255});
+    DrawRectangleLinesEx(arrowRect, 2.0f, Color{200, 200, 220, 255});
+    DrawTextEx(GetGameFont(), "=>", Vector2{arrowRect.x + 8.0f, arrowRect.y + 8.0f}, 28.0f, 0.0f, Color{230, 230, 240, 255});
 
         bool showResultQuantity = state.forgeResultQuantity > 1;
         DrawSlot(state,
@@ -1982,10 +1984,10 @@ void RenderInventoryUI(InventoryUIState& state,
             if (state.forgeBroken) {
                 DrawRectangleRec(chanceRect, Color{160, 32, 32, 230});
                 DrawRectangleLinesEx(chanceRect, 2.0f, Color{90, 16, 16, 255});
-                DrawTextEx(GetFontDefault(), "falha!", Vector2{chanceRect.x + 16.0f, chanceRect.y + 6.0f}, 24.0f, 0.0f, Color{255, 255, 255, 255});
+                DrawTextEx(GetGameFont(), "falha!", Vector2{chanceRect.x + 16.0f, chanceRect.y + 6.0f}, 24.0f, 0.0f, Color{255, 255, 255, 255});
             } else {
                 GuiProgressBar(chanceRect, nullptr, nullptr, &state.forgeSuccessChance, 0.0f, 1.0f);
-                DrawTextEx(GetFontDefault(), TextFormat("%d%%", static_cast<int>(state.forgeSuccessChance * 100.0f)),
+                DrawTextEx(GetGameFont(), TextFormat("%d%%", static_cast<int>(state.forgeSuccessChance * 100.0f)),
                            Vector2{chanceRect.x + chanceRect.width * 0.5f - 18.0f, chanceRect.y + 6.0f}, 24.0f, 0.0f, Color{40, 48, 68, 255});
             }
         }
@@ -2178,7 +2180,7 @@ void RenderInventoryUI(InventoryUIState& state,
     }
 
     if (!state.feedbackMessage.empty()) {
-        DrawTextEx(GetFontDefault(), state.feedbackMessage.c_str(),
+        DrawTextEx(GetGameFont(), state.feedbackMessage.c_str(),
                    Vector2{detailRect.x + 12.0f, detailRect.y + detailRect.height - 72.0f},
                    18.0f, 0.0f, Color{176, 64, 64, 255});
     }
