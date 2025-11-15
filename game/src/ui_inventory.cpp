@@ -5,11 +5,14 @@
 #include "weapon.h"
 #include "weapon_blueprints.h"
 #include "font_manager.h"
+#include "chest.h"
 
 #include <algorithm>
 #include <cmath>
 #include <functional>
+#include <random>
 #include <iomanip>
+#include <numeric>
 #include <sstream>
 #include <string>
 #include <unordered_map>
@@ -17,6 +20,7 @@
 namespace {
 
 const ItemDefinition* FindItemDefinition(const InventoryUIState& state, int id);
+ItemCategory ItemCategoryFromId(const InventoryUIState& state, int id);
 
 } // namespace
 
@@ -37,6 +41,8 @@ constexpr int kConsumableShopMinStock = 2;
 constexpr int kConsumableShopMaxStock = 7;
 constexpr int kConsumableMaxStack = 10;
 constexpr int kMaterialMaxStack = 99;
+constexpr int kShopSlotCount = 4;
+constexpr float kInventorySpritePadding = 0.0f;
 
 struct InventorySpriteCacheEntry {
     Texture2D texture{};
@@ -165,6 +171,8 @@ std::string WeaponAttributeIcon(WeaponAttributeKey key) {
 
 std::string RarityName(int rarity) {
     switch (rarity) {
+        case 0:
+            return "Comum";
         case 1:
             return "Comum";
         case 2:
@@ -197,6 +205,133 @@ std::string ItemCategoryLabel(ItemCategory category) {
         default:
             return "Item";
     }
+}
+
+bool IsStackableCategory(ItemCategory category) {
+    return category == ItemCategory::Consumable || category == ItemCategory::Material;
+}
+
+int MaxStackForCategory(ItemCategory category) {
+    if (category == ItemCategory::Consumable) {
+        return kConsumableMaxStack;
+    }
+    if (category == ItemCategory::Material) {
+        return kMaterialMaxStack;
+    }
+    return 1;
+}
+
+int FindEmptyChestSlot(const Chest& chest) {
+    const auto& slots = chest.GetSlots();
+    for (int i = 0; i < static_cast<int>(slots.size()); ++i) {
+        if (slots[static_cast<size_t>(i)].itemId == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+bool ChestCanAccept(const Chest& chest,
+                    const InventoryUIState& state,
+                    int itemId,
+                    int quantity) {
+    if (itemId <= 0 || quantity <= 0) {
+        return false;
+    }
+
+    ItemCategory category = ItemCategoryFromId(state, itemId);
+    bool stackable = IsStackableCategory(category);
+    const auto& slots = chest.GetSlots();
+
+    if (stackable) {
+        int maxStack = MaxStackForCategory(category);
+        int remaining = quantity;
+        int availableStackSpace = 0;
+        int emptySlots = 0;
+        for (const Chest::Slot& slot : slots) {
+            if (slot.itemId == itemId) {
+                availableStackSpace += std::max(0, maxStack - slot.quantity);
+            } else if (slot.itemId == 0) {
+                ++emptySlots;
+            }
+        }
+        return availableStackSpace + emptySlots * maxStack >= remaining;
+    }
+
+    int emptySlots = 0;
+    for (const Chest::Slot& slot : slots) {
+        if (slot.itemId == 0) {
+            ++emptySlots;
+        }
+    }
+    return emptySlots >= quantity;
+}
+
+int AddItemToChest(Chest& chest,
+                   const InventoryUIState& state,
+                   int itemId,
+                   int quantity) {
+    if (!ChestCanAccept(chest, state, itemId, quantity)) {
+        return -1;
+    }
+
+    ItemCategory category = ItemCategoryFromId(state, itemId);
+    bool stackable = IsStackableCategory(category);
+    int remaining = quantity;
+    int firstSlotUsed = -1;
+    int maxStack = MaxStackForCategory(category);
+
+    auto& slots = chest.GetSlots();
+
+    if (stackable) {
+        for (int i = 0; i < static_cast<int>(slots.size()) && remaining > 0; ++i) {
+            Chest::Slot& slot = slots[static_cast<size_t>(i)];
+            if (slot.itemId != itemId) {
+                continue;
+            }
+            int addable = std::min(maxStack - slot.quantity, remaining);
+            if (addable <= 0) {
+                continue;
+            }
+            slot.quantity += addable;
+            remaining -= addable;
+            if (firstSlotUsed < 0) {
+                firstSlotUsed = i;
+            }
+        }
+
+        while (remaining > 0) {
+            int slotIndex = FindEmptyChestSlot(chest);
+            if (slotIndex < 0) {
+                break;
+            }
+            Chest::Slot& slot = slots[static_cast<size_t>(slotIndex)];
+            slot.itemId = itemId;
+            slot.quantity = std::min(maxStack, remaining);
+            remaining -= slot.quantity;
+            if (firstSlotUsed < 0) {
+                firstSlotUsed = slotIndex;
+            }
+        }
+
+        return (remaining == 0) ? firstSlotUsed : -1;
+    }
+
+    while (remaining > 0) {
+        int slotIndex = FindEmptyChestSlot(chest);
+        if (slotIndex < 0) {
+            break;
+        }
+        Chest::Slot& slot = slots[static_cast<size_t>(slotIndex)];
+        slot.itemId = itemId;
+        slot.quantity = 1;
+        --remaining;
+        if (firstSlotUsed < 0) {
+            firstSlotUsed = slotIndex;
+        }
+    }
+
+    return (remaining == 0) ? firstSlotUsed : -1;
 }
 
 std::vector<std::string> WrapTextLines(const std::string& text,
@@ -293,7 +428,7 @@ void AppendIntBonusLine(std::vector<std::string>& lines,
         return;
     }
     std::string line;
-    line += (value > 0) ? "+ " : "- ";
+    line += (value > 0) ? "+" : "-";
     line += std::to_string(std::abs(value));
     line += " ";
     if (icon != nullptr) {
@@ -313,7 +448,7 @@ void AppendFloatBonusLine(std::vector<std::string>& lines,
         return;
     }
     std::string line;
-    line += (value > 0.0f) ? "+ " : "- ";
+    line += (value > 0.0f) ? "+" : "-";
     line += FormatFloat(std::fabs(value), decimals);
     line += " ";
     if (icon != nullptr) {
@@ -357,7 +492,7 @@ std::string BuildAbilityPlaceholder(ItemCategory category) {
         case ItemCategory::Consumable:
             return "Habilidade Ativa:\nConsuma para receber o efeito imediatamente.\n\nObservacoes:\nPlaceholder ate definirmos o comportamento final.";
         case ItemCategory::Material:
-            return "Habilidades:\nNao possui habilidades. Utilizado como recurso de forja.";
+            return "Nao possui habilidades. Pode ser forjado junto com outros itens para gerar um item novo.";
         case ItemCategory::Result:
             return "Habilidades:\nResultado temporario de forja.";
         default:
@@ -401,6 +536,24 @@ void DrawItemDetailPanel(InventoryUIState& state,
     bool drewIcon = false;
     if (iconBlueprint != nullptr) {
         drewIcon = DrawWeaponInventorySprite(*iconBlueprint, iconRect);
+    }
+    if (!drewIcon && itemDef != nullptr && !itemDef->inventorySpritePath.empty()) {
+        Texture2D texture = AcquireInventorySpriteTexture(itemDef->inventorySpritePath);
+        if (texture.id != 0) {
+            Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
+            Vector2 center{iconRect.x + iconRect.width * 0.5f, iconRect.y + iconRect.height * 0.5f};
+            Vector2 drawSize = itemDef->inventorySpriteDrawSize;
+            if (drawSize.x <= 0.0f || drawSize.y <= 0.0f) {
+                float maxDim = std::max(1.0f, static_cast<float>(std::max(texture.width, texture.height)));
+                float targetDim = std::max(0.0f, std::min(iconRect.width, iconRect.height) - kInventorySpritePadding);
+                float scale = targetDim > 0.0f ? std::min(1.0f, targetDim / maxDim) : 1.0f;
+                drawSize = Vector2{static_cast<float>(texture.width) * scale, static_cast<float>(texture.height) * scale};
+            }
+            Rectangle dest{center.x, center.y, drawSize.x, drawSize.y};
+            Vector2 origin{dest.width * 0.5f, dest.height * 0.5f};
+            DrawTexturePro(texture, src, dest, origin, 0.0f, WHITE);
+            drewIcon = true;
+        }
     }
     if (!drewIcon) {
         DrawRectangleRec(iconRect, Color{90, 100, 128, 255});
@@ -491,38 +644,33 @@ void DrawItemDetailPanel(InventoryUIState& state,
                 : 1.0f;
         }
         statsLines.push_back("Dano de acerto critico: " + FormatFloat(critMultiplier * 100.0f, 0) + "%");
-    } else {
-        statsLines.push_back("Atributos principais: Em definicao.");
     }
 
-    cursorY += DrawLineList(statsLines, Vector2{area.x + padding, cursorY}, bodyFont, textColor);
-    cursorY += 10.0f;
+    if (!statsLines.empty()) {
+        cursorY += DrawLineList(statsLines, Vector2{area.x + padding, cursorY}, bodyFont, textColor);
+        cursorY += 12.0f;
+    }
 
-    DrawTextEx(font, "Passivos:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
-    cursorY += bodyFont + 4.0f;
-
-    std::vector<std::string> passiveLines;
+    std::vector<std::string> bonusLines;
+    if (itemDef != nullptr) {
+        std::vector<std::string> itemBonuses = CollectPassiveBonusLines(itemDef->attributeBonuses);
+        bonusLines.insert(bonusLines.end(), itemBonuses.begin(), itemBonuses.end());
+    }
     if (weaponBlueprint != nullptr) {
-        passiveLines = CollectPassiveBonusLines(weaponBlueprint->passiveBonuses);
+        std::vector<std::string> weaponBonuses = CollectPassiveBonusLines(weaponBlueprint->passiveBonuses);
+        bonusLines.insert(bonusLines.end(), weaponBonuses.begin(), weaponBonuses.end());
     }
-    if (passiveLines.empty()) {
-        passiveLines.push_back("Nenhum");
-    }
-    cursorY += DrawLineList(passiveLines, Vector2{area.x + padding + 12.0f, cursorY}, bodyFont, textColor);
-    cursorY += 12.0f;
 
-    DrawTextEx(font, "Descricao:", Vector2{area.x + padding, cursorY}, bodyFont, kBodyTextSpacing, textColor);
-    cursorY += bodyFont + 4.0f;
+    if (!bonusLines.empty()) {
+        cursorY += DrawLineList(bonusLines, Vector2{area.x + padding, cursorY}, bodyFont, textColor);
+        cursorY += 12.0f;
+    }
 
     std::string descriptionText;
     if (itemDef != nullptr && !itemDef->description.empty()) {
         descriptionText = itemDef->description;
     } else {
         descriptionText = "Descricao nao definida.";
-    }
-
-    if (itemDef != nullptr) {
-        descriptionText += "\n\nValor: " + std::to_string(std::max(0, itemDef->value));
     }
 
     std::string comboText;
@@ -540,16 +688,20 @@ void DrawItemDetailPanel(InventoryUIState& state,
     cursorY += DrawWrappedText(Vector2{area.x + padding, cursorY}, contentWidth, descriptionText, bodyFont, textColor);
     cursorY += 14.0f;
 
-    float availableHeight = area.y + area.height - cursorY - 12.0f;
-    float abilityHeight = std::max(availableHeight, 120.0f);
-    if (cursorY + abilityHeight > area.y + area.height - 4.0f) {
-        abilityHeight = std::max(80.0f, area.y + area.height - cursorY - 4.0f);
-    }
-    if (abilityHeight <= 0.0f) {
-        abilityHeight = 100.0f;
+    const float buttonReserveHeight = 40.0f; // Mantem folga acima dos botoes inferiores
+    float availableHeight = (area.y + area.height - buttonReserveHeight) - cursorY;
+    availableHeight = std::max(0.0f, availableHeight);
+    const float maxAbilityHeight = 240.0f;
+    float abilityHeight = std::clamp(availableHeight, 80.0f, std::min(maxAbilityHeight, availableHeight));
+
+    Rectangle abilityBox{area.x + padding,
+                         area.y + area.height - buttonReserveHeight - abilityHeight,
+                         area.width - padding * 2.0f,
+                         abilityHeight};
+    if (abilityBox.height <= 0.0f || abilityBox.width <= 0.0f) {
+        return;
     }
 
-    Rectangle abilityBox{area.x + padding, cursorY, area.width - padding * 2.0f, abilityHeight};
     GuiGroupBox(abilityBox, "Habilidades");
 
     Rectangle scrollBounds{abilityBox.x + 8.0f, abilityBox.y + 24.0f, abilityBox.width - 16.0f, abilityBox.height - 32.0f};
@@ -563,19 +715,28 @@ void DrawItemDetailPanel(InventoryUIState& state,
     float abilityContentHeight = abilityLines.empty()
         ? bodyFont
         : abilityLines.size() * (bodyFont + kParagraphSpacing) - kParagraphSpacing;
-    abilityContentHeight = std::max(abilityContentHeight, scrollBounds.height - 6.0f);
 
-    Rectangle inner{0.0f, 0.0f, textWidth, abilityContentHeight};
+    float scrollContentHeight = std::max(scrollBounds.height, abilityContentHeight + 4.0f);
+    float scrollContentWidth = std::max(scrollBounds.width, textWidth + 4.0f);
+
+    Rectangle inner{0.0f, 0.0f, scrollContentWidth, scrollContentHeight};
     Rectangle view{};
+    int prevDefaultBorder = GuiGetStyle(DEFAULT, BORDER_WIDTH);
+    GuiSetStyle(DEFAULT, BORDER_WIDTH, 0);
     GuiScrollPanel(scrollBounds, nullptr, inner, &state.detailAbilityScroll, &view);
+    GuiSetStyle(DEFAULT, BORDER_WIDTH, prevDefaultBorder);
+
+    if (view.width < 4.0f || view.height < 4.0f) {
+        return;
+    }
 
     BeginScissorMode(static_cast<int>(view.x),
                      static_cast<int>(view.y),
                      static_cast<int>(view.width),
                      static_cast<int>(view.height));
     DrawLineList(abilityLines,
-                 Vector2{scrollBounds.x + state.detailAbilityScroll.x + 4.0f,
-                         scrollBounds.y + state.detailAbilityScroll.y + 4.0f},
+                 Vector2{view.x + state.detailAbilityScroll.x + 4.0f,
+                         view.y + state.detailAbilityScroll.y + 4.0f},
                  bodyFont,
                  textColor);
     EndScissorMode();
@@ -632,7 +793,7 @@ Color ResolveBorderColor(const InventoryUIState& state, int itemId) {
 }
 
 void RefreshForgeChance(InventoryUIState& state) {
-    if (state.forgeBroken) {
+    if (state.forgeState == ForgeState::Broken) {
         state.forgeSuccessChance = 0.0f;
         return;
     }
@@ -674,6 +835,9 @@ uint64_t MakeForgeKey(int idA, int idB) {
 
 void AppendForgeCombos(const InventoryUIState& state, int itemId, std::string& text) {
     if (itemId <= 0) {
+        return;
+    }
+    if (ItemCategoryFromId(state, itemId) == ItemCategory::Material) {
         return;
     }
     std::string combos;
@@ -792,14 +956,14 @@ void SetShopSlot(InventoryUIState& state, int index, int itemId, int price, int 
     state.shopStock[index] = std::max(0, stock);
 }
 
-void RollShopInventory(InventoryUIState& state) {
-    const int desiredSlots = 4;
-    EnsureShopCapacity(state, desiredSlots);
-    state.shopItemIds.assign(desiredSlots, 0);
-    state.shopItems.assign(desiredSlots, std::string());
-    state.shopPrices.assign(desiredSlots, 0);
-    state.shopTypes.assign(desiredSlots, ItemCategory::None);
-    state.shopStock.assign(desiredSlots, 0);
+void RollShopInventoryInternal(InventoryUIState& state, ShopInstance* shop = nullptr) {
+    EnsureShopCapacity(state, kShopSlotCount);
+    state.shopItemIds.assign(kShopSlotCount, 0);
+    state.shopItems.assign(kShopSlotCount, std::string());
+    state.shopPrices.assign(kShopSlotCount, 0);
+    state.shopTypes.assign(kShopSlotCount, ItemCategory::None);
+    state.shopStock.assign(kShopSlotCount, 0);
+    ResetShopTradeState(state);
 
     std::vector<int> availableIndices;
     availableIndices.reserve(state.items.size());
@@ -809,22 +973,54 @@ void RollShopInventory(InventoryUIState& state) {
         }
     }
 
-    for (int slot = 0; slot < desiredSlots; ++slot) {
+    std::mt19937_64 shopRng;
+    bool useShopRng = (shop != nullptr);
+    if (useShopRng) {
+        shopRng.seed(shop->CurrentSeed());
+    }
+
+    for (int slot = 0; slot < kShopSlotCount; ++slot) {
         if (availableIndices.empty()) {
             SetShopSlot(state, slot, 0, 0, 0);
             continue;
         }
-        int pick = GetRandomValue(0, static_cast<int>(availableIndices.size()) - 1);
-        int index = availableIndices[pick];
-        const ItemDefinition& def = state.items[index];
+
+        int pickIndex = 0;
+        if (useShopRng) {
+            std::uniform_int_distribution<int> dist(0, static_cast<int>(availableIndices.size()) - 1);
+            pickIndex = dist(shopRng);
+        } else {
+            pickIndex = GetRandomValue(0, static_cast<int>(availableIndices.size()) - 1);
+        }
+
+        int itemIndex = availableIndices[pickIndex];
+        const ItemDefinition& def = state.items[itemIndex];
         int price = static_cast<int>(std::round(def.value * 1.3f));
         int finalPrice = (price <= 0) ? def.value : price;
         int stock = kDefaultShopStock;
         if (def.category == ItemCategory::Consumable) {
-            stock = GetRandomValue(kConsumableShopMinStock, kConsumableShopMaxStock);
+            if (useShopRng) {
+                std::uniform_int_distribution<int> stockDist(kConsumableShopMinStock, kConsumableShopMaxStock);
+                stock = stockDist(shopRng);
+            } else {
+                stock = GetRandomValue(kConsumableShopMinStock, kConsumableShopMaxStock);
+            }
         }
+
         SetShopSlot(state, slot, def.id, finalPrice, stock);
-        availableIndices.erase(availableIndices.begin() + pick);
+        availableIndices.erase(availableIndices.begin() + pickIndex);
+    }
+
+    if (shop != nullptr) {
+        shop->items.clear();
+        shop->items.reserve(kShopSlotCount);
+        for (int slot = 0; slot < kShopSlotCount; ++slot) {
+            ShopInventoryEntry entry{};
+            entry.itemId = state.shopItemIds[slot];
+            entry.price = state.shopPrices[slot];
+            entry.stock = (slot < static_cast<int>(state.shopStock.size())) ? state.shopStock[slot] : 0;
+            shop->items.push_back(entry);
+        }
     }
 
     state.selectedShopIndex = -1;
@@ -834,6 +1030,32 @@ void ClearInventorySlot(InventoryUIState& state, int index) {
     SetInventorySlot(state, index, 0, 0);
 }
 
+bool ReduceStackableSlot(InventoryUIState& state, int index, int amount) {
+    if (amount <= 0 || index < 0 || index >= static_cast<int>(state.inventoryItemIds.size())) {
+        return false;
+    }
+    int itemId = state.inventoryItemIds[index];
+    if (itemId == 0) {
+        return false;
+    }
+    ItemCategory category = ItemCategoryFromId(state, itemId);
+    if (category != ItemCategory::Consumable && category != ItemCategory::Material) {
+        return false;
+    }
+    int current = (index < static_cast<int>(state.inventoryQuantities.size())) ? state.inventoryQuantities[index] : 0;
+    if (current < amount || current <= 0) {
+        return false;
+    }
+
+    int remaining = current - amount;
+    if (remaining > 0) {
+        SetInventorySlot(state, index, itemId, remaining);
+    } else {
+        ClearInventorySlot(state, index);
+    }
+    return true;
+}
+
 bool ReduceConsumableStack(InventoryUIState& state, int index, int amount) {
     if (amount <= 0 || index < 0 || index >= static_cast<int>(state.inventoryItemIds.size())) {
         return false;
@@ -841,21 +1063,12 @@ bool ReduceConsumableStack(InventoryUIState& state, int index, int amount) {
     if (state.inventoryItemIds[index] == 0) {
         return false;
     }
-    if (index >= static_cast<int>(state.inventoryTypes.size()) || state.inventoryTypes[index] != ItemCategory::Consumable) {
+    if (ItemCategoryFromId(state, state.inventoryItemIds[index]) != ItemCategory::Consumable) {
         return false;
     }
-    int current = (index < static_cast<int>(state.inventoryQuantities.size())) ? state.inventoryQuantities[index] : 0;
-    if (current < amount) {
-        return false;
-    }
-    int remaining = current - amount;
-    if (remaining > 0) {
-        SetInventorySlot(state, index, state.inventoryItemIds[index], remaining);
-    } else {
-        ClearInventorySlot(state, index);
-    }
+    bool reduced = ReduceStackableSlot(state, index, amount);
     // NOTE: Reuse this helper when implementing consumable usage to decrement stacks after activating the item ability.
-    return true;
+    return reduced;
 }
 
 int FindEmptyInventorySlot(const InventoryUIState& state) {
@@ -997,7 +1210,7 @@ bool DetermineForgeOutcome(const InventoryUIState& state,
 }
 
 void AttemptForge(InventoryUIState& state) {
-    if (state.forgeBroken) {
+    if (state.forgeState == ForgeState::Broken) {
         ShowMessage(state, "A bigorna esta quebrada.");
         return;
     }
@@ -1045,8 +1258,11 @@ void AttemptForge(InventoryUIState& state) {
         ClearForgeSlot(state, 1);
         state.selectedForgeSlot = 2;
         ShowMessage(state, "Forja concluida!");
+        state.forgeState = ForgeState::Working;
+        state.pendingForgeBreak = false;
     } else {
-        state.forgeBroken = true;
+        state.forgeState = ForgeState::Broken;
+        state.pendingForgeBreak = true;
         state.selectedForgeSlot = -1;
         ShowMessage(state, "forja falhou! A bigorna quebrou.");
     }
@@ -1065,6 +1281,75 @@ int CalculateSaleValue(const InventoryUIState& state, int itemId, int quantity =
     float multiplier = std::max(0.0f, state.sellPriceMultiplier);
     float totalValue = static_cast<float>(def->value) * static_cast<float>(quantity) * multiplier;
     return static_cast<int>(std::round(totalValue));
+}
+
+constexpr int kMythicRarity = 6;
+
+bool ShopTradeTargetsIndex(const InventoryUIState& state, int shopIndex) {
+    return state.shopTradeActive && state.shopTradeShopIndex == shopIndex;
+}
+
+void InvalidateTradeCandidate(InventoryUIState& state) {
+    state.shopTradeReadyToConfirm = false;
+    state.shopTradeInventoryIndex = -1;
+}
+
+void HandleShopTradeInventoryCandidate(InventoryUIState& state, int inventoryIndex) {
+    if (!state.shopTradeActive || state.shopTradeShopIndex < 0) {
+        return;
+    }
+
+    if (inventoryIndex < 0 || inventoryIndex >= static_cast<int>(state.inventoryItemIds.size())) {
+        InvalidateTradeCandidate(state);
+        return;
+    }
+
+    int itemId = state.inventoryItemIds[inventoryIndex];
+    if (itemId == 0) {
+        InvalidateTradeCandidate(state);
+        state.feedbackMessage = "Ofereca um item valido para a troca.";
+        state.feedbackTimer = 0.0f;
+        return;
+    }
+
+    ItemCategory category = ItemCategoryFromId(state, itemId);
+    if (category == ItemCategory::Consumable || category == ItemCategory::Material) {
+        InvalidateTradeCandidate(state);
+        const char* typeLabel = (category == ItemCategory::Consumable) ? "consumivel" : "recurso";
+        state.feedbackMessage = TextFormat("Itens do tipo %s nao sao aceitos em trocas.", typeLabel);
+        state.feedbackTimer = 0.0f;
+        return;
+    }
+
+    int rarity = GetItemRarity(state, itemId);
+    if (rarity < state.shopTradeRequiredRarity) {
+        InvalidateTradeCandidate(state);
+        state.feedbackMessage = "Este item nao e bom o suficiente.";
+        state.feedbackTimer = 0.0f;
+        return;
+    }
+
+    state.shopTradeInventoryIndex = inventoryIndex;
+    state.shopTradeReadyToConfirm = true;
+    state.feedbackMessage = "Clique novamente em 'trocar' para confirmar.";
+    state.feedbackTimer = 0.0f;
+}
+
+void HandleShopTradeShopSelection(InventoryUIState& state, int shopIndex) {
+    if (!state.shopTradeActive) {
+        return;
+    }
+
+    if (state.shopTradeShopIndex != shopIndex) {
+        ResetShopTradeState(state);
+        state.feedbackTimer = 0.0f;
+        state.feedbackMessage.clear();
+        return;
+    }
+
+    InvalidateTradeCandidate(state);
+    state.feedbackMessage = "Voce so pode escolher um item que ja lhe pertence.";
+    state.feedbackTimer = 0.0f;
 }
 
 void HandleDesequiparWeapon(InventoryUIState& state, int index) {
@@ -1194,14 +1479,14 @@ void HandleSellInventory(InventoryUIState& state, int index) {
     }
     int itemId = state.inventoryItemIds[index];
     ItemCategory type = ItemCategoryFromId(state, itemId);
-    if (type == ItemCategory::Consumable) {
+    if (type == ItemCategory::Consumable || type == ItemCategory::Material) {
         int saleValue = CalculateSaleValue(state, itemId, 1);
         if (saleValue <= 0) {
             ShowMessage(state, "Item sem valor de venda.");
             return;
         }
-        if (!ReduceConsumableStack(state, index, 1)) {
-            ShowMessage(state, "Falha ao atualizar o estoque do consumivel.");
+        if (!ReduceStackableSlot(state, index, 1)) {
+            ShowMessage(state, "Falha ao atualizar o estoque do item.");
             return;
         }
         state.coins += saleValue;
@@ -1404,7 +1689,158 @@ void HandleRemoveFromForge(InventoryUIState& state, int slot) {
     }
 }
 
+void HandleChestWithdraw(InventoryUIState& state, int index) {
+    if (!state.hasActiveChest || state.activeChest == nullptr) {
+        ShowMessage(state, "Nenhum bau ativo.");
+        return;
+    }
+    if (index < 0 || index >= static_cast<int>(state.chestItemIds.size())) {
+        ShowMessage(state, "Selecione um item valido do bau.");
+        return;
+    }
+    const Chest::Slot& slot = state.activeChest->GetSlot(index);
+    if (slot.itemId == 0) {
+        ShowMessage(state, "Este slot esta vazio.");
+        state.selectedChestIndex = -1;
+        return;
+    }
+
+    const std::vector<int> prevIds = state.inventoryItemIds;
+    const std::vector<std::string> prevNames = state.inventoryItems;
+    const std::vector<int> prevQuantities = state.inventoryQuantities;
+    const std::vector<ItemCategory> prevTypes = state.inventoryTypes;
+
+    int addedSlot = AddItemToInventory(state, slot.itemId, std::max(1, slot.quantity));
+    if (addedSlot < 0) {
+        state.inventoryItemIds = prevIds;
+        state.inventoryItems = prevNames;
+        state.inventoryQuantities = prevQuantities;
+        state.inventoryTypes = prevTypes;
+        EnsureInventoryMeta(state);
+        ShowMessage(state, "Sem espaco no inventario.");
+        return;
+    }
+
+    state.activeChest->ClearSlot(index);
+    RefreshChestView(state);
+    state.selectedChestIndex = -1;
+    state.selectedInventoryIndex = addedSlot;
+    ShowMessage(state, "Item transferido para o inventario.");
+}
+
+void HandleChestDiscard(InventoryUIState& state, int index) {
+    if (!state.hasActiveChest || state.activeChest == nullptr) {
+        return;
+    }
+    if (index < 0 || index >= static_cast<int>(state.chestItemIds.size())) {
+        return;
+    }
+    state.activeChest->ClearSlot(index);
+    RefreshChestView(state);
+    state.selectedChestIndex = -1;
+    ShowMessage(state, "Item descartado do bau.");
+}
+
+void HandleChestDeposit(InventoryUIState& state, int inventoryIndex) {
+    if (!state.hasActiveChest || state.activeChest == nullptr) {
+        ShowMessage(state, "Nenhum bau ativo.");
+        return;
+    }
+    if (!state.chestSupportsDeposit) {
+        ShowMessage(state, "Este bau nao aceita deposito.");
+        return;
+    }
+    if (inventoryIndex < 0 || inventoryIndex >= static_cast<int>(state.inventoryItemIds.size())) {
+        ShowMessage(state, "Selecione um item valido do inventario.");
+        return;
+    }
+
+    int itemId = state.inventoryItemIds[inventoryIndex];
+    if (itemId == 0) {
+        ShowMessage(state, "Slot vazio.");
+        return;
+    }
+
+    int quantity = std::max(1, state.inventoryQuantities[inventoryIndex]);
+    if (!ChestCanAccept(*state.activeChest, state, itemId, quantity)) {
+        ShowMessage(state, "O bau nao tem espaco suficiente.");
+        return;
+    }
+
+    int slotUsed = AddItemToChest(*state.activeChest, state, itemId, quantity);
+    if (slotUsed < 0) {
+        ShowMessage(state, "Falha ao guardar o item.");
+        return;
+    }
+
+    ClearInventorySlot(state, inventoryIndex);
+    state.selectedInventoryIndex = -1;
+    state.selectedChestIndex = slotUsed;
+    RefreshChestView(state);
+    ShowMessage(state, "Item guardado no bau.");
+}
+
+void HandleChestTakeAll(InventoryUIState& state) {
+    if (!state.hasActiveChest || state.activeChest == nullptr) {
+        ShowMessage(state, "Nenhum bau ativo.");
+        return;
+    }
+    const auto& slots = state.activeChest->GetSlots();
+    std::vector<std::pair<int, int>> toTransfer;
+    toTransfer.reserve(slots.size());
+    for (size_t i = 0; i < slots.size(); ++i) {
+        const Chest::Slot& slot = slots[i];
+        if (slot.itemId == 0) {
+            continue;
+        }
+        toTransfer.emplace_back(static_cast<int>(i), std::max(1, slot.quantity));
+    }
+
+    if (toTransfer.empty()) {
+        ShowMessage(state, "O bau esta vazio.");
+        return;
+    }
+
+    const std::vector<int> prevIds = state.inventoryItemIds;
+    const std::vector<std::string> prevNames = state.inventoryItems;
+    const std::vector<int> prevQuantities = state.inventoryQuantities;
+    const std::vector<ItemCategory> prevTypes = state.inventoryTypes;
+    const int previousSelectedInventory = state.selectedInventoryIndex;
+
+    std::vector<int> addedSlots;
+    addedSlots.reserve(toTransfer.size());
+
+    for (const auto& entry : toTransfer) {
+        int slotIndex = entry.first;
+        const Chest::Slot& slot = slots[static_cast<size_t>(slotIndex)];
+        int addedSlot = AddItemToInventory(state, slot.itemId, entry.second);
+        if (addedSlot < 0) {
+            state.inventoryItemIds = prevIds;
+            state.inventoryItems = prevNames;
+            state.inventoryQuantities = prevQuantities;
+            state.inventoryTypes = prevTypes;
+            EnsureInventoryMeta(state);
+            state.selectedInventoryIndex = previousSelectedInventory;
+            ShowMessage(state, "Sem espaco para pegar tudo.");
+            return;
+        }
+        addedSlots.push_back(addedSlot);
+    }
+
+    for (const auto& entry : toTransfer) {
+        state.activeChest->ClearSlot(entry.first);
+    }
+
+    RefreshChestView(state);
+    state.selectedChestIndex = -1;
+    if (!addedSlots.empty()) {
+        state.selectedInventoryIndex = addedSlots.back();
+    }
+    ShowMessage(state, "Todos os itens foram transferidos.");
+}
+
 void HandleBuyFromShop(InventoryUIState& state, int index) {
+    ResetShopTradeState(state);
     if (index < 0 || index >= static_cast<int>(state.shopItemIds.size())) {
         return;
     }
@@ -1454,6 +1890,25 @@ void DrawSlot(const InventoryUIState& state,
     if (itemId > 0) {
         if (const WeaponBlueprint* blueprint = ResolveWeaponBlueprint(state, itemId)) {
             drewInventorySprite = DrawWeaponInventorySprite(*blueprint, rect);
+        } else if (const ItemDefinition* def = FindItemDefinition(state, itemId)) {
+            if (!def->inventorySpritePath.empty()) {
+                Texture2D texture = AcquireInventorySpriteTexture(def->inventorySpritePath);
+                if (texture.id != 0) {
+                    Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
+                    Vector2 center{rect.x + rect.width * 0.5f, rect.y + rect.height * 0.5f};
+                    Vector2 drawSize = def->inventorySpriteDrawSize;
+                    if (drawSize.x <= 0.0f || drawSize.y <= 0.0f) {
+                        float maxDim = std::max(1.0f, static_cast<float>(std::max(texture.width, texture.height)));
+                        float targetDim = std::max(0.0f, std::min(rect.width, rect.height) - kInventorySpritePadding);
+                        float scale = targetDim > 0.0f ? std::min(1.0f, targetDim / maxDim) : 1.0f;
+                        drawSize = Vector2{static_cast<float>(texture.width) * scale, static_cast<float>(texture.height) * scale};
+                    }
+                    Rectangle dest{center.x, center.y, drawSize.x, drawSize.y};
+                    Vector2 origin{dest.width * 0.5f, dest.height * 0.5f};
+                    DrawTexturePro(texture, src, dest, origin, 0.0f, WHITE);
+                    drewInventorySprite = true;
+                }
+            }
         }
     }
 
@@ -1507,6 +1962,230 @@ void DrawMultilineText(const Rectangle& area, const std::string& text, float fon
 
 } // namespace
 
+void EnsureCommonChestLoot(CommonChest& chest, const InventoryUIState& state) {
+    if (chest.IsGenerated()) {
+        return;
+    }
+
+    auto& slots = chest.GetSlots();
+    for (Chest::Slot& slot : slots) {
+        slot.itemId = 0;
+        slot.quantity = 0;
+    }
+
+    std::vector<const ItemDefinition*> lootPool;
+    lootPool.reserve(state.items.size());
+    for (const ItemDefinition& def : state.items) {
+        if (def.id <= 0) {
+            continue;
+        }
+        if (def.category == ItemCategory::None) {
+            continue;
+        }
+        lootPool.push_back(&def);
+    }
+
+    if (lootPool.empty()) {
+        chest.MarkGenerated();
+        return;
+    }
+
+    std::mt19937_64 rng(chest.LootSeed());
+
+    std::vector<int> slotIndices(static_cast<size_t>(chest.Capacity()));
+    std::iota(slotIndices.begin(), slotIndices.end(), 0);
+    std::shuffle(slotIndices.begin(), slotIndices.end(), rng);
+
+    int maxSlotsToFill = std::min(static_cast<int>(slotIndices.size()), 3);
+    maxSlotsToFill = std::max(1, maxSlotsToFill);
+    std::uniform_int_distribution<int> countDist(1, maxSlotsToFill);
+    int slotsToFill = std::min(countDist(rng), static_cast<int>(slotIndices.size()));
+
+    if (slotsToFill <= 0) {
+        chest.MarkGenerated();
+        return;
+    }
+
+    std::uniform_int_distribution<int> poolDist(0, static_cast<int>(lootPool.size()) - 1);
+
+    for (int i = 0; i < slotsToFill; ++i) {
+        int slotIndex = slotIndices[static_cast<size_t>(i)];
+        const ItemDefinition* def = lootPool[static_cast<size_t>(poolDist(rng))];
+        if (def == nullptr) {
+            continue;
+        }
+
+        int quantity = 1;
+        if (def->category == ItemCategory::Consumable) {
+            std::uniform_int_distribution<int> qtyDist(1, std::min(3, MaxStackForCategory(def->category)));
+            quantity = qtyDist(rng);
+        } else if (def->category == ItemCategory::Material) {
+            std::uniform_int_distribution<int> qtyDist(2, std::min(6, MaxStackForCategory(def->category)));
+            quantity = qtyDist(rng);
+        }
+
+        chest.SetSlot(slotIndex, def->id, quantity);
+    }
+
+    chest.MarkGenerated();
+}
+
+void RefreshChestView(InventoryUIState& state) {
+    if (!state.hasActiveChest || state.activeChest == nullptr) {
+        state.chestItemIds.clear();
+        state.chestItems.clear();
+        state.chestQuantities.clear();
+        state.chestTypes.clear();
+        state.selectedChestIndex = -1;
+        return;
+    }
+
+    const auto& slots = state.activeChest->GetSlots();
+    size_t capacity = slots.size();
+    state.chestItemIds.resize(capacity, 0);
+    state.chestItems.resize(capacity);
+    state.chestQuantities.resize(capacity, 0);
+    state.chestTypes.resize(capacity, ItemCategory::None);
+
+    for (size_t i = 0; i < capacity; ++i) {
+        const Chest::Slot& slot = slots[i];
+        state.chestItemIds[i] = slot.itemId;
+        if (slot.itemId > 0) {
+            const ItemDefinition* def = FindItemDefinition(state, slot.itemId);
+            state.chestItems[i] = def ? def->name : ItemNameFromId(state, slot.itemId);
+            ItemCategory category = def ? def->category : ItemCategoryFromId(state, slot.itemId);
+            state.chestTypes[i] = category;
+            state.chestQuantities[i] = slot.quantity;
+        } else {
+            state.chestItems[i].clear();
+            state.chestQuantities[i] = 0;
+            state.chestTypes[i] = ItemCategory::None;
+        }
+    }
+
+    if (state.selectedChestIndex >= static_cast<int>(capacity) ||
+        (state.selectedChestIndex >= 0 && state.chestItemIds[static_cast<size_t>(state.selectedChestIndex)] == 0)) {
+        state.selectedChestIndex = -1;
+    }
+}
+
+void LoadChestContents(InventoryUIState& state, Chest& chest) {
+    state.activeChest = &chest;
+    state.hasActiveChest = true;
+    state.chestUiType = (chest.GetType() == Chest::Type::Player)
+                            ? InventoryUIState::ChestUIType::Player
+                            : InventoryUIState::ChestUIType::Common;
+    state.chestSupportsDeposit = chest.SupportsDeposit();
+    state.chestSupportsTakeAll = chest.SupportsTakeAll();
+    state.chestTitle = chest.DisplayName() ? chest.DisplayName() : "Bau";
+    state.selectedChestIndex = -1;
+
+    if (chest.GetType() == Chest::Type::Common) {
+        if (auto* common = dynamic_cast<CommonChest*>(&chest)) {
+            EnsureCommonChestLoot(*common, state);
+        }
+    }
+
+    RefreshChestView(state);
+    state.feedbackMessage.clear();
+    state.feedbackTimer = 0.0f;
+}
+
+void ResetShopTradeState(InventoryUIState& state) {
+    state.shopTradeActive = false;
+    state.shopTradeReadyToConfirm = false;
+    state.shopTradeRequiredRarity = 0;
+    state.shopTradeInventoryIndex = -1;
+    state.shopTradeShopIndex = -1;
+}
+
+void RollShopInventory(InventoryUIState& state, ShopInstance* shop) {
+    RollShopInventoryInternal(state, shop);
+}
+
+void LoadForgeContents(InventoryUIState& state, const ForgeInstance& forge) {
+    for (std::size_t i = 0; i < state.forgeInputIds.size(); ++i) {
+        const auto& slot = forge.contents.inputs[i];
+        state.forgeInputIds[i] = slot.itemId;
+        state.forgeInputQuantities[i] = (slot.itemId == 0) ? 0 : std::max(0, slot.quantity);
+        if (slot.itemId != 0) {
+            state.forgeInputNames[i] = ItemNameFromId(state, slot.itemId);
+        } else {
+            state.forgeInputNames[i].clear();
+        }
+    }
+
+    state.forgeResultId = forge.contents.result.itemId;
+    state.forgeResultQuantity = (state.forgeResultId == 0) ? 0 : std::max(0, forge.contents.result.quantity);
+    if (state.forgeResultId != 0) {
+        state.forgeResultName = ItemNameFromId(state, state.forgeResultId);
+    } else {
+        state.forgeResultName.clear();
+    }
+
+    state.forgeState = forge.state;
+    state.pendingForgeBreak = false;
+    state.selectedForgeSlot = -1;
+    RefreshForgeChance(state);
+}
+
+void StoreForgeContents(InventoryUIState& state, ForgeInstance& forge) {
+    for (std::size_t i = 0; i < state.forgeInputIds.size(); ++i) {
+        auto& slot = forge.contents.inputs[i];
+        slot.itemId = state.forgeInputIds[i];
+        slot.quantity = (slot.itemId == 0) ? 0 : std::max(0, state.forgeInputQuantities[i]);
+    }
+
+    forge.contents.result.itemId = state.forgeResultId;
+    forge.contents.result.quantity = (forge.contents.result.itemId == 0)
+        ? 0
+        : std::max(0, state.forgeResultQuantity);
+
+    if (state.forgeState == ForgeState::Broken) {
+        forge.SetBroken();
+    } else {
+        forge.SetWorking();
+    }
+
+    if (state.pendingForgeBreak && forge.IsBroken()) {
+        state.pendingForgeBreak = false;
+    }
+}
+
+void LoadShopContents(InventoryUIState& state, ShopInstance& shop) {
+    EnsureShopCapacity(state, kShopSlotCount);
+    ResetShopTradeState(state);
+
+    if (shop.items.empty()) {
+        RollShopInventory(state, &shop);
+        return;
+    }
+
+    int count = static_cast<int>(shop.items.size());
+    for (int i = 0; i < count; ++i) {
+        const ShopInventoryEntry& entry = shop.items[i];
+        SetShopSlot(state, i, entry.itemId, entry.price, entry.stock);
+    }
+    for (int i = count; i < kShopSlotCount; ++i) {
+        SetShopSlot(state, i, 0, 0, 0);
+    }
+
+    state.selectedShopIndex = -1;
+}
+
+void StoreShopContents(const InventoryUIState& state, ShopInstance& shop) {
+    shop.items.clear();
+    shop.items.reserve(kShopSlotCount);
+
+    for (int i = 0; i < kShopSlotCount; ++i) {
+        ShopInventoryEntry entry{};
+        entry.itemId = (i < static_cast<int>(state.shopItemIds.size())) ? state.shopItemIds[i] : 0;
+        entry.price = (i < static_cast<int>(state.shopPrices.size())) ? state.shopPrices[i] : 0;
+        entry.stock = (i < static_cast<int>(state.shopStock.size())) ? std::max(0, state.shopStock[i]) : 0;
+        shop.items.push_back(entry);
+    }
+}
+
 void InitializeInventoryUIDummyData(InventoryUIState& state) {
     state.items.clear();
     state.itemNameToId.clear();
@@ -1526,7 +2205,17 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     state.sellPriceMultiplier = 0.2f; // Reset base sell rate when seeding dummy data
     state.forgeBaseCost = 0;
     state.forgeSuccessChance = 0.0f;
-    state.forgeBroken = false;
+    state.forgeState = ForgeState::Working;
+    state.hasActiveForge = false;
+    state.pendingForgeBreak = false;
+    state.activeForgeCoords = RoomCoords{};
+    state.hasActiveShop = false;
+    state.activeShopCoords = RoomCoords{};
+    state.shopTradeActive = false;
+    state.shopTradeReadyToConfirm = false;
+    state.shopTradeRequiredRarity = 0;
+    state.shopTradeInventoryIndex = -1;
+    state.shopTradeShopIndex = -1;
     state.forgeRecipes.clear();
     state.forgeInputIds = {0, 0};
     state.forgeInputNames = {"", ""};
@@ -1539,7 +2228,10 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
                        const char* description,
                        int rarity,
                        int baseValue,
-                       const WeaponBlueprint* blueprint = nullptr) {
+                       const WeaponBlueprint* blueprint = nullptr,
+                       const PlayerAttributes& bonuses = PlayerAttributes{},
+                       const char* spritePath = nullptr,
+                       Vector2 drawSize = Vector2{0.0f, 0.0f}) {
         ItemDefinition def{};
         def.id = id;
         def.name = name;
@@ -1549,46 +2241,177 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
         def.baseValue = std::max(0, baseValue);
         def.value = CalculateItemPrice(def.rarity, def.baseValue);
         def.weaponBlueprint = blueprint;
+        def.attributeBonuses = bonuses;
+        if (spritePath != nullptr) {
+            def.inventorySpritePath = spritePath;
+        }
+        def.inventorySpriteDrawSize = drawSize;
         state.items.push_back(std::move(def));
         state.itemNameToId[name] = id;
     };
+
+    constexpr int kCommonBaseValue = 20;
+    auto commonValue = [&](int delta) { return kCommonBaseValue + std::max(0, delta); };
 
     addItem(1,  "Espada Curta",        ItemCategory::Weapon,      "Lamina equilibrada para iniciantes.", 2, 80,  &GetEspadaCurtaWeaponBlueprint());
     addItem(2,  "Machadinha",          ItemCategory::Weapon,      "Machado leve de uma mao.",        2, 70,  &GetMachadinhaWeaponBlueprint());
     addItem(3,  "Arco Simples",        ItemCategory::Weapon,      "Arco feito de madeira tratada.",  2, 100, &GetArcoSimplesWeaponBlueprint());
     addItem(4,  "Cajado de Carvalho",  ItemCategory::Weapon,      "Canaliza energia natural.",       3, 100, &GetCajadoDeCarvalhoWeaponBlueprint());
     addItem(21, "Broquel",             ItemCategory::Weapon,      "Escudo curto reforcado para contra-ataques.", 3, 90, &GetBroquelWeaponBlueprint());
-    addItem(5,  "Escudo de Madeira",   ItemCategory::Armor,       "Protecao basica contra ataques.", 2, 50);
-    addItem(6,  "Peitoral de Couro",   ItemCategory::Armor,       "Armadura leve e flexivel.",       3, 70);
-    addItem(7,  "Elmo Simples",        ItemCategory::Armor,       "Protecao modesta para a cabeca.", 2, 55);
-    addItem(8,  "Luvas Reforcadas",    ItemCategory::Armor,       "Garantem melhor empunhadura.",    2, 40);
-    addItem(9,  "Botas Ageis",         ItemCategory::Armor,       "Aumentam a mobilidade.",         2, 45);
-    addItem(10, "Amuleto Antigo",      ItemCategory::Armor,       "Relicario com energia selada.",   4, 130);
-    addItem(11, "Pocao de Cura",       ItemCategory::Consumable,  "Recupera uma porcao de vida.",    1, 25);
-    addItem(12, "Pocao de Energia",    ItemCategory::Consumable,  "Restaura vigor e foco.",          1, 35);
-    addItem(13, "Lingote de Ferro",    ItemCategory::Material,    "Base para forja de armas.",       1, 10);
-    addItem(14, "Gema Brilhante",      ItemCategory::Material,    "Rara e cheia de energia.",        3, 30);
-    addItem(15, "Pergaminho Runico",   ItemCategory::Material,    "Inscrito com runas antigas.",     2, 35);
-    addItem(16, "Essencia Arcana",     ItemCategory::Material,    "Concentrado de mana pura.",       3, 25);
-    addItem(17, "Madeira Refinada",    ItemCategory::Material,    "Polida e resistente.",            1, 5);
-    addItem(18, "Couro Tratado",       ItemCategory::Material,    "Pronto para virar armadura.",     1, 8);
     addItem(19, "Espada Runica",       ItemCategory::Weapon,      "Lamina encantada pelas runas.",    5, 320, &GetEspadaRunicaWeaponBlueprint());
-    addItem(20, "Amuleto Radiante",    ItemCategory::Armor,       "Canaliza luz protetora.",         5, 280);
+
+    constexpr int kCommonRarity = 1;
+    const int idFarrapo = 100;
+    const int idTiraCouro = 101;
+    const int idLingoteBronze = 102;
+    const int idTunica = 110;
+    const int idCalcadosSimples = 111;
+    const int idElmoBronze = 112;
+    const int idColeteCouro = 113;
+    const int idEspaldeiraBronze = 114;
+    const int idPingenteBronze = 115;
+
+    addItem(idFarrapo,
+    "Farrapo",
+        ItemCategory::Material,
+        "Restos de tecidos gastos e desbotados pelo tempo. Ainda que simples, podem ser costurados novamente e servir como base para algumas vestimentas.",
+        kCommonRarity,
+        commonValue(0),
+        nullptr,
+        PlayerAttributes{},
+    "assets/img/itens/Farrapo.png",
+    Vector2{56.0f, 56.0f});
+
+    addItem(idTiraCouro,
+        "Tira de couro",
+        ItemCategory::Material,
+        "Um pedaco fino e resistente de couro curtido. Muito util na confeccao de protecoes leves ou para reforcar costuras em equipamentos simples.",
+        kCommonRarity,
+        commonValue(0),
+        nullptr,
+    PlayerAttributes{},
+    "assets/img/itens/Tira_de_couro.png",
+    Vector2{56.0f, 56.0f});
+
+    addItem(idLingoteBronze,
+        "Lingote de bronze",
+        ItemCategory::Material,
+    "Uma barra solida de bronze fundido. Sua liga equilibrada garante boa durabilidade sem exigir forja avancada - ideal para armas e armaduras simples.",
+        kCommonRarity,
+        commonValue(0),
+        nullptr,
+    PlayerAttributes{},
+    "assets/img/itens/Lingote_de_bronze.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes tunicaBonus{};
+    tunicaBonus.primary.vigor = 2;
+    addItem(idTunica,
+        "Tunica",
+        ItemCategory::Armor,
+        "Uma veste simples feita de farrapos costurados. Nao oferece protecao, mas e confortavel.",
+        kCommonRarity,
+        commonValue(10),
+    nullptr,
+    tunicaBonus,
+    "assets/img/itens/Tunica.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes calcadosBonus{};
+    calcadosBonus.primary.velocidade = 2;
+    addItem(idCalcadosSimples,
+        "Calcados simples",
+        ItemCategory::Armor,
+        "Botas rudimentares feitas de tecido e couro leve. Melhor do que andar descalco.",
+        kCommonRarity,
+        commonValue(10),
+    nullptr,
+    calcadosBonus,
+    "assets/img/itens/Calcados_simples.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes elmoBonus{};
+    elmoBonus.primary.poder = 1;
+    elmoBonus.primary.defesa = 1;
+    addItem(idElmoBronze,
+        "Elmo de bronze",
+        ItemCategory::Armor,
+        "Um elmo basico moldado em bronze. Leve e confiavel.",
+        kCommonRarity,
+        commonValue(10),
+    nullptr,
+    elmoBonus,
+    "assets/img/itens/Elmo_de_bronze.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes coleteBonus{};
+    coleteBonus.primary.defesa = 2;
+    addItem(idColeteCouro,
+        "Colete de couro",
+        ItemCategory::Armor,
+        "Uma peca robusta feita de camadas costuradas de couro. Simples, mas eficaz.",
+        kCommonRarity,
+        commonValue(10),
+    nullptr,
+    coleteBonus,
+    "assets/img/itens/Colete_de_couro.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes espaldeiraBonus{};
+    espaldeiraBonus.primary.destreza = 1;
+    espaldeiraBonus.primary.defesa = 1;
+    addItem(idEspaldeiraBronze,
+        "Espaldeira de bronze",
+        ItemCategory::Armor,
+        "Ombreiras de bronze presas por tiras de couro, garantindo mobilidade sem sacrificar protecao.",
+        kCommonRarity,
+        commonValue(10),
+    nullptr,
+    espaldeiraBonus,
+    "assets/img/itens/Espaldeira_de_bronze.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes pingenteBonus{};
+    pingenteBonus.primary.inteligencia = 1;
+    pingenteBonus.primary.poder = 1;
+    addItem(idPingenteBronze,
+        "Pingente de bronze",
+        ItemCategory::Armor,
+        "Um pequeno amuleto de bronze. Diz-se que ajuda a clarear a mente e manter o foco.",
+        kCommonRarity,
+        commonValue(10),
+    nullptr,
+    pingenteBonus,
+    "assets/img/itens/Pingente_de_bronze.png",
+    Vector2{56.0f, 56.0f});
 
     EnsureWeaponCapacity(state, 2);
     SetWeaponSlot(state, 0, 1);
     SetWeaponSlot(state, 1, 3);
 
     EnsureEquipmentCapacity(state, 5);
-    SetEquipmentSlot(state, 0, 6);
-    SetEquipmentSlot(state, 1, 7);
-    SetEquipmentSlot(state, 2, 8);
-    SetEquipmentSlot(state, 3, 9);
-    SetEquipmentSlot(state, 4, 10);
+    SetEquipmentSlot(state, 0, idTunica);
+    SetEquipmentSlot(state, 1, idCalcadosSimples);
+    SetEquipmentSlot(state, 2, idElmoBronze);
+    SetEquipmentSlot(state, 3, idColeteCouro);
+    SetEquipmentSlot(state, 4, idPingenteBronze);
 
     const std::vector<std::pair<int, int>> inventorySeed{
-        {1, 1}, {2, 1}, {3, 1}, {4, 1}, {5, 1}, {6, 1}, {7, 1}, {8, 1}, {9, 1}, {10, 1},
-    {11, 3}, {12, 2}, {13, 4}, {14, 2}, {15, 2}, {16, 2}, {17, 3}, {18, 3}, {19, 1}, {20, 1}, {21, 1}
+        {1, 1},
+        {2, 1},
+        {3, 1},
+        {4, 1},
+        {21, 1},
+        {19, 1},
+        {idFarrapo, 6},
+        {idTiraCouro, 4},
+        {idLingoteBronze, 3},
+        {idTunica, 1},
+        {idCalcadosSimples, 1},
+        {idElmoBronze, 1},
+        {idColeteCouro, 1},
+        {idEspaldeiraBronze, 1},
+        {idPingenteBronze, 1}
     };
 
     state.inventoryItemIds.resize(24, 0);
@@ -1606,20 +2429,36 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     state.shopTypes.clear();
 
     state.shopRollsLeft = 1;
-    RollShopInventory(state);
+    RollShopInventoryInternal(state);
 
-    state.forgeRecipes[MakeForgeKey(13, 15)] = 19; // Lingote + Pergaminho -> Espada Runica
-    state.forgeRecipes[MakeForgeKey(10, 14)] = 20; // Amuleto + Gema -> Amuleto Radiante
+    state.forgeRecipes[MakeForgeKey(idFarrapo, idFarrapo)] = idTunica;
+    state.forgeRecipes[MakeForgeKey(idFarrapo, idTiraCouro)] = idCalcadosSimples;
+    state.forgeRecipes[MakeForgeKey(idFarrapo, idLingoteBronze)] = idElmoBronze;
+    state.forgeRecipes[MakeForgeKey(idTiraCouro, idTiraCouro)] = idColeteCouro;
+    state.forgeRecipes[MakeForgeKey(idTiraCouro, idLingoteBronze)] = idEspaldeiraBronze;
 
     state.coins = 125;
     RefreshForgeChance(state);
+
+    state.hasActiveChest = false;
+    state.activeChest = nullptr;
+    state.chestUiType = InventoryUIState::ChestUIType::None;
+    state.chestSupportsDeposit = false;
+    state.chestSupportsTakeAll = false;
+    state.selectedChestIndex = -1;
+    state.chestTitle.clear();
+    state.chestItemIds.clear();
+    state.chestItems.clear();
+    state.chestQuantities.clear();
+    state.chestTypes.clear();
 }
 
 void RenderInventoryUI(InventoryUIState& state,
                        const PlayerCharacter& player,
                        const WeaponState& leftWeapon,
                        const WeaponState& rightWeapon,
-                       Vector2 screenSize) {
+                       Vector2 screenSize,
+                       ShopInstance* activeShop) {
     const int prevTextColor = GuiGetStyle(DEFAULT, TEXT_COLOR_NORMAL);
     const int prevFocusColor = GuiGetStyle(DEFAULT, TEXT_COLOR_FOCUSED);
     const int prevPressedColor = GuiGetStyle(DEFAULT, TEXT_COLOR_PRESSED);
@@ -1630,6 +2469,21 @@ void RenderInventoryUI(InventoryUIState& state,
     EnsureWeaponCapacity(state, std::max<size_t>(2, state.weaponSlotIds.size()));
     EnsureEquipmentCapacity(state, std::max<size_t>(5, state.equipmentSlotIds.size()));
     EnsureShopCapacity(state, state.shopItemIds.size());
+    if (state.mode != InventoryViewMode::Shop && state.shopTradeActive) {
+        ResetShopTradeState(state);
+    }
+    if (state.mode == InventoryViewMode::Chest) {
+        if (!state.hasActiveChest || state.activeChest == nullptr) {
+            state.mode = InventoryViewMode::Inventory;
+            state.hasActiveChest = false;
+            state.activeChest = nullptr;
+            state.selectedChestIndex = -1;
+        } else {
+            RefreshChestView(state);
+        }
+    } else {
+        state.selectedChestIndex = -1;
+    }
     if (state.feedbackTimer > 0.0f) {
         state.feedbackTimer -= GetFrameTime();
         if (state.feedbackTimer <= 0.0f) {
@@ -1637,8 +2491,8 @@ void RenderInventoryUI(InventoryUIState& state,
             state.feedbackMessage.clear();
         }
     }
-    const float windowWidth = std::min(1440.0f, screenSize.x - 140.0f);
-    const float windowHeight = std::min(860.0f, screenSize.y - 140.0f);
+    const float windowWidth = std::min(1720.0f, screenSize.x - 40.0f); // Limite e largura total da janela
+    const float windowHeight = std::min(860.0f, screenSize.y - 140.0f); // Limite e altura total da janela
     Rectangle windowRect{
         screenSize.x * 0.5f - windowWidth * 0.5f,
         screenSize.y * 0.5f - windowHeight * 0.5f,
@@ -1650,16 +2504,16 @@ void RenderInventoryUI(InventoryUIState& state,
 
     // Top buttons
         Rectangle menuButton{
-            windowRect.x - 120.0f,
-            windowRect.y - 44.0f,
+            windowRect.x,
+            windowRect.y - 80.0f,
             140.0f, // Ajuste aqui para alterar a largura do botao Menu
             50.0f   // Ajuste aqui para alterar a altura do botao Menu
         }; // Ajuste aqui para mover o botao Menu
     GuiButton(menuButton, "Menu");
 
         Rectangle closeButton{
-            windowRect.x + windowRect.width + 10.0f,
-            windowRect.y - 44.0f,
+            windowRect.x + 180.0f,
+            windowRect.y - 80.0f,
             140.0f, // Ajuste aqui para alterar a largura do botao Fechar
             50.0f   // Ajuste aqui para alterar a altura do botao Fechar
         }; // Ajuste aqui para mover o botao Fechar
@@ -1668,9 +2522,9 @@ void RenderInventoryUI(InventoryUIState& state,
         return;
     }
 
-    const float padding = 22.0f;
-    Rectangle attributesRect{windowRect.x + padding, windowRect.y + padding, 360.0f, windowRect.height - padding * 2.0f};
-    GuiGroupBox(attributesRect, "Atributos");
+    const float padding = 22.0f; // Margem interna entre bordas da janela e blocos
+    Rectangle attributesRect{windowRect.x + padding, windowRect.y + padding, 360.0f, windowRect.height - padding * 2.0f}; // Largura e altura da coluna de atributos
+    GuiGroupBox(attributesRect, "Personagem");
 
     Vector2 attrPos{attributesRect.x + 20.0f, attributesRect.y + 36.0f};
     DrawAttributeLabel(attrPos, "Vida", static_cast<int>(std::round(player.currentHealth)));
@@ -1704,25 +2558,22 @@ void RenderInventoryUI(InventoryUIState& state,
         windowRect.height - padding * 2.0f
     };
     GuiPanel(contentRect, nullptr);
+    Color panelLabelBg = GetColor(GuiGetStyle(DEFAULT, BACKGROUND_COLOR));
+    Rectangle panelLabelRect{contentRect.x + 18.0f, contentRect.y - 14.0f, 132.0f, 24.0f};
+    DrawRectangleRec(panelLabelRect, panelLabelBg);
+    DrawTextEx(GetGameFont(), "Inventario", Vector2{panelLabelRect.x + 6.0f, panelLabelRect.y + 4.0f}, 20.0f, kBodyTextSpacing, Color{58, 68, 96, 255});
 
-    // Tabs for modes
-    const char* modes = "Inventario;Bigorna;Loja";
-    Rectangle tabArea{contentRect.x + 10.0f, contentRect.y + 6.0f, 420.0f, 32.0f};
-    int modeIndex = static_cast<int>(state.mode);
-    GuiToggleGroup(tabArea, modes, &modeIndex);
-    state.mode = static_cast<InventoryViewMode>(modeIndex);
-
-    Rectangle weaponsLabelRect{contentRect.x + 10.0f, contentRect.y + 52.0f, 140.0f, 22.0f};
+    Rectangle weaponsLabelRect{contentRect.x + 10.0f, contentRect.y + 32.0f, 140.0f, 22.0f}; // Reposiciona o titulo "Armas"
     GuiLabel(weaponsLabelRect, "Armas");
 
-    const float slotSize = 64.0f;
-    const float slotSpacing = 12.0f;
+    const float slotSize = 64.0f;   // Define a largura/altura dos slots
+    const float slotSpacing = 12.0f; // Define o espaco entre os slots
 
     // Weapons slots (2)
     for (int i = 0; i < 2; ++i) {
         Rectangle slotRect{
             contentRect.x + 10.0f + (slotSize + slotSpacing) * i,
-            contentRect.y + 68.0f,
+            contentRect.y + 48.0f,
             slotSize,
             slotSize
         };
@@ -1731,16 +2582,22 @@ void RenderInventoryUI(InventoryUIState& state,
         int weaponId = (i < static_cast<int>(state.weaponSlotIds.size())) ? state.weaponSlotIds[i] : 0;
         DrawSlot(state, slotRect, label, selected, weaponId);
         if (SlotClicked(slotRect)) {
-            state.selectedWeaponIndex = i;
-            state.selectedInventoryIndex = -1;
-            state.selectedEquipmentIndex = -1;
-            state.selectedShopIndex = -1;
-            state.selectedForgeSlot = -1;
+            if (state.shopTradeActive) {
+                state.feedbackMessage = "Nao e possivel trocar itens equipados.";
+                state.feedbackTimer = 0.0f;
+            } else {
+                state.selectedWeaponIndex = i;
+                state.selectedInventoryIndex = -1;
+                state.selectedEquipmentIndex = -1;
+                state.selectedShopIndex = -1;
+                state.selectedForgeSlot = -1;
+                state.selectedChestIndex = -1;
+            }
         }
     }
 
     // Equipment slots row (5)
-    Rectangle equipLabelRect{contentRect.x + 10.0f, weaponsLabelRect.y + 28.0f + slotSize, 160.0f, 22.0f};
+    Rectangle equipLabelRect{contentRect.x + 10.0f, weaponsLabelRect.y + 28.0f + slotSize, 160.0f, 22.0f}; // Move o titulo "Equipamento"
     GuiLabel(equipLabelRect, "Equipamento");
 
     for (int i = 0; i < 5; ++i) {
@@ -1755,19 +2612,25 @@ void RenderInventoryUI(InventoryUIState& state,
         int equipmentId = (i < static_cast<int>(state.equipmentSlotIds.size())) ? state.equipmentSlotIds[i] : 0;
         DrawSlot(state, slotRect, label, selected, equipmentId);
         if (SlotClicked(slotRect)) {
-            state.selectedEquipmentIndex = i;
-            state.selectedWeaponIndex = -1;
-            state.selectedInventoryIndex = -1;
-            state.selectedShopIndex = -1;
-            state.selectedForgeSlot = -1;
+            if (state.shopTradeActive) {
+                state.feedbackMessage = "Nao e possivel trocar itens equipados.";
+                state.feedbackTimer = 0.0f;
+            } else {
+                state.selectedEquipmentIndex = i;
+                state.selectedWeaponIndex = -1;
+                state.selectedInventoryIndex = -1;
+                state.selectedShopIndex = -1;
+                state.selectedForgeSlot = -1;
+                state.selectedChestIndex = -1;
+            }
         }
     }
 
-    Rectangle inventoryLabelRect{contentRect.x + 10.0f, equipLabelRect.y + 30.0f + slotSize, 160.0f, 22.0f};
+    Rectangle inventoryLabelRect{contentRect.x + 10.0f, equipLabelRect.y + 30.0f + slotSize, 160.0f, 22.0f}; // Move o titulo "Inventario"
     GuiLabel(inventoryLabelRect, "Inventario");
 
-    const int inventoryColumns = 8;
-    const int inventoryRows = 3;
+    const int inventoryColumns = 8; // Numero de colunas na grade
+    const int inventoryRows = 3;    // Numero de linhas na grade
     for (int row = 0; row < inventoryRows; ++row) {
         for (int col = 0; col < inventoryColumns; ++col) {
             int index = row * inventoryColumns + col;
@@ -1794,8 +2657,14 @@ void RenderInventoryUI(InventoryUIState& state,
                 state.selectedInventoryIndex = index;
                 state.selectedWeaponIndex = -1;
                 state.selectedEquipmentIndex = -1;
-                state.selectedShopIndex = -1;
+                if (!state.shopTradeActive) {
+                    state.selectedShopIndex = -1;
+                }
                 state.selectedForgeSlot = -1;
+                state.selectedChestIndex = -1;
+                if (state.shopTradeActive) {
+                    HandleShopTradeInventoryCandidate(state, index);
+                }
             }
         }
     }
@@ -1804,24 +2673,37 @@ void RenderInventoryUI(InventoryUIState& state,
     GuiLabel(coinsLabel, TextFormat("Moedas: %d", state.coins));
 
     // Detail panel on the right
+    const float detailPanelWidth = contentRect.width * 0.48f; // Largura dedicada ao painel de detalhes (percentual do conteudo)
+    const float detailPanelMargin = 8.0f;    // Espaco entre o painel de detalhes e o restante do conteudo
     Rectangle detailRect{
-        contentRect.x + contentRect.width - 320.0f,
-        contentRect.y + 50.0f,
-        310.0f,
-        contentRect.height - 70.0f
+        contentRect.x + contentRect.width - detailPanelWidth - detailPanelMargin,
+        contentRect.y + 32.0f,
+        detailPanelWidth,
+        contentRect.height - 44.0f
     };
+    // Ajuste a posicao/largura/altura acima para remodelar o painel de detalhes à direita
     GuiGroupBox(detailRect, "Detalhes");
 
-    Rectangle detailContent{detailRect.x + 12.0f, detailRect.y + 26.0f, detailRect.width - 24.0f, detailRect.height - 38.0f};
+    const float detailHeaderOffset = 28.0f;
+    Rectangle detailContent{detailRect.x + 12.0f, detailRect.y + detailHeaderOffset, detailRect.width - 24.0f, detailRect.height - detailHeaderOffset - 42.0f};
 
     const ItemDefinition* detailItemDef = nullptr;
     const WeaponBlueprint* detailWeaponBlueprint = nullptr;
     const WeaponState* detailWeaponStatePtr = nullptr;
     int detailItemId = 0;
+    int detailQuantity = 1;
+    int selectedShopItemRarity = -1;
+    bool detailIsShopItem = false;
+    bool detailIsPlayerOwned = false;
     bool useItemLayout = false;
     std::string fallbackDetailText = "Clique em um item para ver seus atributos";
+    const bool tradeLocksDetail = state.shopTradeActive && state.shopTradeShopIndex >= 0;
+    int effectiveShopIndex = state.selectedShopIndex;
+    if (tradeLocksDetail) {
+        effectiveShopIndex = state.shopTradeShopIndex;
+    }
 
-    if (state.selectedWeaponIndex >= 0 && state.selectedWeaponIndex < static_cast<int>(state.weaponSlots.size())) {
+    if (!tradeLocksDetail && state.selectedWeaponIndex >= 0 && state.selectedWeaponIndex < static_cast<int>(state.weaponSlots.size())) {
         const WeaponState& selectedWeapon = (state.selectedWeaponIndex == 0) ? leftWeapon : rightWeapon;
         detailWeaponBlueprint = selectedWeapon.blueprint;
         detailWeaponStatePtr = (selectedWeapon.blueprint != nullptr) ? &selectedWeapon : nullptr;
@@ -1829,20 +2711,24 @@ void RenderInventoryUI(InventoryUIState& state,
             detailItemId = state.weaponSlotIds[state.selectedWeaponIndex];
             detailItemDef = FindItemDefinition(state, detailItemId);
         }
+        detailIsPlayerOwned = true;
+        detailQuantity = 1;
         useItemLayout = (detailWeaponBlueprint != nullptr) || (detailItemDef != nullptr);
         if (!useItemLayout) {
             fallbackDetailText = "Arma: Slot vazio";
         }
-    } else if (state.selectedEquipmentIndex >= 0 && state.selectedEquipmentIndex < static_cast<int>(state.equipmentSlots.size())) {
+    } else if (!tradeLocksDetail && state.selectedEquipmentIndex >= 0 && state.selectedEquipmentIndex < static_cast<int>(state.equipmentSlots.size())) {
         if (state.selectedEquipmentIndex < static_cast<int>(state.equipmentSlotIds.size())) {
             detailItemId = state.equipmentSlotIds[state.selectedEquipmentIndex];
             detailItemDef = FindItemDefinition(state, detailItemId);
         }
+        detailIsPlayerOwned = true;
+        detailQuantity = 1;
         useItemLayout = (detailItemDef != nullptr);
         if (!useItemLayout) {
             fallbackDetailText = "Equipamento: Slot vazio";
         }
-    } else if (state.selectedInventoryIndex >= 0 && state.selectedInventoryIndex < static_cast<int>(state.inventoryItems.size())) {
+    } else if (!tradeLocksDetail && state.selectedInventoryIndex >= 0 && state.selectedInventoryIndex < static_cast<int>(state.inventoryItems.size())) {
         if (state.selectedInventoryIndex < static_cast<int>(state.inventoryItemIds.size())) {
             detailItemId = state.inventoryItemIds[state.selectedInventoryIndex];
             detailItemDef = FindItemDefinition(state, detailItemId);
@@ -1850,20 +2736,60 @@ void RenderInventoryUI(InventoryUIState& state,
                 detailWeaponBlueprint = detailItemDef->weaponBlueprint;
             }
         }
+        detailIsPlayerOwned = true;
+        if (state.selectedInventoryIndex < static_cast<int>(state.inventoryQuantities.size())) {
+            detailQuantity = std::max(1, state.inventoryQuantities[state.selectedInventoryIndex]);
+        }
         useItemLayout = (detailItemDef != nullptr) || (detailWeaponBlueprint != nullptr);
         if (!useItemLayout) {
             fallbackDetailText = (detailItemId == 0) ? "Item: Slot vazio" : "Item: Dados indisponiveis";
         }
-    } else if (state.selectedShopIndex >= 0 && state.selectedShopIndex < static_cast<int>(state.shopItems.size())) {
-        int stock = (state.selectedShopIndex < static_cast<int>(state.shopStock.size())) ? state.shopStock[state.selectedShopIndex] : 0;
-        fallbackDetailText = TextFormat("Loja: %s\nPreco: %d\nEstoque: %d",
-                                        state.shopItems[state.selectedShopIndex].c_str(),
-                                        state.shopPrices[state.selectedShopIndex],
-                                        std::max(0, stock));
-        if (state.selectedShopIndex < static_cast<int>(state.shopItemIds.size())) {
-            detailItemId = state.shopItemIds[state.selectedShopIndex];
+    } else if (effectiveShopIndex >= 0 && effectiveShopIndex < static_cast<int>(state.shopItems.size())) {
+        detailIsShopItem = true;
+        detailQuantity = 1;
+        if (effectiveShopIndex < static_cast<int>(state.shopItemIds.size())) {
+            detailItemId = state.shopItemIds[effectiveShopIndex];
+            detailItemDef = FindItemDefinition(state, detailItemId);
+            if (detailItemDef != nullptr) {
+                detailWeaponBlueprint = detailItemDef->weaponBlueprint;
+                selectedShopItemRarity = std::max(0, detailItemDef->rarity);
+            } else {
+                selectedShopItemRarity = GetItemRarity(state, detailItemId);
+            }
         }
-    } else if (state.selectedForgeSlot == 0 || state.selectedForgeSlot == 1) {
+        useItemLayout = (detailItemDef != nullptr) || (detailWeaponBlueprint != nullptr);
+        if (!useItemLayout) {
+            fallbackDetailText = TextFormat("Loja: %s\nPreco: %d",
+                                            state.shopItems[effectiveShopIndex].c_str(),
+                                            state.shopPrices[effectiveShopIndex]);
+        } else {
+            fallbackDetailText.clear();
+        }
+    } else if (state.mode == InventoryViewMode::Chest &&
+               state.selectedChestIndex >= 0 &&
+               state.selectedChestIndex < static_cast<int>(state.chestItemIds.size())) {
+        if (state.selectedChestIndex < static_cast<int>(state.chestItemIds.size())) {
+            detailItemId = state.chestItemIds[state.selectedChestIndex];
+            detailItemDef = FindItemDefinition(state, detailItemId);
+            if (detailItemDef != nullptr) {
+                detailWeaponBlueprint = detailItemDef->weaponBlueprint;
+            }
+        }
+        detailQuantity = (state.selectedChestIndex < static_cast<int>(state.chestQuantities.size()))
+                             ? std::max(1, state.chestQuantities[state.selectedChestIndex])
+                             : 1;
+        useItemLayout = (detailItemDef != nullptr) || (detailWeaponBlueprint != nullptr);
+        if (!useItemLayout) {
+            std::string entryName = (state.selectedChestIndex < static_cast<int>(state.chestItems.size()))
+                                        ? state.chestItems[state.selectedChestIndex]
+                                        : std::string();
+            if (entryName.empty()) {
+                fallbackDetailText = "Bau: Slot vazio";
+            } else {
+                fallbackDetailText = "Bau: " + entryName;
+            }
+        }
+    } else if (!tradeLocksDetail && (state.selectedForgeSlot == 0 || state.selectedForgeSlot == 1)) {
         int slot = state.selectedForgeSlot;
         if (slot >= 0 && slot < 2 && state.forgeInputIds[slot] != 0) {
             std::string name = state.forgeInputNames[slot];
@@ -1872,11 +2798,15 @@ void RenderInventoryUI(InventoryUIState& state,
             }
             fallbackDetailText = "Bigorna: " + name + "\nStatus: Pronto para forjar";
             detailItemId = state.forgeInputIds[slot];
+            detailQuantity = std::max(1, state.forgeInputQuantities[slot]);
         }
-    } else if (state.selectedForgeSlot == 2 && state.forgeResultId != 0) {
+        detailIsPlayerOwned = true;
+    } else if (!tradeLocksDetail && state.selectedForgeSlot == 2 && state.forgeResultId != 0) {
         std::string name = state.forgeResultName.empty() ? ItemNameFromId(state, state.forgeResultId) : state.forgeResultName;
         fallbackDetailText = "Resultado: " + name + "\nStatus: Aguarda coleta";
         detailItemId = state.forgeResultId;
+        detailQuantity = std::max(1, state.forgeResultQuantity);
+        detailIsPlayerOwned = true;
     }
 
     if (useItemLayout) {
@@ -1906,11 +2836,44 @@ void RenderInventoryUI(InventoryUIState& state,
         state.lastDetailItemId = -1;
     }
 
-    Rectangle actionButtonLeft{detailRect.x + 12.0f, detailRect.y + detailRect.height - 40.0f, 100.0f, 28.0f};
-    Rectangle actionButtonRight{detailRect.x + detailRect.width - 112.0f, detailRect.y + detailRect.height - 40.0f, 100.0f, 28.0f};
+    // Ajuste as posicoes e medidas abaixo para deslocar/redimensionar os botoes de acao
+    const float actionButtonWidth = 100.0f;
+    const float actionButtonHeight = 28.0f;
+    const float actionButtonLeftInset = 24.0f;   // Reduza/aumente para mover o botao esquerdo na horizontal
+    const float actionButtonRightInset = 124.0f; // Reduza/aumente para mover o botao direito na horizontal
+    const float actionButtonBottomOffset = 75.0f; // Aumente para subir os botoes, diminua para descer
+    float actionRowY = detailRect.y + detailRect.height - actionButtonBottomOffset;
+    Rectangle actionButtonLeft{detailRect.x + actionButtonLeftInset, actionRowY, actionButtonWidth, actionButtonHeight};
+    Rectangle actionButtonRight{detailRect.x + detailRect.width - actionButtonRightInset, actionRowY, actionButtonWidth, actionButtonHeight};
 
-    float bottomAreaTop = coinsLabel.y + 36.0f;
-    float bottomAreaHeight = (contentRect.y + contentRect.height) - bottomAreaTop - 12.0f;
+    int displayValue = 0;
+    bool showValue = false;
+    if (detailIsShopItem) {
+        if (effectiveShopIndex >= 0 && effectiveShopIndex < static_cast<int>(state.shopPrices.size())) {
+            displayValue = state.shopPrices[effectiveShopIndex];
+            showValue = displayValue > 0;
+        } else if (detailItemId > 0) {
+            displayValue = GetItemValue(state, detailItemId);
+            showValue = displayValue > 0;
+        }
+    } else if (detailIsPlayerOwned) {
+        if (detailItemId > 0) {
+            displayValue = CalculateSaleValue(state, detailItemId, std::max(1, detailQuantity));
+            showValue = displayValue > 0;
+        }
+    }
+
+    float priceY = detailRect.y + detailRect.height - 70.0f;
+    if (showValue) {
+        std::string priceLine = TextFormat("Valor: %d", displayValue);
+        const float priceFont = 20.0f;
+        Vector2 textSize = MeasureTextEx(GetGameFont(), priceLine.c_str(), priceFont, kBodyTextSpacing);
+        float priceX = detailRect.x + detailRect.width * 0.5f - textSize.x * 0.5f;
+        DrawTextEx(GetGameFont(), priceLine.c_str(), Vector2{priceX, priceY}, priceFont, kBodyTextSpacing, Color{58, 68, 96, 255});
+    }
+
+    float bottomAreaTop = coinsLabel.y + 36.0f; // Ponto inicial vertical da area inferior (forge/loja)
+    float bottomAreaHeight = (contentRect.y + contentRect.height) - bottomAreaTop - 12.0f; // Altura util da area inferior
     bottomAreaHeight = std::max(0.0f, bottomAreaHeight);
     Rectangle bottomArea{
         contentRect.x + 10.0f,
@@ -1918,16 +2881,17 @@ void RenderInventoryUI(InventoryUIState& state,
         std::max(0.0f, detailRect.x - contentRect.x - 30.0f),
         bottomAreaHeight
     };
+    // Altere os valores acima para alargar ou aproximar a area da bigorna/loja do painel de detalhes
 
     if (state.mode == InventoryViewMode::Forge && bottomArea.width > 40.0f && bottomArea.height > 40.0f) {
         GuiGroupBox(bottomArea, "Bigorna");
 
-        float slotRowY = bottomArea.y + 48.0f;
-        float slotStartX = bottomArea.x + 20.0f; // Ajuste aqui para deslocar os slots de forja (X)
+    float slotRowY = bottomArea.y + 48.0f; // Eleva ou abaixa a fileira principal de slots da forja
+    float slotStartX = bottomArea.x + 20.0f; // Desloca os slots da forja horizontalmente
         Rectangle inputSlotA{slotStartX, slotRowY, slotSize, slotSize};
         Rectangle inputSlotB{slotStartX + slotSize + slotSpacing, slotRowY, slotSize, slotSize};
-        Rectangle arrowRect{inputSlotB.x + slotSize + 24.0f, slotRowY + slotSize * 0.5f - 20.0f, 40.0f, 40.0f};
-        Rectangle resultSlot{arrowRect.x + arrowRect.width + 24.0f, slotRowY, slotSize, slotSize};
+    Rectangle arrowRect{inputSlotB.x + slotSize + 24.0f, slotRowY + slotSize * 0.5f - 20.0f, 40.0f, 40.0f}; // Mude largura/altura para redimensionar a seta
+    Rectangle resultSlot{arrowRect.x + arrowRect.width + 24.0f, slotRowY, slotSize, slotSize}; // Posiciona o slot de resultado
 
         DrawSlot(state,
                  inputSlotA,
@@ -1980,11 +2944,11 @@ void RenderInventoryUI(InventoryUIState& state,
 
         float chanceWidth = std::min(220.0f, bottomArea.x + bottomArea.width - (resultSlot.x + slotSize + 24.0f) - 20.0f);
         if (chanceWidth > 60.0f) {
-            Rectangle chanceRect{resultSlot.x + slotSize + 60.0f, slotRowY + slotSize * 0.5f - 16.0f, chanceWidth, 32.0f}; // Ajuste aqui para mover a barra de chance
-            if (state.forgeBroken) {
+            Rectangle chanceRect{resultSlot.x + slotSize + 60.0f, slotRowY + slotSize * 0.5f - 16.0f, chanceWidth, 32.0f}; // Controla a posicao/tamanho da barra de chance
+            if (state.forgeState == ForgeState::Broken) {
                 DrawRectangleRec(chanceRect, Color{160, 32, 32, 230});
                 DrawRectangleLinesEx(chanceRect, 2.0f, Color{90, 16, 16, 255});
-                DrawTextEx(GetGameFont(), "falha!", Vector2{chanceRect.x + 16.0f, chanceRect.y + 6.0f}, 24.0f, 0.0f, Color{255, 255, 255, 255});
+                DrawTextEx(GetGameFont(), "Falha", Vector2{chanceRect.x + 16.0f, chanceRect.y + 6.0f}, 24.0f, 0.0f, Color{255, 255, 255, 255});
             } else {
                 GuiProgressBar(chanceRect, nullptr, nullptr, &state.forgeSuccessChance, 0.0f, 1.0f);
                 DrawTextEx(GetGameFont(), TextFormat("%d%%", static_cast<int>(state.forgeSuccessChance * 100.0f)),
@@ -1993,7 +2957,7 @@ void RenderInventoryUI(InventoryUIState& state,
         }
 
         float adjustTop = slotRowY + slotSize + 32.0f;
-        Rectangle adjustRect{bottomArea.x + 20.0f, adjustTop, bottomArea.width - 40.0f, 112.0f};
+    Rectangle adjustRect{bottomArea.x + 20.0f, adjustTop, bottomArea.width - 40.0f, 112.0f}; // Caixa geral dos controles de ajuste de custo
         if (adjustRect.height > 64.0f) {
             GuiGroupBox(adjustRect, "Ajustes");
 
@@ -2026,15 +2990,25 @@ void RenderInventoryUI(InventoryUIState& state,
                 96.0f,
                 36.0f
             };
-            bool disableForge = state.forgeBroken;
+            bool disableForge = (state.forgeState == ForgeState::Broken);
             if (disableForge) {
+                unsigned int prevBaseDisabled = GuiGetStyle(BUTTON, BASE_COLOR_DISABLED);
+                unsigned int prevTextDisabled = GuiGetStyle(BUTTON, TEXT_COLOR_DISABLED);
+                unsigned int prevBorderDisabled = GuiGetStyle(BUTTON, BORDER_COLOR_DISABLED);
+                GuiSetStyle(BUTTON, BASE_COLOR_DISABLED, 0xC83232FF);
+                GuiSetStyle(BUTTON, TEXT_COLOR_DISABLED, 0xFFFFFFFF);
+                GuiSetStyle(BUTTON, BORDER_COLOR_DISABLED, 0x8A1E1EFF);
                 GuiDisable();
-            }
-            if (GuiButton(forgeButton, "Forjar")) {
-                AttemptForge(state);
-            }
-            if (disableForge) {
+                bool pressed = GuiButton(forgeButton, "Forjar");
+                (void)pressed;
                 GuiEnable();
+                GuiSetStyle(BUTTON, BASE_COLOR_DISABLED, prevBaseDisabled);
+                GuiSetStyle(BUTTON, TEXT_COLOR_DISABLED, prevTextDisabled);
+                GuiSetStyle(BUTTON, BORDER_COLOR_DISABLED, prevBorderDisabled);
+            } else {
+                if (GuiButton(forgeButton, "Forjar")) {
+                    AttemptForge(state);
+                }
             }
         }
 
@@ -2042,12 +3016,12 @@ void RenderInventoryUI(InventoryUIState& state,
         RefreshForgeChance(state);
     } else if (state.mode == InventoryViewMode::Shop && bottomArea.width > 40.0f && bottomArea.height > 40.0f) {
         GuiGroupBox(bottomArea, "Loja");
-        float startX = bottomArea.x + 190.0f; // Ajuste aqui para deslocar os slots da loja no eixo X
-        float startY = bottomArea.y + 44.0f; // Ajuste aqui para deslocar os slots da loja no eixo Y
-        int columns = std::max(1, static_cast<int>((bottomArea.width - 40.0f) / (slotSize + slotSpacing)));
+    float startX = bottomArea.x + 190.0f; // Desloca a primeira coluna da loja no eixo X
+    float startY = bottomArea.y + 44.0f;  // Desloca a primeira linha da loja no eixo Y
+    int columns = std::max(1, static_cast<int>((bottomArea.width - 40.0f) / (slotSize + slotSpacing)));
         columns = std::max(1, std::min(columns, 5));
 
-        const float slotVerticalStep = slotSize + slotSpacing + 44.0f;
+    const float slotVerticalStep = slotSize + slotSpacing + 44.0f; // Distancia entre linhas da lista da loja
         for (int i = 0; i < static_cast<int>(state.shopItems.size()); ++i) {
             int col = columns > 0 ? i % columns : 0;
             int row = columns > 0 ? i / columns : 0;
@@ -2068,16 +3042,24 @@ void RenderInventoryUI(InventoryUIState& state,
                 DrawRectangleLinesEx(slotRect, 2.0f, ResolveBorderColor(state, shopItemId));
             }
             if (SlotClicked(slotRect)) {
-                state.selectedShopIndex = i;
-                state.selectedInventoryIndex = -1;
-                state.selectedWeaponIndex = -1;
-                state.selectedEquipmentIndex = -1;
-                state.selectedForgeSlot = -1;
+                bool tradeLocked = state.shopTradeActive && state.shopTradeShopIndex >= 0;
+                if (tradeLocked && i != state.shopTradeShopIndex) {
+                    state.feedbackMessage = "Cancele a troca atual antes de escolher outro item da loja.";
+                    state.feedbackTimer = 0.0f;
+                    state.selectedShopIndex = state.shopTradeShopIndex;
+                } else {
+                    state.selectedShopIndex = i;
+                    state.selectedInventoryIndex = -1;
+                    state.selectedWeaponIndex = -1;
+                    state.selectedEquipmentIndex = -1;
+                    state.selectedForgeSlot = -1;
+                    if (state.shopTradeActive) {
+                        HandleShopTradeShopSelection(state, i);
+                    }
+                }
             }
             Rectangle priceRect{slotRect.x, slotRect.y + slotSize + 6.0f, slotSize, 20.0f};
             GuiLabel(priceRect, TextFormat("%d", state.shopPrices[i]));
-            Rectangle stockRect{slotRect.x, priceRect.y + 18.0f, slotSize, 20.0f};
-            GuiLabel(stockRect, TextFormat("Estoque: %d", std::max(0, stock)));
         }
 
         int totalRows = columns > 0 ? (static_cast<int>(state.shopItems.size()) + columns - 1) / columns : 0;
@@ -2098,7 +3080,13 @@ void RenderInventoryUI(InventoryUIState& state,
         if (GuiButton(rerollButton, TextFormat("re-roll %dx", std::max(0, state.shopRollsLeft)))) {
             if (hasRerolls) {
                 state.shopRollsLeft = std::max(0, state.shopRollsLeft - 1);
-                RollShopInventory(state);
+                if (activeShop != nullptr) {
+                    activeShop->rerollCount += 1;
+                }
+                RollShopInventory(state, activeShop);
+                if (activeShop != nullptr) {
+                    StoreShopContents(state, *activeShop);
+                }
                 ShowMessage(state, state.shopRollsLeft > 0 ? "Loja atualizada." : "Loja atualizada. Sem re-rolls restantes.");
             }
         }
@@ -2106,6 +3094,66 @@ void RenderInventoryUI(InventoryUIState& state,
             GuiEnable();
         }
         GuiSetStyle(BUTTON, TEXT_SIZE, previousButtonTextSize);
+    } else if (state.mode == InventoryViewMode::Chest && state.activeChest != nullptr && bottomArea.width > 40.0f && bottomArea.height > 40.0f) {
+        const char* chestLabel = state.chestTitle.empty() ? "Bau" : state.chestTitle.c_str();
+        GuiGroupBox(bottomArea, chestLabel);
+
+        float startX = bottomArea.x + 40.0f;
+        float startY = bottomArea.y + 44.0f;
+        int capacity = static_cast<int>(state.chestItems.size());
+        int columns = (state.chestUiType == InventoryUIState::ChestUIType::Player) ? 6 : std::max(1, std::min(4, capacity));
+        columns = std::max(1, columns);
+        const float slotVerticalStep = slotSize + slotSpacing + 16.0f;
+
+        for (int i = 0; i < capacity; ++i) {
+            int col = columns > 0 ? i % columns : 0;
+            int row = columns > 0 ? i / columns : 0;
+            float slotX = startX + col * (slotSize + slotSpacing);
+            float slotY = startY + row * slotVerticalStep;
+            if (slotY + slotSize + 12.0f > bottomArea.y + bottomArea.height - 12.0f) {
+                break;
+            }
+
+            Rectangle slotRect{slotX, slotY, slotSize, slotSize};
+            bool selected = (state.selectedChestIndex == i);
+            int itemId = (i < static_cast<int>(state.chestItemIds.size())) ? state.chestItemIds[i] : 0;
+            ItemCategory itemType = (i < static_cast<int>(state.chestTypes.size())) ? state.chestTypes[i] : ItemCategory::None;
+            bool showQuantity = IsStackableCategory(itemType);
+            int quantity = (i < static_cast<int>(state.chestQuantities.size()) && showQuantity) ? state.chestQuantities[i] : -1;
+            std::string label = (i < static_cast<int>(state.chestItems.size())) ? state.chestItems[i] : std::string();
+            DrawSlot(state, slotRect, label, selected, itemId, quantity, showQuantity);
+            if (SlotClicked(slotRect)) {
+                if (itemId == 0) {
+                    state.selectedChestIndex = -1;
+                } else {
+                    state.selectedChestIndex = i;
+                }
+                state.selectedInventoryIndex = -1;
+                state.selectedWeaponIndex = -1;
+                state.selectedEquipmentIndex = -1;
+                state.selectedShopIndex = -1;
+                state.selectedForgeSlot = -1;
+            }
+        }
+
+        if (state.chestSupportsTakeAll) {
+            Rectangle takeAllButton{
+                bottomArea.x + bottomArea.width * 0.5f - 90.0f,
+                bottomArea.y + bottomArea.height - 48.0f,
+                180.0f,
+                32.0f
+            };
+            bool hasItems = std::any_of(state.chestItemIds.begin(), state.chestItemIds.end(), [](int id) { return id != 0; });
+            if (!hasItems) {
+                GuiDisable();
+            }
+            if (GuiButton(takeAllButton, "Pegar tudo")) {
+                HandleChestTakeAll(state);
+            }
+            if (!hasItems) {
+                GuiEnable();
+            }
+        }
     }
 
     enum class SelectionKind {
@@ -2116,7 +3164,8 @@ void RenderInventoryUI(InventoryUIState& state,
         ForgeInput0,
         ForgeInput1,
         ForgeResult,
-        ShopItem
+        ShopItem,
+        ChestItem
     };
 
     SelectionKind selection = SelectionKind::None;
@@ -2128,6 +3177,10 @@ void RenderInventoryUI(InventoryUIState& state,
         selection = SelectionKind::ForgeResult;
     } else if (state.mode == InventoryViewMode::Shop && state.selectedShopIndex >= 0 && state.selectedShopIndex < static_cast<int>(state.shopItems.size())) {
         selection = SelectionKind::ShopItem;
+    } else if (state.mode == InventoryViewMode::Chest && state.selectedChestIndex >= 0 &&
+               state.selectedChestIndex < static_cast<int>(state.chestItems.size()) &&
+               !state.chestItems[state.selectedChestIndex].empty()) {
+        selection = SelectionKind::ChestItem;
     } else if (state.selectedWeaponIndex >= 0 && state.selectedWeaponIndex < static_cast<int>(state.weaponSlots.size()) && !state.weaponSlots[state.selectedWeaponIndex].empty()) {
         selection = SelectionKind::Weapon;
     } else if (state.selectedEquipmentIndex >= 0 && state.selectedEquipmentIndex < static_cast<int>(state.equipmentSlots.size()) && !state.equipmentSlots[state.selectedEquipmentIndex].empty()) {
@@ -2138,6 +3191,24 @@ void RenderInventoryUI(InventoryUIState& state,
 
     bool isForgeMode = state.mode == InventoryViewMode::Forge;
     bool isShopMode = state.mode == InventoryViewMode::Shop;
+    bool isChestMode = state.mode == InventoryViewMode::Chest;
+
+    bool tradeActiveForSelected = false;
+    bool tradeReadyForSelected = false;
+    bool tradeAllowedForSelected = false;
+    if (selection == SelectionKind::ShopItem) {
+        tradeActiveForSelected = ShopTradeTargetsIndex(state, state.selectedShopIndex);
+        tradeReadyForSelected = tradeActiveForSelected && state.shopTradeReadyToConfirm;
+        if (tradeActiveForSelected) {
+            tradeAllowedForSelected = true;
+        } else if (state.selectedShopIndex >= 0 && state.selectedShopIndex < static_cast<int>(state.shopItemIds.size())) {
+            int rarity = selectedShopItemRarity;
+            if (rarity < 0 && state.selectedShopIndex < static_cast<int>(state.shopItemIds.size())) {
+                rarity = GetItemRarity(state, state.shopItemIds[state.selectedShopIndex]);
+            }
+            tradeAllowedForSelected = (rarity >= 0 && rarity < kMythicRarity);
+        }
+    }
 
     bool showLeft = false;
     bool showRight = false;
@@ -2162,8 +3233,13 @@ void RenderInventoryUI(InventoryUIState& state,
         case SelectionKind::Inventory:
             showLeft = true;
             showRight = true;
-            leftLabel = "Equipar";
-            rightLabel = isForgeMode ? "Forjar" : (isShopMode ? "Vender" : "Descartar");
+            if (isChestMode && state.chestSupportsDeposit) {
+                leftLabel = "Guardar";
+                rightLabel = "Descartar";
+            } else {
+                leftLabel = "Equipar";
+                rightLabel = isForgeMode ? "Forjar" : (isShopMode ? "Vender" : "Descartar");
+            }
             break;
         case SelectionKind::ForgeInput0:
         case SelectionKind::ForgeInput1:
@@ -2172,28 +3248,141 @@ void RenderInventoryUI(InventoryUIState& state,
             singleLabel = "Remover";
             break;
         case SelectionKind::ShopItem:
-            showSingle = true;
-            singleLabel = "Comprar";
+            showLeft = true;
+            showRight = true;
+            leftLabel = "Trocar";
+            rightLabel = tradeActiveForSelected ? "Cancelar" : "Comprar";
+            break;
+        case SelectionKind::ChestItem:
+            showLeft = true;
+            showRight = true;
+            leftLabel = "Pegar";
+            rightLabel = "Descartar";
             break;
         default:
             break;
     }
 
+    const float feedbackMessageLeftInset = 24.0f;    // Ajuda a centralizar horizontalmente
+    const float feedbackMessageBottomOffset = 34.0f; // Aumente para subir o texto de erro, diminua para descer
     if (!state.feedbackMessage.empty()) {
         DrawTextEx(GetGameFont(), state.feedbackMessage.c_str(),
-                   Vector2{detailRect.x + 12.0f, detailRect.y + detailRect.height - 72.0f},
+                   Vector2{detailRect.x + feedbackMessageLeftInset, detailRect.y + detailRect.height - feedbackMessageBottomOffset},
                    18.0f, 0.0f, Color{176, 64, 64, 255});
     }
 
     if (showLeft) {
+        bool restoreGui = false;
+        if (selection == SelectionKind::ShopItem && tradeActiveForSelected && !tradeReadyForSelected) {
+            GuiDisable();
+            restoreGui = true;
+        }
         if (GuiButton(actionButtonLeft, leftLabel.c_str())) {
-            if (selection == SelectionKind::Weapon) {
+            if (selection == SelectionKind::Inventory && isChestMode && state.chestSupportsDeposit) {
+                HandleChestDeposit(state, state.selectedInventoryIndex);
+            } else if (selection == SelectionKind::ChestItem) {
+                HandleChestWithdraw(state, state.selectedChestIndex);
+            } else if (selection == SelectionKind::Weapon) {
                 HandleDesequiparWeapon(state, state.selectedWeaponIndex);
             } else if (selection == SelectionKind::Equipment) {
                 HandleDesequiparArmor(state, state.selectedEquipmentIndex);
             } else if (selection == SelectionKind::Inventory) {
                 HandleEquipInventory(state, state.selectedInventoryIndex);
+            } else if (selection == SelectionKind::ShopItem) {
+                int shopIndex = state.selectedShopIndex;
+                if (shopIndex < 0 || shopIndex >= static_cast<int>(state.shopItemIds.size())) {
+                    state.feedbackMessage = "Selecione um item valido da loja.";
+                    state.feedbackTimer = 0.0f;
+                } else if (!tradeActiveForSelected) {
+                    if (!tradeAllowedForSelected) {
+                        state.feedbackMessage = "Este item nao pode ser trocado.";
+                        state.feedbackTimer = 0.0f;
+                    } else if (shopIndex >= static_cast<int>(state.shopStock.size()) || state.shopStock[shopIndex] <= 0) {
+                        state.feedbackMessage = "Este item nao esta mais disponivel.";
+                        state.feedbackTimer = 0.0f;
+                    } else {
+                        int itemId = state.shopItemIds[shopIndex];
+                        if (itemId == 0) {
+                            state.feedbackMessage = "Item indisponivel.";
+                            state.feedbackTimer = 0.0f;
+                        } else {
+                            int rarity = selectedShopItemRarity;
+                            if (rarity < 0) {
+                                rarity = GetItemRarity(state, itemId);
+                            }
+                            if (rarity >= kMythicRarity) {
+                                state.feedbackMessage = "Este item nao pode ser trocado.";
+                                state.feedbackTimer = 0.0f;
+                            } else {
+                                ResetShopTradeState(state);
+                                state.shopTradeActive = true;
+                                state.shopTradeReadyToConfirm = false;
+                                state.shopTradeShopIndex = shopIndex;
+                                state.shopTradeInventoryIndex = -1;
+                                state.shopTradeRequiredRarity = std::max(rarity + 1, 1);
+                                state.feedbackTimer = 0.0f;
+                                std::string requiredName = RarityName(state.shopTradeRequiredRarity);
+                                state.feedbackMessage = TextFormat("Ofereca um item em troca. Raridade minima: %s", requiredName.c_str());
+                            }
+                        }
+                    }
+                } else {
+                    if (!tradeReadyForSelected) {
+                        state.feedbackMessage = "Escolha um item valido do seu inventario.";
+                        state.feedbackTimer = 0.0f;
+                    } else {
+                        int inventoryIndex = state.shopTradeInventoryIndex;
+                        int activeShopIndex = state.shopTradeShopIndex;
+                        if (inventoryIndex < 0 || inventoryIndex >= static_cast<int>(state.inventoryItemIds.size())) {
+                            state.feedbackMessage = "Selecione um item valido do seu inventario.";
+                            state.feedbackTimer = 0.0f;
+                        } else if (activeShopIndex < 0 || activeShopIndex >= static_cast<int>(state.shopItemIds.size())) {
+                            state.feedbackMessage = "Selecione um item valido da loja.";
+                            state.feedbackTimer = 0.0f;
+                            ResetShopTradeState(state);
+                        } else if (activeShopIndex >= static_cast<int>(state.shopStock.size()) || state.shopStock[activeShopIndex] <= 0) {
+                            state.feedbackMessage = "Este item nao esta mais disponivel.";
+                            state.feedbackTimer = 0.0f;
+                            ResetShopTradeState(state);
+                        } else {
+                            int offeredId = state.inventoryItemIds[inventoryIndex];
+                            int offeredRarity = GetItemRarity(state, offeredId);
+                            if (offeredId == 0) {
+                                state.feedbackMessage = "Selecione um item valido do seu inventario.";
+                                state.feedbackTimer = 0.0f;
+                                InvalidateTradeCandidate(state);
+                            } else if (offeredRarity < state.shopTradeRequiredRarity) {
+                                state.feedbackMessage = "Este item nao e bom o suficiente.";
+                                state.feedbackTimer = 0.0f;
+                                InvalidateTradeCandidate(state);
+                            } else {
+                                int targetItemId = state.shopItemIds[activeShopIndex];
+                                if (targetItemId == 0) {
+                                    state.feedbackMessage = "Item indisponivel.";
+                                    state.feedbackTimer = 0.0f;
+                                    ResetShopTradeState(state);
+                                } else {
+                                    ClearInventorySlot(state, inventoryIndex);
+                                    int addedSlot = AddItemToInventory(state, targetItemId, 1);
+                                    if (addedSlot < 0) {
+                                        SetInventorySlot(state, inventoryIndex, targetItemId, 1);
+                                        addedSlot = inventoryIndex;
+                                    }
+                                    state.shopStock[activeShopIndex] = std::max(0, state.shopStock[activeShopIndex] - 1);
+                                    state.selectedInventoryIndex = addedSlot;
+                                    state.selectedShopIndex = activeShopIndex;
+                                    ResetShopTradeState(state);
+                                    state.feedbackMessage = "Troca concluida.";
+                                    state.feedbackTimer = 0.0f;
+                                }
+                            }
+                        }
+                    }
+                }
             }
+        }
+        if (restoreGui) {
+            GuiEnable();
         }
     }
 
@@ -2223,6 +3412,16 @@ void RenderInventoryUI(InventoryUIState& state,
                 } else {
                     HandleDiscardInventory(state, state.selectedInventoryIndex);
                 }
+            } else if (selection == SelectionKind::ChestItem) {
+                HandleChestDiscard(state, state.selectedChestIndex);
+            } else if (selection == SelectionKind::ShopItem) {
+                if (tradeActiveForSelected) {
+                    ResetShopTradeState(state);
+                    state.feedbackMessage = "Troca cancelada.";
+                    state.feedbackTimer = 0.0f;
+                } else {
+                    HandleBuyFromShop(state, state.selectedShopIndex);
+                }
             }
         }
     }
@@ -2241,8 +3440,6 @@ void RenderInventoryUI(InventoryUIState& state,
                 HandleRemoveFromForge(state, 1);
             } else if (selection == SelectionKind::ForgeResult) {
                 HandleRemoveFromForge(state, 2);
-            } else if (selection == SelectionKind::ShopItem) {
-                HandleBuyFromShop(state, state.selectedShopIndex);
             }
         }
     }

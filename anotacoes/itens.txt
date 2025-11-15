@@ -1,0 +1,354 @@
+Raridade Comum:
+
+//////
+
+recursos: farrapo, tira de couro, lingote de bronze.
+
+Farrapo
+
+Descrição: Restos de tecidos gastos e desbotados pelo tempo. Ainda que simples, podem ser costurados novamente e servir como base para algumas vestimentas.
+Valor: comum.valor
+
+Tira de couro
+
+Descrição: Um pedaço fino e resistente de couro curtido. Muito útil na confecção de proteções leves ou para reforçar costuras em equipamentos simples.
+Valor: comum.valor 
+
+Lingote de bronze
+
+Descrição: Uma barra sólida de bronze fundido. Sua liga equilibrada garante boa durabilidade sem exigir forja avançada — ideal para armas e armaduras de simples.
+Valor: comum.valor
+
+//////
+
+Equipamento: Túnica, Calçados simples, Elmo de bronze, Colete de couro, Espaldeira de bronze, Pingente de bronze.
+
+Túnica
+
+Vigor +1
+Inteligencia +1
+
+sem habilidade passiva 
+sem habilidadae ativa
+
+materiais de forja: Farrapos - Farrapos
+
+Descrição: Uma veste simples feita de farrapos costurados. Não oferece proteção, mas é confortável.
+
+Valor: comum.valor 
+
+Calçados simples
+
+Velocidade +2
+
+sem habilidade passiva
+sem habilidade ativa
+
+materiais de forja: Farrapos - Tira de couro
+
+Descrição: Botas rudimentares feitas de tecido e couro leve. Melhor doque andar descalço.
+
+Valor: comum.valor 
+
+Elmo de bronze
+
+Poder +1
+Defesa +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Farrapos - Lingote de bronze
+
+Descrição: Um elmo básico moldado em bronze. Leve e confiável.
+
+Valor: comum.valor 
+
+Colete de couro
+
+Defesa + 2
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Tira de couro - Tira de couro
+
+Descrição: Uma peça robusta feita de camadas costuradas de couro. Simples, mas eficaz.
+
+Valor: comum.valor 
+
+Espaldeira de bronze
+
+Destreza +1
+Vigor +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Tira de couro - Lingote de bronze
+
+Descrição: Ombreiras de bronze presas por tiras de couro, garantindo mobilidade sem sacrificar proteção. Um bom equilíbrio entre leveza e resistência.
+
+Valor: comum.valor 
+Pingente de bronze
+
+Inteligencia +1
+Poder +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lingote de bronze - Lingote de bronze
+
+Descrição: Um pequeno amuleto de bronze. Diz-se que ajuda a clarear a mente e a manter o foco.
+
+Valor: comum.valor
+
+//////
+
+Raridade Incomum:
+
+//////
+
+recursos: Placa de aço, Cristal de mana, Lingote de ferro, Lã, Peças variadas
+
+Placa de aço
+
+Descrição: 
+Valor: incomum.valor
+
+Cristal de mana
+
+Descrição: 
+Valor: incomum.valor
+
+Lingote de ferro
+
+Descrição: 
+Valor: incomum.valor
+
+Lã
+
+Descrição: 
+Valor: incomum.valor
+
+Peças variadas
+
+Descrição: 
+Valor: incomum.valor
+
+//////
+
+Equipamento: Elmo maciço, Colete reforçado, Espaldeira maciça, Túnica Adornada, Cinto requintado,  Colar místico, Botas de guerra, Gibão, Espaldeira reforçada, Capa, Calçados silenciosos, Espaldeira leve, Túnica detalhada, Elmo com visor, Relógio de bolso.
+
+Elmo maciço
+
+Poder +1
+Defesa +2
+Constituição +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Placa de aço - Elmo de bronze
+
+Descrição: Um elmo reforçado feito com aço e bronze, projetado para resistir a impactos mais fortes sem perder leveza.
+Valor: incomum.valor + 20
+
+Colete reforçado
+
+Defesa +3
+Constituição +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Placa de aço - Colete de couro
+
+Descrição: Um colete resistente, com camadas de aço e couro, oferecendo excelente proteção sem comprometer a mobilidade.
+Valor: incomum.valor + 20
+
+Espaldeira maciça
+
+Destreza +1
+Vigor +2
+Constituição +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Placa de aço - Espaldeira de bronze
+
+Descrição: Ombreiras de aço reforçadas com bronze, combinando força e resistência para enfrentar combates prolongados.
+Valor: incomum.valor + 20
+
+Túnica Adornada
+
+Vigor +1
+Inteligência +2
+Misticismo +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Cristal de mana - Túnica
+
+Descrição: Uma túnica simples aprimorada com energia mágica, conferindo conforto e foco espiritual ao usuário.
+Valor: incomum.valor + 20
+
+Sapatos mágicos
+
+Velocidade +2
+Inteligencia +1
+Misticismo +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Cristal de mana - Calçados simples
+
+Descrição: Calçados mágicos.
+Valor: incomum.valor + 20
+
+Colar místico
+
+Inteligência +2
+Poder +1
+Misticismo +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Cristal de mana - Pingente de bronze
+
+Descrição: Um colar adornado com cristal e bronze encantado, irradiando energia arcana.
+Valor: incomum.valor + 20
+
+Botas de guerra
+
+Velocidade +2
+Vigor +1
+Força +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lingote de ferro - Calçados simples
+
+Descrição: Botas reforçadas com ferro, projetadas para suportar longas marchas sem perda de agilidade.
+Valor: incomum.valor + 20
+
+Gibão
+
+Defesa +2
+Poder +1
+Força +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lingote de ferro - Colete de couro
+
+Descrição: Uma veste de ferro e couro espesso, equilibrando proteção e conforto em campo.
+Valor: incomum.valor + 20
+
+Espaldeira reforçada
+
+Destreza +1
+Vigor +2
+Força +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lingote de ferro - Espaldeira de bronze
+
+Descrição: Ombreiras leves de ferro e bronze, garantindo resistência e liberdade de movimento.
+Valor: incomum.valor + 20
+
+Capa
+
+Vigor +2
+Inteligência +1
+Foco +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lã - Túnica
+
+Descrição: Uma capa confortável feita de lã refinada e tecido costurado, ideal para quem busca equilíbrio físico e mental.
+Valor: incomum.valor + 20
+
+Calçados silenciosos
+
+Velocidade +2
+Destreza +1
+Foco +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lã - Calçados simples
+
+Descrição: Leves e macios, esses calçados abafam passos e oferecem conforto superior.
+Valor: incomum.valor + 20
+
+Espaldeira leve
+
+Destreza +2
+Vigor +1
+Foco +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Lã - Espaldeira de bronze
+
+Descrição: Ombreiras leves de bronze envoltas em tecido macio, unindo flexibilidade e resistência.
+Valor: incomum.valor + 20
+
+Túnica detalhada
+
+Vigor +1
+Inteligência +2
+Conhecimento +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Peças variadas - Túnica
+
+Descrição: Uma túnica aprimorada com detalhes finos e costura reforçada, refletindo refinamento e equilíbrio.
+Valor: incomum.valor + 20
+
+Elmo com visor
+
+Poder +2
+Defesa +1
+Conhecimento +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Peças variadas - Elmo de bronze
+
+Descrição: Um elmo de bronze aprimorado com visor metálico, proporcionando proteção extra e visão controlada.
+Valor: incomum.valor + 20
+
+Relógio de bolso
+
+Inteligência +1
+Poder +2
+Conhecimento +1
+
+sem habilidade ativa
+sem habilidade passiva
+
+materiais de forja: Peças variadas - Pingente de bronze
+
+Descrição: Um refinado relógio de bronze e engrenagens, símbolo de sabedoria e precisão.
+Valor: incomum.valor + 20
+
+
+

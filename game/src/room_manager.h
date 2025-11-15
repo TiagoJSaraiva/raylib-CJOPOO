@@ -16,6 +16,7 @@ public:
     const Room& GetCurrentRoom() const;
 
     Room& GetRoom(const RoomCoords& coords);
+    Room* TryGetRoom(const RoomCoords& coords);
     const Room* TryGetRoom(const RoomCoords& coords) const;
 
     bool MoveToNeighbor(Direction direction);
@@ -32,6 +33,9 @@ private:
     void ConfigureDoors(Room& room, std::optional<Direction> entranceDirection);
     void AlignWithNeighbor(Room& room, Direction direction, Room& neighbor);
     bool TryGenerateDoorTarget(Room& room, Doorway& door);
+    void InitializeRoomFeatures(Room& room);
+    void InitializeShopFeatures(Room& room);
+    void InitializeChestFeatures(Room& room, bool persistentPlayerChest);
     RoomType PickRoomType(const RoomCoords& coords);
     void RegisterRoomDiscovery(RoomType type);
     BiomeType DetermineBiomeForRoom(const Room& originRoom, const RoomCoords& coords);

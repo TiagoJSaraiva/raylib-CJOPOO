@@ -22,6 +22,7 @@
 #include "raygui.h"
 #include "ui_inventory.h"
 #include "font_manager.h"
+#include "chest.h"
 
 namespace {
 
@@ -93,6 +94,45 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
         Vector2 drawPos{number.position.x - measure.x * 0.5f, number.position.y - measure.y};
         DrawTextEx(font, text.c_str(), drawPos, fontSize, 0.0f, baseColor);
     }
+}
+
+ForgeInstance* ResolveTrackedForge(RoomManager& manager, const InventoryUIState& uiState) {
+    if (!uiState.hasActiveForge) {
+        return nullptr;
+    }
+    Room* trackedRoom = manager.TryGetRoom(uiState.activeForgeCoords);
+    if (trackedRoom == nullptr) {
+        return nullptr;
+    }
+    return trackedRoom->GetForge();
+}
+
+void SaveActiveForgeContents(InventoryUIState& uiState, RoomManager& manager) {
+    if (ForgeInstance* forge = ResolveTrackedForge(manager, uiState)) {
+        StoreForgeContents(uiState, *forge);
+    }
+}
+
+ShopInstance* ResolveTrackedShop(RoomManager& manager, const InventoryUIState& uiState) {
+    if (!uiState.hasActiveShop) {
+        return nullptr;
+    }
+    Room* trackedRoom = manager.TryGetRoom(uiState.activeShopCoords);
+    if (trackedRoom == nullptr) {
+        return nullptr;
+    }
+    return trackedRoom->GetShop();
+}
+
+void SaveActiveShopContents(InventoryUIState& uiState, RoomManager& manager) {
+    if (ShopInstance* shop = ResolveTrackedShop(manager, uiState)) {
+        StoreShopContents(uiState, *shop);
+    }
+}
+
+void SaveActiveStations(InventoryUIState& uiState, RoomManager& manager) {
+    SaveActiveForgeContents(uiState, manager);
+    SaveActiveShopContents(uiState, manager);
 }
 
 Texture2D LoadTextureIfExists(const std::string& path) {
@@ -352,6 +392,61 @@ Rectangle PlayerBounds(const Vector2& center) {
         PLAYER_HALF_WIDTH * 2.0f,
         PLAYER_HALF_HEIGHT * 2.0f
     };
+}
+
+Vector2 ResolveCollisionWithRectangle(const Rectangle& obstacle,
+                                      Vector2 position,
+                                      float halfWidth,
+                                      float halfHeight) {
+    Rectangle playerRect{
+        position.x - halfWidth,
+        position.y - halfHeight,
+        halfWidth * 2.0f,
+        halfHeight * 2.0f
+    };
+
+    if (!CheckCollisionRecs(playerRect, obstacle)) {
+        return position;
+    }
+
+    float playerCenterX = playerRect.x + playerRect.width * 0.5f;
+    float playerCenterY = playerRect.y + playerRect.height * 0.5f;
+    float obstacleCenterX = obstacle.x + obstacle.width * 0.5f;
+    float obstacleCenterY = obstacle.y + obstacle.height * 0.5f;
+
+    float deltaX = playerCenterX - obstacleCenterX;
+    float deltaY = playerCenterY - obstacleCenterY;
+    float overlapX = (obstacle.width * 0.5f + playerRect.width * 0.5f) - std::abs(deltaX);
+    float overlapY = (obstacle.height * 0.5f + playerRect.height * 0.5f) - std::abs(deltaY);
+
+    if (overlapX < overlapY) {
+        position.x += (deltaX < 0.0f ? -overlapX : overlapX);
+    } else {
+        position.y += (deltaY < 0.0f ? -overlapY : overlapY);
+    }
+
+    return position;
+}
+
+Vector2 ResolveCollisionWithForge(const ForgeInstance& forge,
+                                  Vector2 position,
+                                  float halfWidth,
+                                  float halfHeight) {
+    return ResolveCollisionWithRectangle(forge.hitbox, position, halfWidth, halfHeight);
+}
+
+Vector2 ResolveCollisionWithShop(const ShopInstance& shop,
+                                 Vector2 position,
+                                 float halfWidth,
+                                 float halfHeight) {
+    return ResolveCollisionWithRectangle(shop.hitbox, position, halfWidth, halfHeight);
+}
+
+Vector2 ResolveCollisionWithChest(const Chest& chest,
+                                  Vector2 position,
+                                  float halfWidth,
+                                  float halfHeight) {
+    return ResolveCollisionWithRectangle(chest.Hitbox(), position, halfWidth, halfHeight);
 }
 
 Vector2 RoomCenter(const RoomLayout& layout) {
@@ -713,7 +808,15 @@ int main() {
         const float delta = GetFrameTime();
 
         if (IsKeyPressed(KEY_TAB) || IsKeyPressed(KEY_I)) {
+            bool wasOpen = inventoryUI.open;
             inventoryUI.open = !inventoryUI.open;
+            if (inventoryUI.open) {
+                inventoryUI.mode = InventoryViewMode::Inventory;
+                inventoryUI.selectedForgeSlot = -1;
+                inventoryUI.selectedShopIndex = -1;
+            } else if (wasOpen) {
+                SaveActiveStations(inventoryUI, roomManager);
+            }
         }
 
         if (SyncEquippedWeapons(inventoryUI, leftHandWeapon, rightHandWeapon)) {
@@ -749,6 +852,15 @@ int main() {
 
         Room& activeRoom = roomManager.GetCurrentRoom();
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, activeRoom.Layout());
+        if (const ForgeInstance* forge = activeRoom.GetForge()) {
+            desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        }
+        if (const ShopInstance* shop = activeRoom.GetShop()) {
+            desiredPosition = ResolveCollisionWithShop(*shop, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        }
+        if (const Chest* chest = activeRoom.GetChest()) {
+            desiredPosition = ResolveCollisionWithChest(*chest, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        }
 
         Vector2 movementDelta = Vector2Subtract(desiredPosition, playerPosition);
 
@@ -766,15 +878,8 @@ int main() {
             bool movingToward = IsInputMovingToward(door.direction, input);
             bool shouldTransition = ShouldTransitionThroughDoor(door, desiredPosition, movementDelta);
 
-            if (colliding && movingToward && !shouldTransition) {
-                std::cout << "Transition blocked | door dir=" << static_cast<int>(door.direction)
-                          << " playerPos=(" << desiredPosition.x << "," << desiredPosition.y << ")";
-                Rectangle corridorRect = TileRectToPixels(door.corridorTiles);
-                std::cout << " corridorRect=(" << corridorRect.x << "," << corridorRect.y << ","
-                          << corridorRect.width << "," << corridorRect.height << ")" << std::endl;
-            }
-
             if (colliding && movingToward && shouldTransition) {
+                SaveActiveStations(inventoryUI, roomManager);
                 if (roomManager.MoveToNeighbor(door.direction)) {
                     Room& newRoom = roomManager.GetCurrentRoom();
                     std::cout << "Entered room at (" << newRoom.GetCoords().x << "," << newRoom.GetCoords().y << ")" << std::endl;
@@ -792,6 +897,12 @@ int main() {
         }
 
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, currentRoomPtr->Layout());
+        if (const ForgeInstance* forge = currentRoomPtr->GetForge()) {
+            desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        }
+        if (const ShopInstance* shop = currentRoomPtr->GetShop()) {
+            desiredPosition = ResolveCollisionWithShop(*shop, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        }
         movementDelta = Vector2Subtract(desiredPosition, playerPosition);
         playerPosition = desiredPosition;
         playerIsMoving = Vector2LengthSqr(movementDelta) > 1.0f;
@@ -811,6 +922,19 @@ int main() {
         spawnContext.origin = playerPosition;
         spawnContext.followTarget = &playerPosition;
         spawnContext.aimDirection = aim;
+
+        ForgeInstance* activeForge = nullptr;
+        ShopInstance* activeShop = nullptr;
+        Vector2 forgeAnchor{0.0f, 0.0f};
+        Vector2 shopAnchor{0.0f, 0.0f};
+        float forgeRadius = 0.0f;
+        float shopRadius = 0.0f;
+        bool forgeNearby = false;
+        bool shopNearby = false;
+    Chest* activeChest = nullptr;
+    Vector2 chestAnchor{0.0f, 0.0f};
+    float chestRadius = 0.0f;
+    bool chestNearby = false;
 
         if (!inventoryUI.open) {
             auto weaponInputActive = [](const WeaponState& weapon, int mouseButton) {
@@ -838,6 +962,159 @@ int main() {
         }
 
         projectileSystem.Update(delta);
+
+        Room& interactionRoom = roomManager.GetCurrentRoom();
+        activeForge = interactionRoom.GetForge();
+        activeShop = interactionRoom.GetShop();
+    activeChest = interactionRoom.GetChest();
+        const RoomCoords interactionCoords = interactionRoom.GetCoords();
+
+        if ((inventoryUI.hasActiveForge && inventoryUI.activeForgeCoords != interactionCoords) ||
+            (inventoryUI.hasActiveShop && inventoryUI.activeShopCoords != interactionCoords) ||
+            (inventoryUI.hasActiveChest && inventoryUI.activeChestCoords != interactionCoords)) {
+            SaveActiveStations(inventoryUI, roomManager);
+            if (inventoryUI.hasActiveForge && inventoryUI.activeForgeCoords != interactionCoords) {
+                inventoryUI.hasActiveForge = false;
+                inventoryUI.pendingForgeBreak = false;
+                if (inventoryUI.mode == InventoryViewMode::Forge && inventoryUI.open) {
+                    inventoryUI.mode = InventoryViewMode::Inventory;
+                    inventoryUI.selectedForgeSlot = -1;
+                }
+            }
+            if (inventoryUI.hasActiveShop && inventoryUI.activeShopCoords != interactionCoords) {
+                inventoryUI.hasActiveShop = false;
+                inventoryUI.selectedShopIndex = -1;
+                inventoryUI.shopTradeActive = false;
+                inventoryUI.shopTradeReadyToConfirm = false;
+                inventoryUI.shopTradeInventoryIndex = -1;
+                inventoryUI.shopTradeShopIndex = -1;
+                inventoryUI.shopTradeRequiredRarity = 0;
+                if (inventoryUI.mode == InventoryViewMode::Shop && inventoryUI.open) {
+                    inventoryUI.mode = InventoryViewMode::Inventory;
+                }
+            }
+            if (inventoryUI.hasActiveChest && inventoryUI.activeChestCoords != interactionCoords) {
+                inventoryUI.hasActiveChest = false;
+                inventoryUI.activeChest = nullptr;
+                inventoryUI.chestUiType = InventoryUIState::ChestUIType::None;
+                inventoryUI.chestSupportsDeposit = false;
+                inventoryUI.chestSupportsTakeAll = false;
+                inventoryUI.selectedChestIndex = -1;
+                if (inventoryUI.mode == InventoryViewMode::Chest && inventoryUI.open) {
+                    inventoryUI.mode = InventoryViewMode::Inventory;
+                }
+            }
+        }
+
+        if (activeForge != nullptr) {
+            forgeAnchor = Vector2{activeForge->anchorX, activeForge->anchorY};
+            forgeRadius = activeForge->interactionRadius;
+            float distanceSq = Vector2DistanceSqr(playerPosition, forgeAnchor);
+            forgeNearby = distanceSq <= (forgeRadius * forgeRadius);
+
+            if (forgeNearby && IsKeyPressed(KEY_E)) {
+                SaveActiveStations(inventoryUI, roomManager);
+                inventoryUI.open = true;
+                inventoryUI.mode = InventoryViewMode::Forge;
+                inventoryUI.selectedForgeSlot = -1;
+                inventoryUI.hasActiveForge = true;
+                inventoryUI.activeForgeCoords = interactionCoords;
+                inventoryUI.pendingForgeBreak = false;
+                LoadForgeContents(inventoryUI, *activeForge);
+
+                if (activeForge->IsBroken()) {
+                    inventoryUI.feedbackMessage = "A forja esta quebrada... precisa de reparos.";
+                    inventoryUI.feedbackTimer = 2.5f;
+                } else {
+                    inventoryUI.feedbackMessage.clear();
+                    inventoryUI.feedbackTimer = 0.0f;
+                }
+            }
+        } else {
+            SaveActiveForgeContents(inventoryUI, roomManager);
+            if (inventoryUI.mode == InventoryViewMode::Forge) {
+                if (inventoryUI.open) {
+                    inventoryUI.mode = InventoryViewMode::Inventory;
+                    inventoryUI.selectedForgeSlot = -1;
+                }
+                inventoryUI.forgeState = ForgeState::Working;
+            }
+            inventoryUI.hasActiveForge = false;
+            inventoryUI.pendingForgeBreak = false;
+        }
+
+        if (activeShop != nullptr) {
+            shopAnchor = Vector2{activeShop->anchorX, activeShop->anchorY};
+            shopRadius = activeShop->interactionRadius;
+            float distanceSq = Vector2DistanceSqr(playerPosition, shopAnchor);
+            shopNearby = distanceSq <= (shopRadius * shopRadius);
+
+            if (shopNearby && IsKeyPressed(KEY_E)) {
+                SaveActiveStations(inventoryUI, roomManager);
+                inventoryUI.open = true;
+                inventoryUI.mode = InventoryViewMode::Shop;
+                inventoryUI.selectedShopIndex = -1;
+                inventoryUI.hasActiveShop = true;
+                inventoryUI.activeShopCoords = interactionCoords;
+                LoadShopContents(inventoryUI, *activeShop);
+                inventoryUI.feedbackMessage.clear();
+                inventoryUI.feedbackTimer = 0.0f;
+            }
+        } else if (inventoryUI.hasActiveShop) {
+            SaveActiveShopContents(inventoryUI, roomManager);
+            if (inventoryUI.mode == InventoryViewMode::Shop) {
+                if (inventoryUI.open) {
+                    inventoryUI.mode = InventoryViewMode::Inventory;
+                }
+                inventoryUI.selectedShopIndex = -1;
+            }
+            inventoryUI.hasActiveShop = false;
+            inventoryUI.shopTradeActive = false;
+            inventoryUI.shopTradeReadyToConfirm = false;
+            inventoryUI.shopTradeInventoryIndex = -1;
+            inventoryUI.shopTradeShopIndex = -1;
+            inventoryUI.shopTradeRequiredRarity = 0;
+        }
+
+        if (activeChest != nullptr) {
+            chestAnchor = Vector2{activeChest->AnchorX(), activeChest->AnchorY()};
+            chestRadius = activeChest->InteractionRadius();
+            float distanceSq = Vector2DistanceSqr(playerPosition, chestAnchor);
+            chestNearby = distanceSq <= (chestRadius * chestRadius);
+
+            if (chestNearby && IsKeyPressed(KEY_E)) {
+                SaveActiveStations(inventoryUI, roomManager);
+                inventoryUI.open = true;
+                inventoryUI.mode = InventoryViewMode::Chest;
+                inventoryUI.selectedChestIndex = -1;
+                inventoryUI.selectedInventoryIndex = -1;
+                inventoryUI.selectedWeaponIndex = -1;
+                inventoryUI.selectedEquipmentIndex = -1;
+                inventoryUI.selectedShopIndex = -1;
+                inventoryUI.selectedForgeSlot = -1;
+                inventoryUI.hasActiveChest = true;
+                inventoryUI.activeChestCoords = interactionCoords;
+                LoadChestContents(inventoryUI, *activeChest);
+            }
+        } else if (inventoryUI.hasActiveChest) {
+            if (inventoryUI.mode == InventoryViewMode::Chest) {
+                if (inventoryUI.open) {
+                    inventoryUI.mode = InventoryViewMode::Inventory;
+                }
+                inventoryUI.selectedChestIndex = -1;
+            }
+            inventoryUI.hasActiveChest = false;
+            inventoryUI.activeChest = nullptr;
+            inventoryUI.chestUiType = InventoryUIState::ChestUIType::None;
+            inventoryUI.chestSupportsDeposit = false;
+            inventoryUI.chestSupportsTakeAll = false;
+            inventoryUI.activeChestCoords = RoomCoords{};
+            inventoryUI.chestTitle.clear();
+            inventoryUI.chestItemIds.clear();
+            inventoryUI.chestItems.clear();
+            inventoryUI.chestQuantities.clear();
+            inventoryUI.chestTypes.clear();
+        }
 
         if (trainingDummy.isImmune) {
             trainingDummy.immunitySecondsRemaining -= delta;
@@ -898,6 +1175,39 @@ int main() {
             DrawTextEx(font, label, labelPos, labelSize, 0.0f, Color{210, 220, 240, 220});
         }
 
+        bool drawForgeAfterPlayer = false;
+        bool drawShopAfterPlayer = false;
+        bool drawChestAfterPlayer = false;
+        if (activeForge != nullptr) {
+            float playerBottom = playerPosition.y + PLAYER_HALF_HEIGHT;
+            bool playerInFront = (playerBottom >= activeForge->anchorY);
+            if (playerInFront) {
+                roomRenderer.DrawForgeInstance(*activeForge, true);
+            } else {
+                drawForgeAfterPlayer = true;
+            }
+        }
+
+        if (activeShop != nullptr) {
+            float playerBottom = playerPosition.y + PLAYER_HALF_HEIGHT;
+            bool playerInFront = (playerBottom >= activeShop->anchorY);
+            if (playerInFront) {
+                roomRenderer.DrawShopInstance(*activeShop, true);
+            } else {
+                drawShopAfterPlayer = true;
+            }
+        }
+
+        if (activeChest != nullptr) {
+            float playerBottom = playerPosition.y + PLAYER_HALF_HEIGHT;
+            bool playerInFront = (playerBottom >= activeChest->AnchorY());
+            if (playerInFront) {
+                roomRenderer.DrawChestInstance(*activeChest, true);
+            } else {
+                drawChestAfterPlayer = true;
+            }
+        }
+
         if (!DrawCharacterSprite(playerSprites, playerPosition, playerIsMoving)) {
             Rectangle renderRect{
                 playerPosition.x - PLAYER_RENDER_HALF_WIDTH,
@@ -907,6 +1217,16 @@ int main() {
             };
             DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
             DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
+        }
+
+        if (drawForgeAfterPlayer && activeForge != nullptr) {
+            roomRenderer.DrawForgeInstance(*activeForge, true);
+        }
+        if (drawShopAfterPlayer && activeShop != nullptr) {
+            roomRenderer.DrawShopInstance(*activeShop, true);
+        }
+        if (drawChestAfterPlayer && activeChest != nullptr) {
+            roomRenderer.DrawChestInstance(*activeChest, true);
         }
 
         projectileSystem.Draw();
@@ -921,12 +1241,69 @@ int main() {
             roomRenderer.DrawRoomForeground(room, isActive);
         }
 
+        if (activeForge != nullptr && forgeNearby) {
+            const char* promptText = activeForge->IsBroken() ? "Forja quebrada (E para inspecionar)" : "Pressione E para usar a forja";
+            const Font& font = GetGameFont();
+            const float fontSize = 22.0f;
+            Vector2 textSize = MeasureTextEx(font, promptText, fontSize, 0.0f);
+            float bubblePadding = 12.0f;
+            float bubbleWidth = textSize.x + bubblePadding * 2.0f;
+            float bubbleHeight = textSize.y + bubblePadding * 1.5f;
+            float bubbleX = forgeAnchor.x - bubbleWidth * 0.5f;
+            float bubbleY = forgeAnchor.y - forgeRadius - bubbleHeight - 10.0f;
+            bubbleY = std::max(bubbleY, forgeAnchor.y - forgeRadius - 180.0f);
+            Rectangle bubble{bubbleX, bubbleY, bubbleWidth, bubbleHeight};
+            DrawRectangleRec(bubble, Color{20, 26, 36, 210});
+            DrawRectangleLinesEx(bubble, 2.0f, Color{70, 92, 126, 240});
+            Vector2 textPos{bubble.x + bubblePadding, bubble.y + bubblePadding * 0.6f};
+            DrawTextEx(font, promptText, textPos, fontSize, 0.0f, Color{235, 240, 252, 255});
+        }
+
+        if (activeShop != nullptr && shopNearby) {
+            const char* promptText = "Pressione E para acessar a loja";
+            const Font& font = GetGameFont();
+            const float fontSize = 22.0f;
+            Vector2 textSize = MeasureTextEx(font, promptText, fontSize, 0.0f);
+            float bubblePadding = 12.0f;
+            float bubbleWidth = textSize.x + bubblePadding * 2.0f;
+            float bubbleHeight = textSize.y + bubblePadding * 1.5f;
+            float bubbleX = shopAnchor.x - bubbleWidth * 0.5f;
+            float bubbleY = shopAnchor.y - shopRadius - bubbleHeight - 10.0f;
+            bubbleY = std::max(bubbleY, shopAnchor.y - shopRadius - 180.0f);
+            Rectangle bubble{bubbleX, bubbleY, bubbleWidth, bubbleHeight};
+            DrawRectangleRec(bubble, Color{20, 26, 36, 210});
+            DrawRectangleLinesEx(bubble, 2.0f, Color{70, 92, 126, 240});
+            Vector2 textPos{bubble.x + bubblePadding, bubble.y + bubblePadding * 0.6f};
+            DrawTextEx(font, promptText, textPos, fontSize, 0.0f, Color{235, 240, 252, 255});
+        }
+
+        if (activeChest != nullptr && chestNearby) {
+            const char* promptText = "Pressione E para abrir o bau";
+            const Font& font = GetGameFont();
+            const float fontSize = 22.0f;
+            Vector2 textSize = MeasureTextEx(font, promptText, fontSize, 0.0f);
+            float bubblePadding = 12.0f;
+            float bubbleWidth = textSize.x + bubblePadding * 2.0f;
+            float bubbleHeight = textSize.y + bubblePadding * 1.5f;
+            float bubbleX = chestAnchor.x - bubbleWidth * 0.5f;
+            float bubbleY = chestAnchor.y - chestRadius - bubbleHeight - 10.0f;
+            bubbleY = std::max(bubbleY, chestAnchor.y - chestRadius - 180.0f);
+            Rectangle bubble{bubbleX, bubbleY, bubbleWidth, bubbleHeight};
+            DrawRectangleRec(bubble, Color{20, 26, 36, 210});
+            DrawRectangleLinesEx(bubble, 2.0f, Color{70, 92, 126, 240});
+            Vector2 textPos{bubble.x + bubblePadding, bubble.y + bubblePadding * 0.6f};
+            DrawTextEx(font, promptText, textPos, fontSize, 0.0f, Color{235, 240, 252, 255});
+        }
+
         EndMode2D();
 
         if (inventoryUI.open) {
             RenderInventoryUI(inventoryUI, player, leftHandWeapon, rightHandWeapon,
-                              Vector2{static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())});
+                              Vector2{static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())},
+                              activeShop);
         }
+
+        SaveActiveStations(inventoryUI, roomManager);
 
         EndDrawing();
     }

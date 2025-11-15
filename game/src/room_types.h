@@ -43,6 +43,10 @@ struct RoomCoords {
         return x == other.x && y == other.y;
     }
 
+    bool operator!=(const RoomCoords& other) const {
+        return !(*this == other);
+    }
+
     RoomCoords operator+(const RoomCoords& other) const {
         return RoomCoords{x + other.x, y + other.y};
     }

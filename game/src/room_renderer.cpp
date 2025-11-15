@@ -1,12 +1,12 @@
 #include "room_renderer.h"
 
+#include <algorithm>
 #include <cstdint>
 #include <functional>
+#include <iostream>
 #include <random>
 #include <unordered_set>
 #include <vector>
-
-#include "raylib.h"
 
 #include "room_types.h"
 
@@ -18,6 +18,29 @@ float TileToPixel(int tile) {
 
 Rectangle TileRectToPixels(const TileRect& rect) {
     return Rectangle{TileToPixel(rect.x), TileToPixel(rect.y), static_cast<float>(rect.width * TILE_SIZE), static_cast<float>(rect.height * TILE_SIZE)};
+}
+
+Texture2D LoadFurnitureTexture(const char* path) {
+    Texture2D texture{};
+    if (path == nullptr) {
+        return texture;
+    }
+    if (!FileExists(path)) {
+        std::cerr << "[RoomRenderer] Texture not found: " << path << std::endl;
+        return texture;
+    }
+    texture = LoadTexture(path);
+    if (texture.id != 0) {
+        SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    }
+    return texture;
+}
+
+void UnloadTextureIfValid(Texture2D& texture) {
+    if (texture.id != 0) {
+        UnloadTexture(texture);
+        texture = Texture2D{};
+    }
 }
 
 struct TilePos {
@@ -227,6 +250,24 @@ RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
 
 } // namespace
 
+RoomRenderer::RoomRenderer() {
+    forgeTexture_ = LoadFurnitureTexture("assets/img/furniture/forja/Forja.png");
+    forgeBrokenTexture_ = LoadFurnitureTexture("assets/img/furniture/forja/Forja_broken.png");
+    shopTextures_[0] = LoadFurnitureTexture("assets/img/furniture/loja/Loja1.png");
+    shopTextures_[1] = LoadFurnitureTexture("assets/img/furniture/loja/Loja2.png");
+    shopTextures_[2] = LoadFurnitureTexture("assets/img/furniture/loja/Loja3.png");
+    chestTexture_ = LoadFurnitureTexture("assets/img/furniture/bau/Bau.png");
+}
+
+RoomRenderer::~RoomRenderer() {
+    UnloadTextureIfValid(forgeTexture_);
+    UnloadTextureIfValid(forgeBrokenTexture_);
+    for (Texture2D& texture : shopTextures_) {
+        UnloadTextureIfValid(texture);
+    }
+    UnloadTextureIfValid(chestTexture_);
+}
+
 void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive) const {
     const RoomLayout& layout = room.Layout();
     RoomGeometry geometry = BuildRoomGeometry(layout);
@@ -261,6 +302,124 @@ void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive) const {
             DrawSouthWallColumn(tile.x, tile.y, wallColor);
         }
     }
+
+    if (!isActive) {
+        DrawForgeForRoom(room, isActive);
+        DrawShopForRoom(room, isActive);
+        DrawChestForRoom(room, isActive);
+    }
+}
+
+void RoomRenderer::DrawForgeForRoom(const Room& room, bool isActive) const {
+    const ForgeInstance* forge = room.GetForge();
+    if (forge == nullptr) {
+        return;
+    }
+    DrawForgeSprite(*forge, isActive);
+}
+
+void RoomRenderer::DrawForgeSprite(const ForgeInstance& forge, bool isActive) const {
+    const Texture2D* texture = (forge.state == ForgeState::Broken) ? &forgeBrokenTexture_ : &forgeTexture_;
+    if (texture->id == 0) {
+        return;
+    }
+
+    Rectangle src{0.0f, 0.0f, static_cast<float>(texture->width), static_cast<float>(texture->height)};
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    const float desiredWidth = tileSize * 2.6f;
+    float scale = (src.width > 0.0f) ? (desiredWidth / src.width) : 1.0f;
+    if (scale <= 0.0f) {
+        scale = 1.0f;
+    }
+
+    Rectangle dest{};
+    dest.width = desiredWidth;
+    dest.height = src.height * scale;
+    dest.x = forge.anchorX - dest.width * 0.5f;
+    dest.y = forge.anchorY - dest.height;
+
+    Color tint = WHITE;
+    if (!isActive) {
+        tint = Color{255, 255, 255, 180};
+    }
+
+    DrawTexturePro(*texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
+}
+
+void RoomRenderer::DrawForgeInstance(const ForgeInstance& forge, bool isActive) const {
+    DrawForgeSprite(forge, isActive);
+}
+
+void RoomRenderer::DrawShopForRoom(const Room& room, bool isActive) const {
+    const ShopInstance* shop = room.GetShop();
+    if (shop == nullptr) {
+        return;
+    }
+    DrawShopSprite(*shop, isActive);
+}
+
+void RoomRenderer::DrawShopSprite(const ShopInstance& shop, bool isActive) const {
+    int variant = std::clamp(shop.textureVariant, 0, static_cast<int>(shopTextures_.size()) - 1);
+    const Texture2D& texture = shopTextures_[variant];
+    if (texture.id == 0) {
+        return;
+    }
+
+    Rectangle src{0.0f, 0.0f, static_cast<float>(texture.width), static_cast<float>(texture.height)};
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    const float desiredWidth = tileSize * 3.2f;
+    float scale = (src.width > 0.0f) ? (desiredWidth / src.width) : 1.0f;
+    if (scale <= 0.0f) {
+        scale = 1.0f;
+    }
+
+    Rectangle dest{};
+    dest.width = desiredWidth;
+    dest.height = src.height * scale;
+    dest.x = shop.anchorX - dest.width * 0.5f;
+    dest.y = shop.anchorY - dest.height;
+
+    Color tint = isActive ? WHITE : Color{255, 255, 255, 180};
+    DrawTexturePro(texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
+}
+
+void RoomRenderer::DrawShopInstance(const ShopInstance& shop, bool isActive) const {
+    DrawShopSprite(shop, isActive);
+}
+
+void RoomRenderer::DrawChestForRoom(const Room& room, bool isActive) const {
+    const Chest* chest = room.GetChest();
+    if (chest == nullptr) {
+        return;
+    }
+    DrawChestSprite(*chest, isActive);
+}
+
+void RoomRenderer::DrawChestSprite(const Chest& chest, bool isActive) const {
+    if (chestTexture_.id == 0) {
+        return;
+    }
+
+    Rectangle src{0.0f, 0.0f, static_cast<float>(chestTexture_.width), static_cast<float>(chestTexture_.height)};
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    const float desiredWidth = tileSize * 1.6f;
+    float scale = (src.width > 0.0f) ? (desiredWidth / src.width) : 1.0f;
+    if (scale <= 0.0f) {
+        scale = 1.0f;
+    }
+
+    Rectangle dest{};
+    dest.width = desiredWidth;
+    dest.height = src.height * scale;
+    dest.x = chest.AnchorX() - dest.width * 0.5f;
+    dest.y = chest.AnchorY() - dest.height;
+
+    Color tint = isActive ? WHITE : Color{255, 255, 255, 180};
+    DrawTexturePro(chestTexture_, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
+}
+
+void RoomRenderer::DrawChestInstance(const Chest& chest, bool isActive) const {
+    DrawChestSprite(chest, isActive);
 }
 
 void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {

@@ -8,14 +8,20 @@
 #include <string>
 #include <vector>
 
+#include "room.h"
+#include "player.h"
+
 struct PlayerCharacter;
 struct WeaponState;
 struct WeaponBlueprint;
+class Chest;
+class CommonChest;
 
 enum class InventoryViewMode {
     Inventory,
     Forge,
-    Shop
+    Shop,
+    Chest
 };
 
 enum class ItemCategory {
@@ -36,6 +42,9 @@ struct ItemDefinition {
     int baseValue{0};
     int value{0};
     const WeaponBlueprint* weaponBlueprint{nullptr};
+    PlayerAttributes attributeBonuses{};
+    std::string inventorySpritePath;
+    Vector2 inventorySpriteDrawSize{0.0f, 0.0f};
 };
 
 struct InventoryUIState {
@@ -46,13 +55,24 @@ struct InventoryUIState {
     int selectedWeaponIndex{-1};
     int selectedShopIndex{-1};
     int selectedForgeSlot{-1};
+    int selectedChestIndex{-1};
     int lastDetailItemId{-1};
     float forgeSuccessChance{0.0f};
     int forgeAdjustHundreds{0};
     int forgeAdjustTens{0};
     int forgeAdjustOnes{0};
     int forgeBaseCost{0};
-    bool forgeBroken{false};
+    ForgeState forgeState{ForgeState::Working};
+    bool hasActiveForge{false};
+    RoomCoords activeForgeCoords{};
+    bool pendingForgeBreak{false};
+    bool hasActiveShop{false};
+    RoomCoords activeShopCoords{};
+    bool shopTradeActive{false};
+    bool shopTradeReadyToConfirm{false};
+    int shopTradeRequiredRarity{0};
+    int shopTradeInventoryIndex{-1};
+    int shopTradeShopIndex{-1};
     int coins{125};
     int shopRollsLeft{1};
     float sellPriceMultiplier{0.2f}; // Base sell multiplier; meta progression can scale this later
@@ -84,6 +104,24 @@ struct InventoryUIState {
     std::unordered_map<uint64_t, int> forgeRecipes;
     std::unordered_map<std::string, int> itemNameToId;
     Vector2 detailAbilityScroll{0.0f, 0.0f};
+
+    enum class ChestUIType {
+        None,
+        Common,
+        Player
+    };
+
+    bool hasActiveChest{false};
+    RoomCoords activeChestCoords{};
+    Chest* activeChest{nullptr};
+    ChestUIType chestUiType{ChestUIType::None};
+    bool chestSupportsDeposit{false};
+    bool chestSupportsTakeAll{false};
+    std::string chestTitle;
+    std::vector<int> chestItemIds;
+    std::vector<int> chestQuantities;
+    std::vector<std::string> chestItems;
+    std::vector<ItemCategory> chestTypes;
 };
 
 void InitializeInventoryUIDummyData(InventoryUIState& state);
@@ -91,6 +129,16 @@ void RenderInventoryUI(InventoryUIState& state,
                        const PlayerCharacter& player,
                        const WeaponState& leftWeapon,
                        const WeaponState& rightWeapon,
-                       Vector2 screenSize);
+                       Vector2 screenSize,
+                       ShopInstance* activeShop);
 
 const WeaponBlueprint* ResolveWeaponBlueprint(const InventoryUIState& state, int itemId);
+void LoadForgeContents(InventoryUIState& state, const ForgeInstance& forge);
+void StoreForgeContents(InventoryUIState& state, ForgeInstance& forge);
+void LoadShopContents(InventoryUIState& state, ShopInstance& shop);
+void StoreShopContents(const InventoryUIState& state, ShopInstance& shop);
+void RollShopInventory(InventoryUIState& state, ShopInstance* shop = nullptr);
+void ResetShopTradeState(InventoryUIState& state);
+void LoadChestContents(InventoryUIState& state, Chest& chest);
+void RefreshChestView(InventoryUIState& state);
+void EnsureCommonChestLoot(CommonChest& chest, const InventoryUIState& state);

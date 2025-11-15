@@ -3,19 +3,18 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <iostream>
 #include <random>
 #include <unordered_set>
 #include <utility>
 
 #include "room_types.h"
+#include "chest.h"
 
 namespace {
 
 constexpr int MIN_ROOM_SPACING_TILES = 2;
 constexpr int MIN_CORRIDOR_LENGTH_TILES = MIN_ROOM_SPACING_TILES * 2;
 constexpr int MAX_CORRIDOR_LENGTH_TILES = MIN_CORRIDOR_LENGTH_TILES * 3;
-constexpr bool DEBUG_DOOR_GENERATION = true;
 
 int RandomInt(std::mt19937_64& rng, int minInclusive, int maxInclusive) {
     std::uniform_int_distribution<int> dist(minInclusive, maxInclusive);
@@ -41,6 +40,10 @@ TileRect ExpandWithMargin(const TileRect& rect, int marginTiles) {
     expanded.width += marginTiles * 2;
     expanded.height += marginTiles * 2;
     return expanded;
+}
+
+float TileToPixel(int tile) {
+    return static_cast<float>(tile * TILE_SIZE);
 }
 
 bool HasValidCorridor(const Doorway& door) {
@@ -211,6 +214,7 @@ Room& RoomManager::CreateInitialRoom() {
     createdRoom.SetEntranceDirection(std::nullopt);
     createdRoom.SetDoorsInitialized(true);
     createdRoom.SetVisited(true);
+    InitializeRoomFeatures(createdRoom);
     return createdRoom;
 }
 
@@ -224,6 +228,10 @@ const Room& RoomManager::GetCurrentRoom() const {
 
 Room& RoomManager::GetRoom(const RoomCoords& coords) {
     return *rooms_.at(coords);
+}
+
+Room* RoomManager::TryGetRoom(const RoomCoords& coords) {
+    return FindRoom(coords);
 }
 
 const Room* RoomManager::TryGetRoom(const RoomCoords& coords) const {
@@ -323,19 +331,6 @@ void RoomManager::EnsureDoorsGenerated(Room& room) {
 
     ConfigureDoors(room, room.GetEntranceDirection());
     room.SetDoorsInitialized(true);
-    if (DEBUG_DOOR_GENERATION) {
-        std::cout << "Room (" << room.GetCoords().x << "," << room.GetCoords().y << ") initialized with "
-                  << room.Layout().doors.size() << " total doors" << std::endl;
-        for (const auto& door : room.Layout().doors) {
-            std::cout << "  - dir=" << static_cast<int>(door.direction)
-                      << " offset=" << door.offset
-                      << " width=" << door.width
-                      << " sealed=" << door.sealed
-                      << " targetGenerated=" << door.targetGenerated
-                      << " target=(" << door.targetCoords.x << "," << door.targetCoords.y << ")"
-                      << std::endl;
-        }
-    }
 }
 
 bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
@@ -357,11 +352,6 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
     if (existing) {
         Doorway* neighborDoor = existing->FindDoorTo(room.GetCoords());
         if (!neighborDoor || neighborDoor->sealed) {
-            if (DEBUG_DOOR_GENERATION) {
-                std::cout << "Sealing door from room (" << room.GetCoords().x << "," << room.GetCoords().y
-                          << ") to existing neighbor (" << door.targetCoords.x << "," << door.targetCoords.y
-                          << ") because neighbor door missing or sealed" << std::endl;
-            }
             door.sealed = true;
             door.targetGenerated = false;
             return false;
@@ -373,11 +363,6 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
         if (!neighborDoor->targetGenerated || !HasValidCorridor(*neighborDoor)) {
             TileRect corridor = ComputeCorridorBetweenRooms(room.Layout(), door, existing->Layout());
             if (corridor.width <= 0 || corridor.height <= 0) {
-                if (DEBUG_DOOR_GENERATION) {
-                    std::cout << "Sealing door from room (" << room.GetCoords().x << "," << room.GetCoords().y
-                              << ") to existing neighbor (" << door.targetCoords.x << "," << door.targetCoords.y
-                              << ") because computed corridor is invalid" << std::endl;
-                }
                 door.sealed = true;
                 door.targetGenerated = false;
                 return false;
@@ -406,11 +391,6 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
     }
 
     CreateRoomFromDoor(room, door);
-        if (DEBUG_DOOR_GENERATION) {
-            std::cout << "Added door in room (" << room.GetCoords().x << "," << room.GetCoords().y << ") toward direction "
-                      << static_cast<int>(door.direction) << " leading to coords (" << door.targetCoords.x
-                      << "," << door.targetCoords.y << ")" << std::endl;
-        }
     return door.targetGenerated;
 }
 
@@ -469,25 +449,9 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
             break;
         }
 
-        if (DEBUG_DOOR_GENERATION) {
-            std::cout << "Attempt " << attempt + 1 << " failed for new room from (" << originRoom.GetCoords().x << ","
-                      << originRoom.GetCoords().y << ") dir " << static_cast<int>(originDoor.direction)
-                      << " | size=" << widthTiles << "x" << heightTiles
-                      << " | offset=" << entranceOffset
-                      << " | corridorLen=" << originDoor.corridorLength
-                      << " | spaceOk=" << spaceOk
-                      << " | corridorBlocked=" << corridorBlocked
-                      << std::endl;
-        }
     }
 
     if (!placementFound) {
-        if (DEBUG_DOOR_GENERATION) {
-            std::cout << "Failed to place new room for door from room (" << originRoom.GetCoords().x << ","
-                      << originRoom.GetCoords().y << ") towards direction "
-                      << static_cast<int>(originDoor.direction) << " after " << maxAttempts
-                      << " attempts" << std::endl;
-        }
         originDoor.sealed = true;
         originDoor.targetGenerated = false;
         return originRoom;
@@ -523,8 +487,139 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     RegisterRoomDiscovery(selectedType);
 
     created.SetEntranceDirection(entranceDoor.direction);
+    InitializeRoomFeatures(created);
 
     return created;
+}
+
+void RoomManager::InitializeRoomFeatures(Room& room) {
+    switch (room.GetType()) {
+        case RoomType::Forge: {
+            room.ClearChest();
+            room.ClearShop();
+
+            ForgeInstance forge{};
+            forge.state = ForgeState::Working;
+
+            const RoomLayout& layout = room.Layout();
+            const TileRect& bounds = layout.tileBounds;
+
+            const float tileSize = static_cast<float>(TILE_SIZE);
+            constexpr float kFootprintWidthTiles = 2.0f;
+            constexpr float kFootprintDepthTiles = 1.0f;
+
+            const float availableWidth = static_cast<float>(layout.widthTiles);
+            const float availableHeight = static_cast<float>(layout.heightTiles);
+
+            const float horizontalMarginTiles = std::max(0.0f, (availableWidth - kFootprintWidthTiles) * 0.5f);
+            const float verticalMarginTiles = std::max(0.0f, (availableHeight - kFootprintDepthTiles) * 0.5f);
+
+            forge.anchorX = TileToPixel(bounds.x) + (horizontalMarginTiles + kFootprintWidthTiles * 0.5f) * tileSize;
+            forge.anchorY = TileToPixel(bounds.y) + (verticalMarginTiles + kFootprintDepthTiles) * tileSize;
+
+            forge.hitbox.width = (kFootprintWidthTiles + 1.0f) * tileSize;
+            forge.hitbox.height = kFootprintDepthTiles * tileSize;
+            forge.hitbox.x = forge.anchorX - forge.hitbox.width * 0.5f;
+            forge.hitbox.y = forge.anchorY - forge.hitbox.height;
+
+            forge.interactionRadius = tileSize * 2.2f;
+
+            room.SetForge(forge);
+            break;
+        }
+        case RoomType::Shop: {
+            room.ClearChest();
+            room.ClearForge();
+            InitializeShopFeatures(room);
+            break;
+        }
+        case RoomType::Chest: {
+            room.ClearForge();
+            room.ClearShop();
+            InitializeChestFeatures(room, false);
+            break;
+        }
+        case RoomType::Lobby: {
+            room.ClearForge();
+            room.ClearShop();
+            InitializeChestFeatures(room, true);
+            break;
+        }
+        default:
+            room.ClearForge();
+            room.ClearShop();
+            room.ClearChest();
+            break;
+    }
+}
+
+void RoomManager::InitializeShopFeatures(Room& room) {
+    const RoomLayout& layout = room.Layout();
+    const TileRect& bounds = layout.tileBounds;
+
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    constexpr float kFootprintWidthTiles = 3.0f;
+    constexpr float kFootprintDepthTiles = 1.0f;
+
+    ShopInstance shop{};
+    shop.textureVariant = static_cast<int>(MakeRoomSeed(worldSeed_, room.GetCoords(), 0x51A7ULL) % 3ULL);
+    shop.baseSeed = MakeRoomSeed(worldSeed_, room.GetCoords(), 0x5B0F5ULL);
+
+    const float availableWidth = static_cast<float>(layout.widthTiles);
+    const float availableHeight = static_cast<float>(layout.heightTiles);
+
+    const float horizontalMarginTiles = std::max(0.0f, (availableWidth - kFootprintWidthTiles) * 0.5f);
+    const float verticalMarginTiles = std::max(0.0f, (availableHeight - kFootprintDepthTiles) * 0.5f);
+
+    shop.anchorX = TileToPixel(bounds.x) + (horizontalMarginTiles + kFootprintWidthTiles * 0.5f) * tileSize;
+    shop.anchorY = TileToPixel(bounds.y) + (verticalMarginTiles + kFootprintDepthTiles) * tileSize;
+
+    shop.hitbox.width = kFootprintWidthTiles * tileSize;  // Ajuste a largura da hitbox da loja aqui
+    shop.hitbox.height = kFootprintDepthTiles * tileSize; // Ajuste a altura da hitbox da loja aqui
+    shop.hitbox.x = shop.anchorX - shop.hitbox.width * 0.5f;
+    shop.hitbox.y = shop.anchorY - shop.hitbox.height;
+
+    shop.interactionRadius = tileSize * 2.4f;
+
+    room.SetShop(shop);
+}
+
+void RoomManager::InitializeChestFeatures(Room& room, bool persistentPlayerChest) {
+    const RoomLayout& layout = room.Layout();
+    const TileRect& bounds = layout.tileBounds;
+
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    constexpr float kFootprintWidthTiles = 1.6f;
+    constexpr float kFootprintDepthTiles = 1.0f;
+
+    const float availableWidth = static_cast<float>(layout.widthTiles);
+    const float availableHeight = static_cast<float>(layout.heightTiles);
+
+    const float horizontalMarginTiles = std::max(0.0f, (availableWidth - kFootprintWidthTiles) * 0.5f);
+    const float verticalMarginTiles = std::max(0.0f, (availableHeight - kFootprintDepthTiles) * 0.5f);
+
+    float anchorX = TileToPixel(bounds.x) + (horizontalMarginTiles + kFootprintWidthTiles * 0.5f) * tileSize;
+    float anchorY = TileToPixel(bounds.y) + (verticalMarginTiles + kFootprintDepthTiles) * tileSize;
+
+    Rectangle hitbox{};
+    hitbox.width = kFootprintWidthTiles * tileSize;
+    hitbox.height = kFootprintDepthTiles * tileSize * 0.9f;
+    hitbox.x = anchorX - hitbox.width * 0.5f;
+    hitbox.y = anchorY - hitbox.height;
+
+    float interactionRadius = tileSize * 1.8f;
+
+    std::unique_ptr<Chest> chest;
+    if (persistentPlayerChest) {
+        constexpr int kPlayerChestCapacity = 24;
+        chest = std::make_unique<PlayerChest>(anchorX, anchorY, interactionRadius, hitbox, kPlayerChestCapacity);
+    } else {
+        constexpr int kCommonChestCapacity = 4;
+        std::uint64_t lootSeed = MakeRoomSeed(worldSeed_, room.GetCoords(), 0xC73AULL);
+        chest = std::make_unique<CommonChest>(anchorX, anchorY, interactionRadius, hitbox, kCommonChestCapacity, lootSeed);
+    }
+
+    room.SetChest(std::move(chest));
 }
 
 void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDirection) {
@@ -592,18 +687,12 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
     Doorway* entranceDoor = entranceDirection ? room.FindDoor(*entranceDirection) : nullptr;
     int anchorOffset = entranceDoor ? entranceDoor->offset : layout.heightTiles / 2;
 
-    bool addedAny = false;
-
     auto tryPlaceDoor = [&](Direction direction) -> bool {
         if (openDoors >= targetDoorGoal) {
             return false;
         }
 
         if (std::any_of(layout.doors.begin(), layout.doors.end(), [&](const Doorway& d) { return d.direction == direction; })) {
-            if (DEBUG_DOOR_GENERATION) {
-                std::cout << "Skipping direction " << static_cast<int>(direction) << " in room (" << coords.x << ","
-                          << coords.y << ") because door already exists" << std::endl;
-            }
             return false;
         }
 
@@ -611,21 +700,12 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
         if (Room* neighbor = FindRoom(neighborCoords)) {
             Doorway* neighborDoor = neighbor->FindDoorTo(coords);
             if (!neighborDoor || neighborDoor->sealed) {
-                if (DEBUG_DOOR_GENERATION) {
-                    std::cout << "Skipping direction " << static_cast<int>(direction) << " in room (" << coords.x
-                              << "," << coords.y << ") because neighbor (" << neighborCoords.x << ","
-                              << neighborCoords.y << ") has no matching open door" << std::endl;
-                }
                 return false;
             }
         }
 
         int wallLength = WallLengthForDirection(layout.widthTiles, layout.heightTiles, direction);
         if (wallLength <= DOOR_WIDTH_TILES + 2) {
-            if (DEBUG_DOOR_GENERATION) {
-                std::cout << "Skipping direction " << static_cast<int>(direction) << " in room (" << coords.x << ","
-                          << coords.y << ") because wall length " << wallLength << " too small" << std::endl;
-            }
             return false;
         }
 
@@ -678,30 +758,13 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
 
                 Doorway& newDoor = layout.doors.back();
                 if (!TryGenerateDoorTarget(room, newDoor) || newDoor.sealed) {
-                    if (DEBUG_DOOR_GENERATION) {
-                        std::cout << "Attempt failed: room (" << coords.x << "," << coords.y << ") dir "
-                                  << static_cast<int>(direction) << " offset=" << candidate.offset
-                                  << " corridorLen=" << corridorLength << std::endl;
-                    }
                     layout.doors.pop_back();
                     continue;
                 }
 
-                addedAny = true;
                 ++openDoors;
-                if (DEBUG_DOOR_GENERATION) {
-                    std::cout << "Added door in room (" << coords.x << "," << coords.y << ") toward direction "
-                              << static_cast<int>(direction) << " leading to coords (" << newDoor.targetCoords.x
-                              << "," << newDoor.targetCoords.y << ")" << std::endl;
-                }
                 return true;
             }
-        }
-
-        if (DEBUG_DOOR_GENERATION) {
-            std::cout << "Failed to add door in room (" << coords.x << "," << coords.y
-                      << ") towards direction " << static_cast<int>(direction)
-                      << " - all placements invalid" << std::endl;
         }
 
         return false;
@@ -717,10 +780,6 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
         tryPlaceDoor(direction);
     }
 
-    if (!addedAny && DEBUG_DOOR_GENERATION) {
-        std::cout << "Room (" << coords.x << "," << coords.y << ") remains with " << openDoors
-                  << " open doors after ConfigureDoors" << std::endl;
-    }
 }
 
 void RoomManager::AlignWithNeighbor(Room& room, Direction direction, Room& neighbor) {
@@ -762,8 +821,8 @@ RoomType RoomManager::PickRoomType(const RoomCoords& coords) {
         bossChance = 1.0 + 0.5 * roomsSinceBoss_;
     }
 
-    const double forgeChance = 5.0;
-    const double shopChance = 5.0;
+    const double forgeChance = 20.0; // ALTERAR NO FUTURO PARA AJUSTAR A FREQUENCIA DE FORGE
+    const double shopChance = 20.0;
     const double chestChance = 10.0;
 
     double total = normalChance + forgeChance + shopChance + chestChance + bossChance;
@@ -845,25 +904,11 @@ bool RoomManager::CorridorIntersectsRooms(const TileRect& corridor) const {
 
     for (const auto& [coords, room] : rooms_) {
         if (Intersects(corridor, room->Layout().tileBounds)) {
-            if (DEBUG_DOOR_GENERATION) {
-                std::cout << "Corridor intersects room bounds at (" << coords.x << "," << coords.y
-                          << ") corridor Rect{" << corridor.x << "," << corridor.y << "," << corridor.width
-                          << "," << corridor.height << "} room Rect{" << room->Layout().tileBounds.x << ","
-                          << room->Layout().tileBounds.y << "," << room->Layout().tileBounds.width << ","
-                          << room->Layout().tileBounds.height << "}" << std::endl;
-            }
             return true;
         }
         for (const auto& door : room->Layout().doors) {
             if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0) {
                 if (Intersects(corridor, door.corridorTiles)) {
-                    if (DEBUG_DOOR_GENERATION) {
-                        std::cout << "Corridor intersects existing corridor from room (" << coords.x << ","
-                                  << coords.y << ") corridor Rect{" << corridor.x << "," << corridor.y << ","
-                                  << corridor.width << "," << corridor.height << "} existing Rect{"
-                                  << door.corridorTiles.x << "," << door.corridorTiles.y << ","
-                                  << door.corridorTiles.width << "," << door.corridorTiles.height << "}" << std::endl;
-                    }
                     return true;
                 }
             }

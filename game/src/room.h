@@ -1,10 +1,16 @@
 #pragma once
 
+
+#include "raylib.h"
+
+#include <array>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <vector>
 
 #include "room_types.h"
+#include "chest.h"
 
 struct Doorway {
     Direction direction{Direction::North};
@@ -28,6 +34,55 @@ struct RoomLayout {
     int heightTiles{0};
     TileRect tileBounds{};
     std::vector<Doorway> doors;
+};
+
+enum class ForgeState {
+    Working,
+    Broken
+};
+
+struct ForgeInstance {
+    float anchorX{0.0f};
+    float anchorY{0.0f};
+    float interactionRadius{96.0f};
+    Rectangle hitbox{0.0f, 0.0f, 0.0f, 0.0f};
+    ForgeState state{ForgeState::Working};
+
+    struct Slot {
+        int itemId{0};
+        int quantity{0};
+    };
+
+    struct Contents {
+        std::array<Slot, 2> inputs{};
+        Slot result{};
+    } contents{};
+
+    bool IsBroken() const { return state == ForgeState::Broken; }
+    void SetBroken() { state = ForgeState::Broken; }
+    void SetWorking() { state = ForgeState::Working; }
+};
+
+struct ShopInventoryEntry {
+    int itemId{0};
+    int price{0};
+    int stock{0};
+};
+
+struct ShopInstance {
+    float anchorX{0.0f};
+    float anchorY{0.0f};
+    float interactionRadius{120.0f};
+    Rectangle hitbox{0.0f, 0.0f, 0.0f, 0.0f};
+    int textureVariant{0};
+    std::uint64_t baseSeed{0};
+    std::uint32_t rerollCount{0};
+    std::vector<ShopInventoryEntry> items;
+
+    std::uint64_t CurrentSeed() const {
+        constexpr std::uint64_t kHash = 0x9E3779B97F4A7C15ULL;
+        return baseSeed ^ (static_cast<std::uint64_t>(rerollCount) * kHash);
+    }
 };
 
 class Room {
@@ -55,6 +110,24 @@ public:
     std::optional<Direction> GetEntranceDirection() const { return entranceDirection_; }
     void SetEntranceDirection(std::optional<Direction> direction) { entranceDirection_ = direction; }
 
+    bool HasForge() const { return forge_.has_value(); }
+    ForgeInstance* GetForge();
+    const ForgeInstance* GetForge() const;
+    void SetForge(const ForgeInstance& forge);
+    void ClearForge();
+
+    bool HasShop() const { return shop_.has_value(); }
+    ShopInstance* GetShop();
+    const ShopInstance* GetShop() const;
+    void SetShop(const ShopInstance& shop);
+    void ClearShop();
+
+    bool HasChest() const { return static_cast<bool>(chest_); }
+    Chest* GetChest();
+    const Chest* GetChest() const;
+    void SetChest(std::unique_ptr<Chest> chest);
+    void ClearChest();
+
 private:
     RoomCoords coords_{};
     RoomSeedData seedData_{};
@@ -62,4 +135,7 @@ private:
     bool visited_{false};
     bool doorsInitialized_{false};
     std::optional<Direction> entranceDirection_{};
+    std::optional<ForgeInstance> forge_{};
+    std::optional<ShopInstance> shop_{};
+    std::unique_ptr<Chest> chest_{};
 };

@@ -183,6 +183,7 @@
              - Foco — escala dano de armas cujo atributo chave é Foco.
              - Misticismo — escala dano de armas cujo atributo chave é Misticismo.
              - Conhecimento — escala dano de armas cujo atributo chave é Conhecimento.
+             - Sentimento — escala dano de armas cujo atributo chave é sentimento // No futuro.
 
           - **Atributos secundários** (jogador)
              - Vampirismo — chance (%) de recuperar vida ao eliminar um oponente.
