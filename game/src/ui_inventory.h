@@ -132,6 +132,9 @@ void RenderInventoryUI(InventoryUIState& state,
                        Vector2 screenSize,
                        ShopInstance* activeShop);
 
+PlayerAttributes GatherEquipmentBonuses(const InventoryUIState& state);
+bool SyncEquipmentBonuses(const InventoryUIState& state, PlayerCharacter& player);
+
 const WeaponBlueprint* ResolveWeaponBlueprint(const InventoryUIState& state, int itemId);
 void LoadForgeContents(InventoryUIState& state, const ForgeInstance& forge);
 void StoreForgeContents(InventoryUIState& state, ForgeInstance& forge);

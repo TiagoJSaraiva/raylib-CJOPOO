@@ -44,6 +44,30 @@ struct PlayerAttributes {
     SecondaryAttributes secondary{};
 };
 
+inline bool operator==(const PrimaryAttributes& lhs, const PrimaryAttributes& rhs) {
+    return lhs.poder == rhs.poder && lhs.defesa == rhs.defesa && lhs.vigor == rhs.vigor &&
+           lhs.velocidade == rhs.velocidade && lhs.destreza == rhs.destreza && lhs.inteligencia == rhs.inteligencia;
+}
+
+inline bool operator==(const AttackAttributes& lhs, const AttackAttributes& rhs) {
+    return lhs.constituicao == rhs.constituicao && lhs.forca == rhs.forca && lhs.foco == rhs.foco &&
+           lhs.misticismo == rhs.misticismo && lhs.conhecimento == rhs.conhecimento;
+}
+
+inline bool operator==(const SecondaryAttributes& lhs, const SecondaryAttributes& rhs) {
+    return lhs.vampirismo == rhs.vampirismo && lhs.letalidade == rhs.letalidade && lhs.reducaoDano == rhs.reducaoDano &&
+           lhs.desvio == rhs.desvio && lhs.alcanceColeta == rhs.alcanceColeta && lhs.sorte == rhs.sorte &&
+           lhs.maldicao == rhs.maldicao;
+}
+
+inline bool operator==(const PlayerAttributes& lhs, const PlayerAttributes& rhs) {
+    return lhs.primary == rhs.primary && lhs.attack == rhs.attack && lhs.secondary == rhs.secondary;
+}
+
+inline bool operator!=(const PlayerAttributes& lhs, const PlayerAttributes& rhs) {
+    return !(lhs == rhs);
+}
+
 inline PlayerAttributes AddAttributes(const PlayerAttributes& a, const PlayerAttributes& b) {
     PlayerAttributes result{};
     result.primary.poder = a.primary.poder + b.primary.poder;

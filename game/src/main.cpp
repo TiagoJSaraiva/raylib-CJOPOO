@@ -2,13 +2,19 @@
 #include "raymath.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdint>
 #include <cmath>
+#include <cctype>
+#include <cstring>
 #include <optional>
 #include <limits>
 #include <iostream>
+#include <memory>
 #include <random>
+#include <unordered_map>
+#include <unordered_set>
 #include <string>
 #include <vector>
 
@@ -23,6 +29,7 @@
 #include "ui_inventory.h"
 #include "font_manager.h"
 #include "chest.h"
+#include "hud.h"
 
 namespace {
 
@@ -49,6 +56,35 @@ struct DamageNumber {
     float age{0.0f};
     float lifetime{1.0f};
 };
+
+struct DoorRenderData {
+    Doorway* doorway{nullptr};
+    DoorInstance* instance{nullptr};
+    Rectangle hitbox{};
+    bool frontView{true};
+    float alpha{1.0f};
+    bool showPrompt{false};
+    bool isLocked{false};
+    Vector2 promptAnchor{};
+    BiomeType biome{BiomeType::Unknown};
+    bool drawAfterPlayer{false};
+};
+
+struct DoorMaskData {
+    Rectangle corridorMask{};
+    bool hasCorridorMask{false};
+    float alpha{1.0f};
+};
+
+struct RoomRevealState {
+    float alpha{0.0f};
+};
+
+constexpr float DOOR_COLLIDER_THICKNESS = 24.0f;
+constexpr float DOOR_OFFSET_FROM_ROOM = 5.0f;
+constexpr float DOOR_INTERACTION_DISTANCE = 150.0f;
+constexpr float DOOR_FADE_DURATION = 1.0f;
+constexpr float DOOR_MASK_CLEARANCE = 1.0f;
 
 void UpdateDamageNumbers(std::vector<DamageNumber>& numbers, float deltaSeconds) {
     for (auto& number : numbers) {
@@ -133,6 +169,366 @@ void SaveActiveShopContents(InventoryUIState& uiState, RoomManager& manager) {
 void SaveActiveStations(InventoryUIState& uiState, RoomManager& manager) {
     SaveActiveForgeContents(uiState, manager);
     SaveActiveShopContents(uiState, manager);
+}
+
+float DoorVisibilityAlpha(const DoorInstance& state) {
+    if (state.open) {
+        return 0.0f;
+    }
+    if (!state.opening) {
+        return 1.0f;
+    }
+    float t = std::clamp(state.fadeProgress / DOOR_FADE_DURATION, 0.0f, 1.0f);
+    return 1.0f - t;
+}
+
+float TileToPixel(int tile);
+
+Rectangle ComputeDoorHitbox(const RoomLayout& layout, const Doorway& door) {
+    Rectangle rect{};
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    switch (door.direction) {
+        case Direction::North: {
+            float baseX = TileToPixel(layout.tileBounds.x + door.offset);
+            rect.x = baseX;
+            rect.width = static_cast<float>(door.width) * tileSize;
+            rect.height = DOOR_COLLIDER_THICKNESS;
+            rect.y = TileToPixel(layout.tileBounds.y) - DOOR_OFFSET_FROM_ROOM - rect.height;
+            break;
+        }
+        case Direction::South: {
+            float baseX = TileToPixel(layout.tileBounds.x + door.offset);
+            rect.x = baseX;
+            rect.width = static_cast<float>(door.width) * tileSize;
+            rect.height = DOOR_COLLIDER_THICKNESS;
+            rect.y = TileToPixel(layout.tileBounds.y + layout.heightTiles) + DOOR_OFFSET_FROM_ROOM;
+            break;
+        }
+        case Direction::East: {
+            float baseY = TileToPixel(layout.tileBounds.y + door.offset);
+            rect.y = baseY;
+            rect.height = static_cast<float>(door.width) * tileSize;
+            rect.width = DOOR_COLLIDER_THICKNESS;
+            rect.x = TileToPixel(layout.tileBounds.x + layout.widthTiles) + DOOR_OFFSET_FROM_ROOM;
+            break;
+        }
+        case Direction::West: {
+            float baseY = TileToPixel(layout.tileBounds.y + door.offset);
+            rect.y = baseY;
+            rect.height = static_cast<float>(door.width) * tileSize;
+            rect.width = DOOR_COLLIDER_THICKNESS;
+            rect.x = TileToPixel(layout.tileBounds.x) - DOOR_OFFSET_FROM_ROOM - rect.width;
+            break;
+        }
+    }
+    return rect;
+}
+
+bool ClipCorridorMaskBehindDoor(Direction direction,
+                                const Rectangle& doorHitbox,
+                                Rectangle& corridorMask) {
+    const float maskRight = corridorMask.x + corridorMask.width;
+    const float maskBottom = corridorMask.y + corridorMask.height;
+
+    switch (direction) {
+        case Direction::North: {
+            float doorBack = doorHitbox.y - DOOR_MASK_CLEARANCE;
+            float newBottom = std::min(doorBack, maskBottom);
+            if (newBottom <= corridorMask.y) {
+                return false;
+            }
+            corridorMask.height = newBottom - corridorMask.y;
+            return corridorMask.height > 0.0f;
+        }
+        case Direction::South: {
+            float doorBack = doorHitbox.y + doorHitbox.height + DOOR_MASK_CLEARANCE;
+            float newY = std::max(doorBack, corridorMask.y);
+            if (newY >= maskBottom) {
+                return false;
+            }
+            corridorMask.height = maskBottom - newY;
+            corridorMask.y = newY;
+            return corridorMask.height > 0.0f;
+        }
+        case Direction::East: {
+            float doorBack = doorHitbox.x + doorHitbox.width + DOOR_MASK_CLEARANCE;
+            float newX = std::max(doorBack, corridorMask.x);
+            if (newX >= maskRight) {
+                return false;
+            }
+            corridorMask.width = maskRight - newX;
+            corridorMask.x = newX;
+            return corridorMask.width > 0.0f;
+        }
+        case Direction::West: {
+            float doorBack = doorHitbox.x - DOOR_MASK_CLEARANCE;
+            float newRight = std::min(doorBack, maskRight);
+            if (newRight <= corridorMask.x) {
+                return false;
+            }
+            corridorMask.width = newRight - corridorMask.x;
+            return corridorMask.width > 0.0f;
+        }
+    }
+
+    return false;
+}
+
+Color DoorMaskColor(float alpha) {
+    Color color{24, 26, 33, 255};
+    color.a = static_cast<unsigned char>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
+    return color;
+}
+
+struct DebugConsoleState {
+    static constexpr int kMaxCommandLength = 96;
+
+    enum class InventoryContext {
+        None,
+        Forge,
+        Shop,
+        Chest
+    };
+
+    bool open{false};
+    bool textBoxActive{false};
+    std::array<char, kMaxCommandLength> commandBuffer{};
+    InventoryContext inventoryContext{InventoryContext::None};
+    std::unique_ptr<ForgeInstance> forgeInstance{};
+    std::unique_ptr<ShopInstance> shopInstance{};
+    std::unique_ptr<Chest> chestInstance{};
+};
+
+std::string TrimCommand(const std::string& text) {
+    size_t start = 0;
+    while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
+        ++start;
+    }
+    size_t end = text.size();
+    while (end > start && std::isspace(static_cast<unsigned char>(text[end - 1]))) {
+        --end;
+    }
+    return text.substr(start, end - start);
+}
+
+const ItemDefinition* FindDebugItemDefinitionById(const InventoryUIState& state, int itemId) {
+    if (itemId <= 0) {
+        return nullptr;
+    }
+    for (const ItemDefinition& def : state.items) {
+        if (def.id == itemId) {
+            return &def;
+        }
+    }
+    return nullptr;
+}
+
+void ClearDebugCommandBuffer(DebugConsoleState& state) {
+    state.commandBuffer.fill('\0');
+}
+
+void CloseDebugConsole(DebugConsoleState& state) {
+    state.open = false;
+    state.textBoxActive = false;
+    ClearDebugCommandBuffer(state);
+}
+
+void ResetDebugInventoryContext(DebugConsoleState& state, InventoryUIState& inventory) {
+    using Context = DebugConsoleState::InventoryContext;
+    if (state.inventoryContext == Context::Chest) {
+        inventory.hasActiveChest = false;
+        inventory.activeChest = nullptr;
+        inventory.activeChestCoords = RoomCoords{};
+        inventory.chestUiType = InventoryUIState::ChestUIType::None;
+        inventory.chestSupportsDeposit = false;
+        inventory.chestSupportsTakeAll = false;
+        inventory.selectedChestIndex = -1;
+        inventory.chestTitle.clear();
+        inventory.chestItemIds.clear();
+        inventory.chestItems.clear();
+        inventory.chestQuantities.clear();
+        inventory.chestTypes.clear();
+    } else if (state.inventoryContext == Context::Forge) {
+        inventory.selectedForgeSlot = -1;
+        inventory.pendingForgeBreak = false;
+        inventory.forgeState = ForgeState::Working;
+    } else if (state.inventoryContext == Context::Shop) {
+        ResetShopTradeState(inventory);
+        inventory.selectedShopIndex = -1;
+    }
+
+    state.forgeInstance.reset();
+    state.shopInstance.reset();
+    state.chestInstance.reset();
+    state.inventoryContext = Context::None;
+    inventory.mode = InventoryViewMode::Inventory;
+    inventory.open = false;
+}
+
+void PrepareInventoryForDebug(DebugConsoleState& state,
+                              InventoryUIState& inventory,
+                              RoomManager& manager) {
+    SaveActiveStations(inventory, manager);
+    ResetDebugInventoryContext(state, inventory);
+    inventory.open = true;
+    inventory.selectedInventoryIndex = -1;
+    inventory.selectedEquipmentIndex = -1;
+    inventory.selectedWeaponIndex = -1;
+    inventory.selectedShopIndex = -1;
+    inventory.selectedForgeSlot = -1;
+    inventory.selectedChestIndex = -1;
+    inventory.feedbackMessage.clear();
+    inventory.feedbackTimer = 0.0f;
+}
+
+void ActivateDebugForgeContext(DebugConsoleState& state, InventoryUIState& inventory) {
+    state.inventoryContext = DebugConsoleState::InventoryContext::Forge;
+    state.forgeInstance = std::make_unique<ForgeInstance>();
+    inventory.mode = InventoryViewMode::Forge;
+    inventory.pendingForgeBreak = false;
+    inventory.forgeState = ForgeState::Working;
+    LoadForgeContents(inventory, *state.forgeInstance);
+}
+
+void ActivateDebugShopContext(DebugConsoleState& state, InventoryUIState& inventory) {
+    state.inventoryContext = DebugConsoleState::InventoryContext::Shop;
+    state.shopInstance = std::make_unique<ShopInstance>();
+    state.shopInstance->items.clear();
+    state.shopInstance->baseSeed = static_cast<std::uint64_t>(GetRandomValue(0, std::numeric_limits<int>::max()));
+    state.shopInstance->rerollCount = 0;
+    ResetShopTradeState(inventory);
+    inventory.mode = InventoryViewMode::Shop;
+    LoadShopContents(inventory, *state.shopInstance);
+}
+
+bool ActivateDebugChestContext(DebugConsoleState& state,
+                               InventoryUIState& inventory,
+                               RoomManager& manager,
+                               std::unique_ptr<Chest> chest) {
+    if (!chest) {
+        return false;
+    }
+    state.inventoryContext = DebugConsoleState::InventoryContext::Chest;
+    state.chestInstance = std::move(chest);
+    inventory.mode = InventoryViewMode::Chest;
+    LoadChestContents(inventory, *state.chestInstance);
+    inventory.activeChestCoords = manager.GetCurrentCoords();
+    return true;
+}
+
+bool ExecuteDebugCommand(const std::string& rawCommand,
+                         DebugConsoleState& state,
+                         InventoryUIState& inventory,
+                         PlayerCharacter& player,
+                         RoomManager& manager) {
+    std::string command = TrimCommand(rawCommand);
+    if (command.empty()) {
+        return false;
+    }
+
+    if (command == "inventory.openForje") {
+        PrepareInventoryForDebug(state, inventory, manager);
+        ActivateDebugForgeContext(state, inventory);
+        return true;
+    }
+
+    if (command == "inventory.openShop") {
+        PrepareInventoryForDebug(state, inventory, manager);
+        ActivateDebugShopContext(state, inventory);
+        return true;
+    }
+
+    if (command == "inventory.openChest") {
+        PrepareInventoryForDebug(state, inventory, manager);
+        auto chest = std::make_unique<CommonChest>(
+            0.0f,
+            0.0f,
+            0.0f,
+            Rectangle{0.0f, 0.0f, 0.0f, 0.0f},
+            8,
+            static_cast<std::uint64_t>(GetRandomValue(0, std::numeric_limits<int>::max())));
+        return ActivateDebugChestContext(state, inventory, manager, std::move(chest));
+    }
+
+    constexpr const char* kItemGivePrefix = "item.give.";
+    if (command.rfind(kItemGivePrefix, 0) == 0) {
+        std::string idText = TrimCommand(command.substr(std::strlen(kItemGivePrefix)));
+        try {
+            int itemId = std::stoi(idText);
+            if (itemId <= 0 || FindDebugItemDefinitionById(inventory, itemId) == nullptr) {
+                return false;
+            }
+            PrepareInventoryForDebug(state, inventory, manager);
+            auto chest = std::make_unique<PlayerChest>(
+                0.0f,
+                0.0f,
+                0.0f,
+                Rectangle{0.0f, 0.0f, 0.0f, 0.0f},
+                8);
+            chest->SetSlot(0, itemId, 1);
+            return ActivateDebugChestContext(state, inventory, manager, std::move(chest));
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+
+    constexpr const char* kHealthPrefix = "player.currentHealth.set";
+    if (command.rfind(kHealthPrefix, 0) == 0) {
+        std::string valueText = TrimCommand(command.substr(std::strlen(kHealthPrefix)));
+        try {
+            float value = std::stof(valueText);
+            float maxHealth = std::max(player.derivedStats.maxHealth, 1.0f);
+            if (value <= 0.0f || value > maxHealth) {
+                return false;
+            }
+            player.currentHealth = value;
+            return true;
+        } catch (const std::exception&) {
+            return false;
+        }
+    }
+
+    return false;
+}
+
+void DrawDebugConsoleOverlay(DebugConsoleState& state) {
+    const int screenWidth = GetScreenWidth();
+    const int screenHeight = GetScreenHeight();
+    DrawRectangle(0, 0, screenWidth, screenHeight, Color{0, 0, 0, 140});
+
+    const float panelWidth = 520.0f;
+    const float panelHeight = 180.0f;
+    Rectangle panel{
+        screenWidth * 0.5f - panelWidth * 0.5f,
+        screenHeight * 0.5f - panelHeight * 0.5f,
+        panelWidth,
+        panelHeight
+    };
+    DrawRectangleRec(panel, Color{22, 28, 40, 235});
+    DrawRectangleLinesEx(panel, 2.0f, Color{200, 210, 230, 255});
+
+    const Font& font = GetGameFont();
+    constexpr float kTitleFontSize = 28.0f;
+    const char* title = "Debug tool";
+    Vector2 titleSize = MeasureTextEx(font, title, kTitleFontSize, 0.0f);
+    Vector2 titlePos{panel.x + (panel.width - titleSize.x) * 0.5f, panel.y + 24.0f};
+    DrawTextEx(font, title, titlePos, kTitleFontSize, 0.0f, Color{255, 255, 255, 255});
+
+    Rectangle inputBounds{
+        panel.x + 32.0f,
+        panel.y + panel.height - 70.0f,
+        panel.width - 64.0f,
+        40.0f
+    };
+    GuiTextBox(inputBounds,
+               state.commandBuffer.data(),
+               static_cast<int>(state.commandBuffer.size()),
+               state.textBoxActive);
+}
+
+void FlushTextInputBuffer() {
+    while (GetCharPressed() != 0) {
+    }
 }
 
 Texture2D LoadTextureIfExists(const std::string& path) {
@@ -761,7 +1157,11 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
 } // namespace
 
 int main() {
+    SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TOPMOST);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Prototype - Room Generation");
+    const int monitorIndex = GetCurrentMonitor();
+    const Vector2 monitorPosition = GetMonitorPosition(monitorIndex);
+    SetWindowPosition(static_cast<int>(monitorPosition.x), static_cast<int>(monitorPosition.y));
     SetTargetFPS(60);
     LoadGameFont("assets/font/alagard.ttf", 32);
 
@@ -778,7 +1178,9 @@ int main() {
     rightHandWeapon.blueprint = &GetArcoSimplesWeaponBlueprint();
 
     InventoryUIState inventoryUI;
+    DebugConsoleState debugConsole;
     InitializeInventoryUIDummyData(inventoryUI);
+    SyncEquipmentBonuses(inventoryUI, player);
 
     RefreshPlayerWeaponBonuses(player, leftHandWeapon, rightHandWeapon);
 
@@ -795,7 +1197,14 @@ int main() {
     trainingDummy.position = Vector2Add(playerPosition, trainingDummyOffset);
     trainingDummy.radius = 52.0f;
 
+    Room* previousRoomForMasks = nullptr;
+
     std::vector<DamageNumber> damageNumbers;
+    std::vector<DoorRenderData> doorRenderData;
+    doorRenderData.reserve(8);
+    std::vector<DoorMaskData> doorMaskData;
+    doorMaskData.reserve(16);
+    std::unordered_map<RoomCoords, RoomRevealState, RoomCoordsHash> roomRevealStates;
 
     Camera2D camera{};
     camera.offset = Vector2{SCREEN_WIDTH * 0.5f, SCREEN_HEIGHT * 0.5f};
@@ -807,7 +1216,35 @@ int main() {
     while (!WindowShouldClose()) {
         const float delta = GetFrameTime();
 
-        if (IsKeyPressed(KEY_TAB) || IsKeyPressed(KEY_I)) {
+        bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
+        if (shiftHeld && IsKeyPressed(KEY_ZERO)) {
+            if (debugConsole.open) {
+                CloseDebugConsole(debugConsole);
+            } else {
+                debugConsole.open = true;
+                debugConsole.textBoxActive = true;
+                ClearDebugCommandBuffer(debugConsole);
+                FlushTextInputBuffer();
+            }
+        }
+
+        if (debugConsole.open) {
+            if (IsKeyPressed(KEY_ESCAPE)) {
+                CloseDebugConsole(debugConsole);
+            } else if (IsKeyPressed(KEY_ENTER)) {
+                std::string commandText = debugConsole.commandBuffer.data();
+                std::string trimmedCommand = TrimCommand(commandText);
+                bool executed = ExecuteDebugCommand(commandText, debugConsole, inventoryUI, player, roomManager);
+                if (!executed && !trimmedCommand.empty()) {
+                    std::cout << "[Debug] Comando desconhecido: " << trimmedCommand << std::endl;
+                }
+                CloseDebugConsole(debugConsole);
+            }
+        }
+
+        bool debugInputBlocked = debugConsole.open;
+
+        if (!debugInputBlocked && (IsKeyPressed(KEY_TAB) || IsKeyPressed(KEY_I))) {
             bool wasOpen = inventoryUI.open;
             inventoryUI.open = !inventoryUI.open;
             if (inventoryUI.open) {
@@ -818,6 +1255,8 @@ int main() {
                 SaveActiveStations(inventoryUI, roomManager);
             }
         }
+
+        SyncEquipmentBonuses(inventoryUI, player);
 
         if (SyncEquippedWeapons(inventoryUI, leftHandWeapon, rightHandWeapon)) {
             RefreshPlayerWeaponBonuses(player, leftHandWeapon, rightHandWeapon);
@@ -837,7 +1276,7 @@ int main() {
         }
 
         Vector2 input{0.0f, 0.0f};
-        if (!inventoryUI.open) {
+        if (!inventoryUI.open && !debugInputBlocked) {
             if (IsKeyDown(KEY_W)) input.y -= 1.0f;
             if (IsKeyDown(KEY_S)) input.y += 1.0f;
             if (IsKeyDown(KEY_A)) input.x -= 1.0f;
@@ -861,6 +1300,9 @@ int main() {
         if (const Chest* chest = activeRoom.GetChest()) {
             desiredPosition = ResolveCollisionWithChest(*chest, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
+        for (const DoorRenderData& doorData : doorRenderData) {
+            desiredPosition = ResolveCollisionWithRectangle(doorData.hitbox, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        }
 
         Vector2 movementDelta = Vector2Subtract(desiredPosition, playerPosition);
 
@@ -880,11 +1322,13 @@ int main() {
 
             if (colliding && movingToward && shouldTransition) {
                 SaveActiveStations(inventoryUI, roomManager);
+                Room* originRoomForTransition = currentRoomPtr;
                 if (roomManager.MoveToNeighbor(door.direction)) {
                     Room& newRoom = roomManager.GetCurrentRoom();
                     std::cout << "Entered room at (" << newRoom.GetCoords().x << "," << newRoom.GetCoords().y << ")" << std::endl;
                     roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
 
+                    previousRoomForMasks = originRoomForTransition;
                     currentRoomPtr = &newRoom;
                     movedRoom = true;
                 }
@@ -931,12 +1375,12 @@ int main() {
         float shopRadius = 0.0f;
         bool forgeNearby = false;
         bool shopNearby = false;
-    Chest* activeChest = nullptr;
-    Vector2 chestAnchor{0.0f, 0.0f};
-    float chestRadius = 0.0f;
-    bool chestNearby = false;
+        Chest* activeChest = nullptr;
+        Vector2 chestAnchor{0.0f, 0.0f};
+        float chestRadius = 0.0f;
+        bool chestNearby = false;
 
-        if (!inventoryUI.open) {
+        if (!inventoryUI.open && !debugInputBlocked) {
             auto weaponInputActive = [](const WeaponState& weapon, int mouseButton) {
                 if (weapon.blueprint == nullptr) {
                     return false;
@@ -966,8 +1410,86 @@ int main() {
         Room& interactionRoom = roomManager.GetCurrentRoom();
         activeForge = interactionRoom.GetForge();
         activeShop = interactionRoom.GetShop();
-    activeChest = interactionRoom.GetChest();
+        activeChest = interactionRoom.GetChest();
         const RoomCoords interactionCoords = interactionRoom.GetCoords();
+
+        roomRevealStates[interactionCoords].alpha = 1.0f;
+        for (const auto& entry : roomManager.Rooms()) {
+            const Room& room = *entry.second;
+            if (room.IsVisited()) {
+                roomRevealStates[room.GetCoords()].alpha = 1.0f;
+            }
+        }
+
+        doorRenderData.clear();
+        doorRenderData.reserve(interactionRoom.Layout().doors.size());
+        doorMaskData.clear();
+        doorMaskData.reserve(interactionRoom.Layout().doors.size());
+        RoomLayout& currentLayout = interactionRoom.Layout();
+        BiomeType currentBiome = interactionRoom.GetBiome();
+        for (Doorway& door : currentLayout.doors) {
+            if (door.sealed || !door.targetGenerated || !door.doorState) {
+                continue;
+            }
+
+            DoorInstance& doorState = *door.doorState;
+            Rectangle doorHitbox = ComputeDoorHitbox(currentLayout, door);
+            if (doorState.opening && !doorState.open) {
+                doorState.fadeProgress = std::min(DOOR_FADE_DURATION, doorState.fadeProgress + delta);
+                if (doorState.fadeProgress >= DOOR_FADE_DURATION) {
+                    doorState.fadeProgress = DOOR_FADE_DURATION;
+                    doorState.open = true;
+                    doorState.maskActive = false;
+                }
+            }
+
+            float doorAlpha = DoorVisibilityAlpha(doorState);
+            if (!doorState.open) {
+                float revealAmount = 1.0f - doorAlpha;
+                if (revealAmount > 0.0f) {
+                    RoomRevealState& revealState = roomRevealStates[door.targetCoords];
+                    revealState.alpha = std::max(revealState.alpha, revealAmount);
+                }
+            }
+
+            if (!doorState.open && doorState.maskActive) {
+                DoorMaskData mask{};
+                mask.alpha = doorAlpha;
+                if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0) {
+                    Rectangle corridorMask = TileRectToPixels(door.corridorTiles);
+                    if (ClipCorridorMaskBehindDoor(door.direction, doorHitbox, corridorMask)) {
+                        if (door.direction == Direction::East || door.direction == Direction::West) {
+                            const float wallThickness = static_cast<float>(TILE_SIZE);
+                            corridorMask.y -= wallThickness;
+                            corridorMask.height += wallThickness * 2.0f;
+                        }
+                        mask.hasCorridorMask = true;
+                        mask.corridorMask = corridorMask;
+                    }
+                }
+                if (mask.hasCorridorMask) {
+                    doorMaskData.push_back(mask);
+                }
+            }
+
+            if (doorState.open) {
+                continue;
+            }
+
+            DoorRenderData data{};
+            data.doorway = &door;
+            data.instance = &doorState;
+            data.biome = currentBiome;
+            data.frontView = (door.direction == Direction::North || door.direction == Direction::South);
+            data.hitbox = doorHitbox;
+            data.alpha = doorAlpha;
+            data.drawAfterPlayer = (data.hitbox.y > playerPosition.y);
+            doorRenderData.push_back(data);
+        }
+
+        bool debugForgeActive = debugConsole.inventoryContext == DebugConsoleState::InventoryContext::Forge;
+        bool debugShopActive = debugConsole.inventoryContext == DebugConsoleState::InventoryContext::Shop;
+        bool debugChestActive = debugConsole.inventoryContext == DebugConsoleState::InventoryContext::Chest;
 
         if ((inventoryUI.hasActiveForge && inventoryUI.activeForgeCoords != interactionCoords) ||
             (inventoryUI.hasActiveShop && inventoryUI.activeShopCoords != interactionCoords) ||
@@ -1006,114 +1528,125 @@ int main() {
             }
         }
 
-        if (activeForge != nullptr) {
-            forgeAnchor = Vector2{activeForge->anchorX, activeForge->anchorY};
-            forgeRadius = activeForge->interactionRadius;
-            float distanceSq = Vector2DistanceSqr(playerPosition, forgeAnchor);
-            forgeNearby = distanceSq <= (forgeRadius * forgeRadius);
+        if (!debugForgeActive) {
+            if (activeForge != nullptr) {
+                forgeAnchor = Vector2{activeForge->anchorX, activeForge->anchorY};
+                forgeRadius = activeForge->interactionRadius;
+                float distanceSq = Vector2DistanceSqr(playerPosition, forgeAnchor);
+                forgeNearby = distanceSq <= (forgeRadius * forgeRadius);
 
-            if (forgeNearby && IsKeyPressed(KEY_E)) {
-                SaveActiveStations(inventoryUI, roomManager);
-                inventoryUI.open = true;
-                inventoryUI.mode = InventoryViewMode::Forge;
-                inventoryUI.selectedForgeSlot = -1;
-                inventoryUI.hasActiveForge = true;
-                inventoryUI.activeForgeCoords = interactionCoords;
+                if (!debugInputBlocked && forgeNearby && IsKeyPressed(KEY_E)) {
+                    SaveActiveStations(inventoryUI, roomManager);
+                    inventoryUI.open = true;
+                    inventoryUI.mode = InventoryViewMode::Forge;
+                    inventoryUI.selectedForgeSlot = -1;
+                    inventoryUI.hasActiveForge = true;
+                    inventoryUI.activeForgeCoords = interactionCoords;
+                    inventoryUI.pendingForgeBreak = false;
+                    LoadForgeContents(inventoryUI, *activeForge);
+
+                    if (activeForge->IsBroken()) {
+                        inventoryUI.feedbackMessage = "A forja esta quebrada... precisa de reparos.";
+                        inventoryUI.feedbackTimer = 2.5f;
+                    } else {
+                        inventoryUI.feedbackMessage.clear();
+                        inventoryUI.feedbackTimer = 0.0f;
+                    }
+                }
+            } else {
+                SaveActiveForgeContents(inventoryUI, roomManager);
+                if (inventoryUI.mode == InventoryViewMode::Forge) {
+                    if (inventoryUI.open) {
+                        inventoryUI.mode = InventoryViewMode::Inventory;
+                        inventoryUI.selectedForgeSlot = -1;
+                    }
+                    inventoryUI.forgeState = ForgeState::Working;
+                }
+                inventoryUI.hasActiveForge = false;
                 inventoryUI.pendingForgeBreak = false;
-                LoadForgeContents(inventoryUI, *activeForge);
+            }
+        }
 
-                if (activeForge->IsBroken()) {
-                    inventoryUI.feedbackMessage = "A forja esta quebrada... precisa de reparos.";
-                    inventoryUI.feedbackTimer = 2.5f;
-                } else {
+        if (!debugShopActive) {
+            if (activeShop != nullptr) {
+                shopAnchor = Vector2{activeShop->anchorX, activeShop->anchorY};
+                shopRadius = activeShop->interactionRadius;
+                float distanceSq = Vector2DistanceSqr(playerPosition, shopAnchor);
+                shopNearby = distanceSq <= (shopRadius * shopRadius);
+
+                if (!debugInputBlocked && shopNearby && IsKeyPressed(KEY_E)) {
+                    SaveActiveStations(inventoryUI, roomManager);
+                    inventoryUI.open = true;
+                    inventoryUI.mode = InventoryViewMode::Shop;
+                    inventoryUI.selectedShopIndex = -1;
+                    inventoryUI.hasActiveShop = true;
+                    inventoryUI.activeShopCoords = interactionCoords;
+                    LoadShopContents(inventoryUI, *activeShop);
                     inventoryUI.feedbackMessage.clear();
                     inventoryUI.feedbackTimer = 0.0f;
                 }
+            } else if (inventoryUI.hasActiveShop) {
+                SaveActiveShopContents(inventoryUI, roomManager);
+                if (inventoryUI.mode == InventoryViewMode::Shop) {
+                    if (inventoryUI.open) {
+                        inventoryUI.mode = InventoryViewMode::Inventory;
+                    }
+                    inventoryUI.selectedShopIndex = -1;
+                }
+                inventoryUI.hasActiveShop = false;
+                inventoryUI.shopTradeActive = false;
+                inventoryUI.shopTradeReadyToConfirm = false;
+                inventoryUI.shopTradeInventoryIndex = -1;
+                inventoryUI.shopTradeShopIndex = -1;
+                inventoryUI.shopTradeRequiredRarity = 0;
             }
-        } else {
-            SaveActiveForgeContents(inventoryUI, roomManager);
-            if (inventoryUI.mode == InventoryViewMode::Forge) {
-                if (inventoryUI.open) {
-                    inventoryUI.mode = InventoryViewMode::Inventory;
+        }
+
+        if (!debugChestActive) {
+            if (activeChest != nullptr) {
+                chestAnchor = Vector2{activeChest->AnchorX(), activeChest->AnchorY()};
+                chestRadius = activeChest->InteractionRadius();
+                float distanceSq = Vector2DistanceSqr(playerPosition, chestAnchor);
+                chestNearby = distanceSq <= (chestRadius * chestRadius);
+
+                if (!debugInputBlocked && chestNearby && IsKeyPressed(KEY_E)) {
+                    SaveActiveStations(inventoryUI, roomManager);
+                    inventoryUI.open = true;
+                    inventoryUI.mode = InventoryViewMode::Chest;
+                    inventoryUI.selectedChestIndex = -1;
+                    inventoryUI.selectedInventoryIndex = -1;
+                    inventoryUI.selectedWeaponIndex = -1;
+                    inventoryUI.selectedEquipmentIndex = -1;
+                    inventoryUI.selectedShopIndex = -1;
                     inventoryUI.selectedForgeSlot = -1;
+                    inventoryUI.hasActiveChest = true;
+                    inventoryUI.activeChestCoords = interactionCoords;
+                    LoadChestContents(inventoryUI, *activeChest);
                 }
-                inventoryUI.forgeState = ForgeState::Working;
+            } else if (inventoryUI.hasActiveChest) {
+                if (inventoryUI.mode == InventoryViewMode::Chest) {
+                    if (inventoryUI.open) {
+                        inventoryUI.mode = InventoryViewMode::Inventory;
+                    }
+                    inventoryUI.selectedChestIndex = -1;
+                }
+                inventoryUI.hasActiveChest = false;
+                inventoryUI.activeChest = nullptr;
+                inventoryUI.chestUiType = InventoryUIState::ChestUIType::None;
+                inventoryUI.chestSupportsDeposit = false;
+                inventoryUI.chestSupportsTakeAll = false;
+                inventoryUI.activeChestCoords = RoomCoords{};
+                inventoryUI.chestTitle.clear();
+                inventoryUI.chestItemIds.clear();
+                inventoryUI.chestItems.clear();
+                inventoryUI.chestQuantities.clear();
+                inventoryUI.chestTypes.clear();
             }
-            inventoryUI.hasActiveForge = false;
-            inventoryUI.pendingForgeBreak = false;
         }
 
-        if (activeShop != nullptr) {
-            shopAnchor = Vector2{activeShop->anchorX, activeShop->anchorY};
-            shopRadius = activeShop->interactionRadius;
-            float distanceSq = Vector2DistanceSqr(playerPosition, shopAnchor);
-            shopNearby = distanceSq <= (shopRadius * shopRadius);
-
-            if (shopNearby && IsKeyPressed(KEY_E)) {
-                SaveActiveStations(inventoryUI, roomManager);
-                inventoryUI.open = true;
-                inventoryUI.mode = InventoryViewMode::Shop;
-                inventoryUI.selectedShopIndex = -1;
-                inventoryUI.hasActiveShop = true;
-                inventoryUI.activeShopCoords = interactionCoords;
-                LoadShopContents(inventoryUI, *activeShop);
-                inventoryUI.feedbackMessage.clear();
-                inventoryUI.feedbackTimer = 0.0f;
-            }
-        } else if (inventoryUI.hasActiveShop) {
-            SaveActiveShopContents(inventoryUI, roomManager);
-            if (inventoryUI.mode == InventoryViewMode::Shop) {
-                if (inventoryUI.open) {
-                    inventoryUI.mode = InventoryViewMode::Inventory;
-                }
-                inventoryUI.selectedShopIndex = -1;
-            }
-            inventoryUI.hasActiveShop = false;
-            inventoryUI.shopTradeActive = false;
-            inventoryUI.shopTradeReadyToConfirm = false;
-            inventoryUI.shopTradeInventoryIndex = -1;
-            inventoryUI.shopTradeShopIndex = -1;
-            inventoryUI.shopTradeRequiredRarity = 0;
-        }
-
-        if (activeChest != nullptr) {
-            chestAnchor = Vector2{activeChest->AnchorX(), activeChest->AnchorY()};
-            chestRadius = activeChest->InteractionRadius();
-            float distanceSq = Vector2DistanceSqr(playerPosition, chestAnchor);
-            chestNearby = distanceSq <= (chestRadius * chestRadius);
-
-            if (chestNearby && IsKeyPressed(KEY_E)) {
-                SaveActiveStations(inventoryUI, roomManager);
-                inventoryUI.open = true;
-                inventoryUI.mode = InventoryViewMode::Chest;
-                inventoryUI.selectedChestIndex = -1;
-                inventoryUI.selectedInventoryIndex = -1;
-                inventoryUI.selectedWeaponIndex = -1;
-                inventoryUI.selectedEquipmentIndex = -1;
-                inventoryUI.selectedShopIndex = -1;
-                inventoryUI.selectedForgeSlot = -1;
-                inventoryUI.hasActiveChest = true;
-                inventoryUI.activeChestCoords = interactionCoords;
-                LoadChestContents(inventoryUI, *activeChest);
-            }
-        } else if (inventoryUI.hasActiveChest) {
-            if (inventoryUI.mode == InventoryViewMode::Chest) {
-                if (inventoryUI.open) {
-                    inventoryUI.mode = InventoryViewMode::Inventory;
-                }
-                inventoryUI.selectedChestIndex = -1;
-            }
-            inventoryUI.hasActiveChest = false;
-            inventoryUI.activeChest = nullptr;
-            inventoryUI.chestUiType = InventoryUIState::ChestUIType::None;
-            inventoryUI.chestSupportsDeposit = false;
-            inventoryUI.chestSupportsTakeAll = false;
-            inventoryUI.activeChestCoords = RoomCoords{};
-            inventoryUI.chestTitle.clear();
-            inventoryUI.chestItemIds.clear();
-            inventoryUI.chestItems.clear();
-            inventoryUI.chestQuantities.clear();
-            inventoryUI.chestTypes.clear();
+        if (!inventoryUI.open &&
+            debugConsole.inventoryContext != DebugConsoleState::InventoryContext::None) {
+            ResetDebugInventoryContext(debugConsole, inventoryUI);
         }
 
         if (trainingDummy.isImmune) {
@@ -1153,14 +1686,71 @@ int main() {
 
         UpdateDamageNumbers(damageNumbers, delta);
 
+        DoorRenderData* activeDoorPrompt = nullptr;
+        float closestDoorDistance = std::numeric_limits<float>::max();
+        for (DoorRenderData& doorData : doorRenderData) {
+            doorData.showPrompt = false;
+            doorData.isLocked = false;
+            if (doorData.instance == nullptr) {
+                continue;
+            }
+            DoorInstance& doorState = *doorData.instance;
+            if (doorState.open || doorState.opening) {
+                continue;
+            }
+            if (doorState.interactionState == DoorInteractionState::Unavailable) {
+                continue;
+            }
+
+            Vector2 doorCenter{
+                doorData.hitbox.x + doorData.hitbox.width * 0.5f,
+                doorData.hitbox.y + doorData.hitbox.height * 0.5f
+            };
+            float distance = Vector2Distance(playerPosition, doorCenter);
+            if (distance <= DOOR_INTERACTION_DISTANCE && distance < closestDoorDistance) {
+                closestDoorDistance = distance;
+                activeDoorPrompt = &doorData;
+                doorData.promptAnchor = doorCenter;
+            }
+        }
+
+        if (activeDoorPrompt != nullptr) {
+            activeDoorPrompt->showPrompt = true;
+            activeDoorPrompt->isLocked = (activeDoorPrompt->instance->interactionState == DoorInteractionState::Locked);
+            if (!debugInputBlocked && !inventoryUI.open && IsKeyPressed(KEY_E)) {
+                if (!activeDoorPrompt->isLocked) {
+                    activeDoorPrompt->instance->opening = true;
+                    activeDoorPrompt->instance->fadeProgress = 0.0f;
+                }
+            }
+        }
+
         BeginDrawing();
         ClearBackground(Color{24, 26, 33, 255});
+
+        auto resolveRoomVisibility = [&](const Room& room) {
+            if (room.GetCoords() == roomManager.GetCurrentCoords()) {
+                return 1.0f;
+            }
+            if (room.IsVisited()) {
+                return 1.0f;
+            }
+            auto it = roomRevealStates.find(room.GetCoords());
+            if (it != roomRevealStates.end()) {
+                return std::clamp(it->second.alpha, 0.0f, 1.0f);
+            }
+            return 0.0f;
+        };
 
         BeginMode2D(camera);
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
             bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());
-            roomRenderer.DrawRoomBackground(room, isActive);
+            float roomVisibility = resolveRoomVisibility(room);
+            if (roomVisibility <= 0.0f) {
+                continue;
+            }
+            roomRenderer.DrawRoomBackground(room, isActive, roomVisibility);
         }
 
         if (dummyActive) {
@@ -1208,6 +1798,25 @@ int main() {
             }
         }
 
+        auto drawDoors = [&](bool drawAfterPlayer) {
+            for (const DoorRenderData& doorData : doorRenderData) {
+                if (doorData.drawAfterPlayer != drawAfterPlayer || doorData.doorway == nullptr) {
+                    continue;
+                }
+                roomRenderer.DrawDoorSprite(doorData.hitbox, doorData.doorway->direction, doorData.biome, doorData.alpha);
+            }
+        };
+
+        for (const DoorMaskData& mask : doorMaskData) {
+            if (!mask.hasCorridorMask) {
+                continue;
+            }
+            Color maskColor = DoorMaskColor(mask.alpha);
+            DrawRectangleRec(mask.corridorMask, maskColor);
+        }
+
+        drawDoors(false);
+
         if (!DrawCharacterSprite(playerSprites, playerPosition, playerIsMoving)) {
             Rectangle renderRect{
                 playerPosition.x - PLAYER_RENDER_HALF_WIDTH,
@@ -1218,6 +1827,8 @@ int main() {
             DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
             DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
         }
+
+        drawDoors(true);
 
         if (drawForgeAfterPlayer && activeForge != nullptr) {
             roomRenderer.DrawForgeInstance(*activeForge, true);
@@ -1238,7 +1849,11 @@ int main() {
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
             bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());
-            roomRenderer.DrawRoomForeground(room, isActive);
+            float roomVisibility = resolveRoomVisibility(room);
+            if (roomVisibility <= 0.0f) {
+                continue;
+            }
+            roomRenderer.DrawRoomForeground(room, isActive, roomVisibility);
         }
 
         if (activeForge != nullptr && forgeNearby) {
@@ -1295,12 +1910,38 @@ int main() {
             DrawTextEx(font, promptText, textPos, fontSize, 0.0f, Color{235, 240, 252, 255});
         }
 
+        for (const DoorRenderData& doorData : doorRenderData) {
+            if (!doorData.showPrompt) {
+                continue;
+            }
+            const char* promptText = doorData.isLocked ? "A porta esta trancada" : "Pressione E para abrir a porta";
+            const Font& font = GetGameFont();
+            const float fontSize = 22.0f;
+            Vector2 textSize = MeasureTextEx(font, promptText, fontSize, 0.0f);
+            float bubblePadding = 12.0f;
+            float bubbleWidth = textSize.x + bubblePadding * 2.0f;
+            float bubbleHeight = textSize.y + bubblePadding * 1.4f;
+            float bubbleX = doorData.promptAnchor.x - bubbleWidth * 0.5f;
+            float bubbleY = doorData.promptAnchor.y - doorData.hitbox.height - bubbleHeight - 20.0f;
+            Rectangle bubble{bubbleX, bubbleY, bubbleWidth, bubbleHeight};
+            DrawRectangleRec(bubble, Color{20, 26, 36, 210});
+            DrawRectangleLinesEx(bubble, 2.0f, Color{70, 92, 126, 240});
+            Vector2 textPos{bubble.x + bubblePadding, bubble.y + bubblePadding * 0.4f};
+            DrawTextEx(font, promptText, textPos, fontSize, 0.0f, Color{235, 240, 252, 255});
+        }
+
         EndMode2D();
+
+        DrawHUD(player, inventoryUI);
 
         if (inventoryUI.open) {
             RenderInventoryUI(inventoryUI, player, leftHandWeapon, rightHandWeapon,
                               Vector2{static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())},
                               activeShop);
+        }
+
+        if (debugConsole.open) {
+            DrawDebugConsoleOverlay(debugConsole);
         }
 
         SaveActiveStations(inventoryUI, roomManager);

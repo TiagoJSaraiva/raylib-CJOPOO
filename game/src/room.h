@@ -12,6 +12,20 @@
 #include "room_types.h"
 #include "chest.h"
 
+enum class DoorInteractionState {
+    Unlocked,
+    Locked,
+    Unavailable
+};
+
+struct DoorInstance {
+    DoorInteractionState interactionState{DoorInteractionState::Unlocked};
+    bool opening{false};
+    bool open{false};
+    float fadeProgress{0.0f};
+    bool maskActive{true};
+};
+
 struct Doorway {
     Direction direction{Direction::North};
     int offset{0};
@@ -21,6 +35,7 @@ struct Doorway {
     TileRect corridorTiles{};
     bool targetGenerated{false};
     bool sealed{false};
+    std::shared_ptr<DoorInstance> doorState{};
 };
 
 struct RoomSeedData {

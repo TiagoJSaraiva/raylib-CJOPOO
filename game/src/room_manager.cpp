@@ -179,6 +179,17 @@ int WallLengthForDirection(int widthTiles, int heightTiles, Direction direction)
     return heightTiles;
 }
 
+std::shared_ptr<DoorInstance> CreateDoorInstance() {
+    return std::make_shared<DoorInstance>();
+}
+
+std::shared_ptr<DoorInstance> EnsureDoorInstance(Doorway& door) {
+    if (!door.doorState) {
+        door.doorState = CreateDoorInstance();
+    }
+    return door.doorState;
+}
+
 } // namespace
 
 RoomManager::RoomManager(std::uint64_t worldSeed)
@@ -204,6 +215,7 @@ Room& RoomManager::CreateInitialRoom() {
     startingDoor.corridorLength = std::max(4, MIN_CORRIDOR_LENGTH_TILES);
     startingDoor.targetCoords = coords + ToDirectionOffset(Direction::North);
     layout.doors.push_back(startingDoor);
+    EnsureDoorInstance(layout.doors.back());
 
     auto room = std::make_unique<Room>(coords, seedData, layout);
     currentRoomCoords_ = coords;
@@ -387,6 +399,10 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
             door.targetGenerated = true;
         }
 
+        std::shared_ptr<DoorInstance> sharedDoor = neighborDoor->doorState ? neighborDoor->doorState : CreateDoorInstance();
+        neighborDoor->doorState = sharedDoor;
+        door.doorState = sharedDoor;
+
         return true;
     }
 
@@ -478,6 +494,7 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     entranceDoor.corridorTiles = selectedCorridor;
     entranceDoor.targetGenerated = true;
     entranceDoor.sealed = false;
+    entranceDoor.doorState = EnsureDoorInstance(originDoor);
 
     layout.doors.push_back(entranceDoor);
 
@@ -652,6 +669,9 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
         door.targetCoords = neighborCoords;
         door.corridorTiles = neighborDoor->corridorTiles;
         door.targetGenerated = true;
+        std::shared_ptr<DoorInstance> sharedDoor = neighborDoor->doorState ? neighborDoor->doorState : CreateDoorInstance();
+        neighborDoor->doorState = sharedDoor;
+        door.doorState = sharedDoor;
         layout.doors.push_back(door);
     }
 
@@ -762,6 +782,8 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
                     continue;
                 }
 
+                EnsureDoorInstance(newDoor);
+
                 ++openDoors;
                 return true;
             }
@@ -802,6 +824,9 @@ void RoomManager::AlignWithNeighbor(Room& room, Direction direction, Room& neigh
     door.targetCoords = neighbor.GetCoords();
     door.targetGenerated = true;
     door.sealed = false;
+    std::shared_ptr<DoorInstance> sharedDoor = neighborDoor->doorState ? neighborDoor->doorState : CreateDoorInstance();
+    neighborDoor->doorState = sharedDoor;
+    door.doorState = sharedDoor;
 
     if (existing) {
         *existing = door;

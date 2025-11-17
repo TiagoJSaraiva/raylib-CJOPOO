@@ -127,6 +127,19 @@ bool TileInDoorSpan(const TilePos& tile, const std::vector<DoorSpan>& spans) {
     return false;
 }
 
+std::size_t DoorTextureIndex(BiomeType biome) {
+    switch (biome) {
+        case BiomeType::Cave:
+            return 0;
+        case BiomeType::Dungeon:
+            return 1;
+        case BiomeType::Mansion:
+            return 2;
+        default:
+            return 0;
+    }
+}
+
 void DrawNorthWallColumn(int tileX, int topTileY, const Color& baseColor) {
     constexpr float kWallHeightTiles = 1.0f;
     float x = TileToPixel(tileX);
@@ -257,6 +270,12 @@ RoomRenderer::RoomRenderer() {
     shopTextures_[1] = LoadFurnitureTexture("assets/img/furniture/loja/Loja2.png");
     shopTextures_[2] = LoadFurnitureTexture("assets/img/furniture/loja/Loja3.png");
     chestTexture_ = LoadFurnitureTexture("assets/img/furniture/bau/Bau.png");
+    biomeDoorTextures_[0].front = LoadFurnitureTexture("assets/img/furniture/door/Caverna_door_front.png");
+    biomeDoorTextures_[0].side = LoadFurnitureTexture("assets/img/furniture/door/Caverna_door_side.png");
+    biomeDoorTextures_[1].front = LoadFurnitureTexture("assets/img/furniture/door/Dungeon_door_front.png");
+    biomeDoorTextures_[1].side = LoadFurnitureTexture("assets/img/furniture/door/Dungeon_door_side.png");
+    biomeDoorTextures_[2].front = LoadFurnitureTexture("assets/img/furniture/door/Mansao_door_front.png");
+    biomeDoorTextures_[2].side = LoadFurnitureTexture("assets/img/furniture/door/Mansao_door_side.png");
 }
 
 RoomRenderer::~RoomRenderer() {
@@ -266,21 +285,22 @@ RoomRenderer::~RoomRenderer() {
         UnloadTextureIfValid(texture);
     }
     UnloadTextureIfValid(chestTexture_);
+    UnloadDoorTextures();
 }
 
-void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive) const {
+void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive, float visibility) const {
     const RoomLayout& layout = room.Layout();
     RoomGeometry geometry = BuildRoomGeometry(layout);
 
-    Color floorColor = FloorColorForBiome(room.GetBiome());
+    Color floorColor = ColorAlpha(FloorColorForBiome(room.GetBiome()), visibility);
     DrawRectangleRec(geometry.floorRect, floorColor);
 
-    Color corridorColor = OffsetRgb(floorColor, 14);
+    Color corridorColor = ColorAlpha(OffsetRgb(FloorColorForBiome(room.GetBiome()), 14), visibility);
     for (const TileRect& corridor : geometry.corridorRects) {
         DrawRectangleRec(TileRectToPixels(corridor), corridorColor);
     }
 
-    Color wallBase = WallBaseColorForBiome(room.GetBiome());
+    Color wallBase = ColorAlpha(WallBaseColorForBiome(room.GetBiome()), visibility);
     for (const TilePos& tile : geometry.walkableTiles) {
         TilePos northNeighbor{tile.x, tile.y - 1};
         if (geometry.walkableTiles.find(northNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.northDoorSpans)) {
@@ -290,11 +310,11 @@ void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive) const {
     }
 }
 
-void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive) const {
+void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive, float visibility) const {
     const RoomLayout& layout = room.Layout();
     RoomGeometry geometry = BuildRoomGeometry(layout);
 
-    Color wallBase = WallBaseColorForBiome(room.GetBiome());
+    Color wallBase = ColorAlpha(WallBaseColorForBiome(room.GetBiome()), visibility);
     for (const TilePos& tile : geometry.walkableTiles) {
         TilePos southNeighbor{tile.x, tile.y + 1};
         if (geometry.walkableTiles.find(southNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.southDoorSpans)) {
@@ -304,21 +324,21 @@ void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive) const {
     }
 
     if (!isActive) {
-        DrawForgeForRoom(room, isActive);
-        DrawShopForRoom(room, isActive);
-        DrawChestForRoom(room, isActive);
+        DrawForgeForRoom(room, isActive, visibility);
+        DrawShopForRoom(room, isActive, visibility);
+        DrawChestForRoom(room, isActive, visibility);
     }
 }
 
-void RoomRenderer::DrawForgeForRoom(const Room& room, bool isActive) const {
+void RoomRenderer::DrawForgeForRoom(const Room& room, bool isActive, float visibility) const {
     const ForgeInstance* forge = room.GetForge();
     if (forge == nullptr) {
         return;
     }
-    DrawForgeSprite(*forge, isActive);
+    DrawForgeSprite(*forge, isActive, visibility);
 }
 
-void RoomRenderer::DrawForgeSprite(const ForgeInstance& forge, bool isActive) const {
+void RoomRenderer::DrawForgeSprite(const ForgeInstance& forge, bool isActive, float visibility) const {
     const Texture2D* texture = (forge.state == ForgeState::Broken) ? &forgeBrokenTexture_ : &forgeTexture_;
     if (texture->id == 0) {
         return;
@@ -342,23 +362,24 @@ void RoomRenderer::DrawForgeSprite(const ForgeInstance& forge, bool isActive) co
     if (!isActive) {
         tint = Color{255, 255, 255, 180};
     }
+    tint = ColorAlpha(tint, visibility);
 
     DrawTexturePro(*texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }
 
 void RoomRenderer::DrawForgeInstance(const ForgeInstance& forge, bool isActive) const {
-    DrawForgeSprite(forge, isActive);
+    DrawForgeSprite(forge, isActive, 1.0f);
 }
 
-void RoomRenderer::DrawShopForRoom(const Room& room, bool isActive) const {
+void RoomRenderer::DrawShopForRoom(const Room& room, bool isActive, float visibility) const {
     const ShopInstance* shop = room.GetShop();
     if (shop == nullptr) {
         return;
     }
-    DrawShopSprite(*shop, isActive);
+    DrawShopSprite(*shop, isActive, visibility);
 }
 
-void RoomRenderer::DrawShopSprite(const ShopInstance& shop, bool isActive) const {
+void RoomRenderer::DrawShopSprite(const ShopInstance& shop, bool isActive, float visibility) const {
     int variant = std::clamp(shop.textureVariant, 0, static_cast<int>(shopTextures_.size()) - 1);
     const Texture2D& texture = shopTextures_[variant];
     if (texture.id == 0) {
@@ -380,22 +401,23 @@ void RoomRenderer::DrawShopSprite(const ShopInstance& shop, bool isActive) const
     dest.y = shop.anchorY - dest.height;
 
     Color tint = isActive ? WHITE : Color{255, 255, 255, 180};
+    tint = ColorAlpha(tint, visibility);
     DrawTexturePro(texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }
 
 void RoomRenderer::DrawShopInstance(const ShopInstance& shop, bool isActive) const {
-    DrawShopSprite(shop, isActive);
+    DrawShopSprite(shop, isActive, 1.0f);
 }
 
-void RoomRenderer::DrawChestForRoom(const Room& room, bool isActive) const {
+void RoomRenderer::DrawChestForRoom(const Room& room, bool isActive, float visibility) const {
     const Chest* chest = room.GetChest();
     if (chest == nullptr) {
         return;
     }
-    DrawChestSprite(*chest, isActive);
+    DrawChestSprite(*chest, isActive, visibility);
 }
 
-void RoomRenderer::DrawChestSprite(const Chest& chest, bool isActive) const {
+void RoomRenderer::DrawChestSprite(const Chest& chest, bool isActive, float visibility) const {
     if (chestTexture_.id == 0) {
         return;
     }
@@ -414,15 +436,80 @@ void RoomRenderer::DrawChestSprite(const Chest& chest, bool isActive) const {
     dest.x = chest.AnchorX() - dest.width * 0.5f;
     dest.y = chest.AnchorY() - dest.height;
 
-    Color tint = isActive ? WHITE : Color{255, 255, 255, 180};
+    Color tint = isActive ? WHITE : Color{255, 255, 255, 190};
+    tint = ColorAlpha(tint, visibility);
     DrawTexturePro(chestTexture_, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }
 
 void RoomRenderer::DrawChestInstance(const Chest& chest, bool isActive) const {
-    DrawChestSprite(chest, isActive);
+    DrawChestSprite(chest, isActive, 1.0f);
 }
 
-void RoomRenderer::DrawRoom(const Room& room, bool isActive) const {
-    DrawRoomBackground(room, isActive);
-    DrawRoomForeground(room, isActive);
+void RoomRenderer::DrawRoom(const Room& room, bool isActive, float visibility) const {
+    DrawRoomBackground(room, isActive, visibility);
+    DrawRoomForeground(room, isActive, visibility);
+}
+
+const RoomRenderer::DoorTextureSet& RoomRenderer::DoorTexturesForBiome(BiomeType biome) const {
+    std::size_t index = DoorTextureIndex(biome);
+    if (index >= biomeDoorTextures_.size()) {
+        index = 0;
+    }
+    return biomeDoorTextures_[index];
+}
+
+void RoomRenderer::UnloadDoorTextures() {
+    for (DoorTextureSet& set : biomeDoorTextures_) {
+        UnloadTextureIfValid(set.front);
+        UnloadTextureIfValid(set.side);
+    }
+}
+
+void RoomRenderer::DrawDoorSprite(const Rectangle& hitbox,
+                                  Direction direction,
+                                  BiomeType biome,
+                                  float alpha) const {
+    if (alpha <= 0.0f) {
+        return;
+    }
+
+    const DoorTextureSet& textures = DoorTexturesForBiome(biome);
+    const Texture2D* texture = nullptr;
+    bool frontView = (direction == Direction::North || direction == Direction::South);
+    if (frontView) {
+        texture = &textures.front;
+    } else {
+        texture = &textures.side;
+    }
+
+    if (texture == nullptr || texture->id == 0) {
+        return;
+    }
+
+    Rectangle src{0.0f, 0.0f, static_cast<float>(texture->width), static_cast<float>(texture->height)};
+    Rectangle dest{};
+
+    if (frontView) {
+        float scale = (src.width > 0.0f) ? (hitbox.width / src.width) : 1.0f;
+        if (scale <= 0.0f) {
+            scale = 1.0f;
+        }
+        dest.width = hitbox.width;
+        dest.height = src.height * scale;
+        dest.x = hitbox.x;
+        float baseY = hitbox.y + hitbox.height;
+        dest.y = baseY - dest.height - 38.0f;
+    } else {
+        float scale = (src.height > 0.0f) ? (hitbox.height / src.height) : 1.0f;
+        if (scale <= 0.0f) {
+            scale = 1.0f;
+        }
+        dest.height = hitbox.height;
+        dest.width = src.width * scale;
+        dest.x = hitbox.x + (hitbox.width - dest.width) * 0.5f;
+        dest.y = hitbox.y;
+    }
+
+    Color tint{255, 255, 255, static_cast<unsigned char>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f)};
+    DrawTexturePro(*texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }

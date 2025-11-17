@@ -1962,6 +1962,34 @@ void DrawMultilineText(const Rectangle& area, const std::string& text, float fon
 
 } // namespace
 
+PlayerAttributes GatherEquipmentBonuses(const InventoryUIState& state) {
+    PlayerAttributes totals{};
+    for (int itemId : state.equipmentSlotIds) {
+        if (itemId <= 0) {
+            continue;
+        }
+        const ItemDefinition* def = FindItemDefinition(state, itemId);
+        if (def == nullptr) {
+            continue;
+        }
+        if (def->category != ItemCategory::Armor) {
+            continue;
+        }
+        totals = AddAttributes(totals, def->attributeBonuses);
+    }
+    return totals;
+}
+
+bool SyncEquipmentBonuses(const InventoryUIState& state, PlayerCharacter& player) {
+    PlayerAttributes desired = GatherEquipmentBonuses(state);
+    if (player.equipmentBonuses == desired) {
+        return false;
+    }
+    player.equipmentBonuses = desired;
+    player.RecalculateStats();
+    return true;
+}
+
 void EnsureCommonChestLoot(CommonChest& chest, const InventoryUIState& state) {
     if (chest.IsGenerated()) {
         return;
@@ -3098,7 +3126,12 @@ void RenderInventoryUI(InventoryUIState& state,
         const char* chestLabel = state.chestTitle.empty() ? "Bau" : state.chestTitle.c_str();
         GuiGroupBox(bottomArea, chestLabel);
 
-        float startX = bottomArea.x + 40.0f;
+        const float chestBaseX = bottomArea.x + 40.0f;
+        const float personalChestOffset = 55.0f;
+        const float commonChestOffset = 131.0f;
+        float startX = chestBaseX + ((state.chestUiType == InventoryUIState::ChestUIType::Player)
+                         ? personalChestOffset
+                         : commonChestOffset);
         float startY = bottomArea.y + 44.0f;
         int capacity = static_cast<int>(state.chestItems.size());
         int columns = (state.chestUiType == InventoryUIState::ChestUIType::Player) ? 6 : std::max(1, std::min(4, capacity));
@@ -3139,7 +3172,7 @@ void RenderInventoryUI(InventoryUIState& state,
         if (state.chestSupportsTakeAll) {
             Rectangle takeAllButton{
                 bottomArea.x + bottomArea.width * 0.5f - 90.0f,
-                bottomArea.y + bottomArea.height - 48.0f,
+                bottomArea.y + bottomArea.height - 78.0f,
                 180.0f,
                 32.0f
             };
