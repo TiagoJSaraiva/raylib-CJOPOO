@@ -1,7 +1,0 @@
-comandos
-
-inventory.openForge
-inventory.openShop
-inventory.openChest
-item.give.{id do item}
-player.currentHealth.set{valor}
