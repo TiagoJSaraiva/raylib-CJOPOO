@@ -1535,6 +1535,9 @@ int main() {
 
         projectileSystem.Update(delta);
 
+        const float outgoingDamageMultiplier = player.derivedStats.damageDealtMultiplierFromCurse;
+        const float lifeStealPercent = player.derivedStats.vampirismChance;
+
         for (auto& enemyEntry : roomEnemies) {
             Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
             if (enemyRoom == nullptr) {
@@ -1554,8 +1557,25 @@ int main() {
                     continue;
                 }
                 for (const auto& hit : hits) {
-                    bool died = enemyPtr->TakeDamage(hit.amount);
-                    PushDamageNumber(damageNumbers, enemyPtr->GetPosition(), hit.amount, hit.isCritical);
+                    float modifiedDamage = hit.amount * outgoingDamageMultiplier;
+                    if (modifiedDamage <= 0.0f) {
+                        continue;
+                    }
+
+                    float healthBefore = enemyPtr->GetCurrentHealth();
+                    bool died = enemyPtr->TakeDamage(modifiedDamage);
+                    float actualDamage = std::max(0.0f, healthBefore - enemyPtr->GetCurrentHealth());
+                    if (actualDamage > 0.0f) {
+                        PushDamageNumber(damageNumbers, enemyPtr->GetPosition(), actualDamage, hit.isCritical);
+
+                        if (lifeStealPercent > 0.0f) {
+                            float healAmount = actualDamage * lifeStealPercent;
+                            if (healAmount > 0.0f) {
+                                player.currentHealth = std::min(player.derivedStats.maxHealth, player.currentHealth + healAmount);
+                            }
+                        }
+                    }
+
                     if (died) {
                         break;
                     }
@@ -1584,9 +1604,35 @@ int main() {
             PLAYER_COLLISION_RADIUS,
             reinterpret_cast<std::uintptr_t>(&player),
             0.0f);
+
+        const float dodgeChance = player.derivedStats.dodgeChance;
+        const float flatReduction = std::max(0.0f, player.derivedStats.flatDamageReduction);
+        const float percentReduction = std::clamp(player.derivedStats.damageMitigation, 0.0f, 0.95f);
+        const float curseDamageMultiplier = std::max(0.0f, player.derivedStats.damageTakenMultiplierFromCurse);
+
         for (const auto& hit : playerHits) {
-            player.currentHealth = std::max(0.0f, player.currentHealth - hit.amount);
-            PushDamageNumber(damageNumbers, playerPosition, hit.amount, hit.isCritical);
+            if (dodgeChance > 0.0f) {
+                float roll = static_cast<float>(GetRandomValue(0, 10000)) / 10000.0f;
+                if (roll < dodgeChance) {
+                    continue;
+                }
+            }
+
+            float incomingDamage = hit.amount;
+            if (incomingDamage <= 0.0f) {
+                continue;
+            }
+
+            incomingDamage = std::max(0.0f, incomingDamage - flatReduction);
+            incomingDamage *= (1.0f - percentReduction);
+            incomingDamage *= curseDamageMultiplier;
+
+            if (incomingDamage <= 0.0f) {
+                continue;
+            }
+
+            player.currentHealth = std::max(0.0f, player.currentHealth - incomingDamage);
+            PushDamageNumber(damageNumbers, playerPosition, incomingDamage, hit.isCritical);
         }
 
         Room& interactionRoom = roomManager.GetCurrentRoom();

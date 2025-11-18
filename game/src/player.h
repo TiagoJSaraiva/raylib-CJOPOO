@@ -12,30 +12,30 @@ enum class WeaponAttributeKey {
 };
 
 struct PrimaryAttributes {
-    int poder{0};
-    int defesa{0};
-    int vigor{0};
-    int velocidade{0};
-    int destreza{0};
-    int inteligencia{0};
+    int poder{0}; // Aumenta o dano total em %
+    int defesa{0}; // Reduz o dano recebido em %
+    int vigor{0}; // Aumenta a vida maxima
+    int velocidade{0}; // Aumenta a velocidade de movimento (não sei se está funcionando)
+    int destreza{0}; // Aumenta a velocidade de ataque
+    int inteligencia{0}; // Diminui o cooldown de habilidades (habilidades ainda não existem, mas esse atributo será usado no futuro)
 };
 
 struct AttackAttributes {
-    int constituicao{0};
-    int forca{0};
-    int foco{0};
-    int misticismo{0};
-    int conhecimento{0};
+    int constituicao{0}; // Aumenta o dano de armas de atributo constituição
+    int forca{0}; // Aumenta o dano de armas de atributo força
+    int foco{0}; // Aumenta o dano de armas de atributo foco
+    int misticismo{0}; // Aumenta o dano de armas de atributo misticismo
+    int conhecimento{0}; // Aumenta o dano de armas de atributo conhecimento
 };
 
 struct SecondaryAttributes {
-    float vampirismo{0.0f};
-    float letalidade{0.0f};
-    float reducaoDano{0.0f};
-    float desvio{0.0f};
-    float alcanceColeta{0.0f};
-    float sorte{0.0f};
-    int maldicao{0};
+    float vampirismo{0.0f}; // % do dano causado que é convertido em vida (ainda não implementado)
+    float letalidade{0.0f}; // Aumenta a chance de acerto crítico.
+    float reducaoDano{0.0f}; // Reduz o dano recebido em valor flat (ainda não sei se foi implementado)
+    float desvio{0.0f}; // Aumenta a chance de esquiva - esquiva: evita 100% do dano de um ataque (ainda não sei se foi implementado)
+    float alcanceColeta{0.0f}; // Será removido. Não necessário.
+    float sorte{0.0f}; // Aumenta a chance de encontrar itens raros (ainda não implementado)
+    int maldicao{0}; // Reduz o dano causado e aumenta o dano recebido (ainda não sei se foi implementado)
 };
 
 struct PlayerAttributes {

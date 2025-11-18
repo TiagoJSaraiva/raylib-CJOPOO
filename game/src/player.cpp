@@ -12,7 +12,10 @@ constexpr float kMovementSpeedMaxMultiplier = 1.9f;
 constexpr float kBasePickupRadius = 120.0f;
 constexpr float kPickupRadiusPerPoint = 8.0f;
 constexpr float kVampirismHealPercent = 0.02f;
-constexpr float kCurseDamageDelta = 0.04f;
+constexpr float kDefenseReductionScale = 0.6f;
+constexpr float kDefenseNormalization = 61.0f;
+constexpr float kMaxDodgeChance = 0.6f;
+constexpr float kCursePercent = 0.01f;
 } // namespace
 
 void PlayerCharacter::RecalculateStats() {
@@ -27,19 +30,26 @@ void PlayerCharacter::RecalculateStats() {
     derivedStats.movementSpeed = kBaseMovementSpeed * speedMultiplier;
 
     float defesa = static_cast<float>(totalAttributes.primary.defesa);
-    derivedStats.damageMitigation = (defesa <= 0.0f) ? 0.0f : defesa / (defesa + 100.0f);
+    if (defesa > 0.0f) {
+        float reduction = kDefenseReductionScale * std::log(defesa + 1.0f) / std::log(kDefenseNormalization);
+        derivedStats.damageMitigation = std::clamp(reduction, 0.0f, kDefenseReductionScale);
+    } else {
+        derivedStats.damageMitigation = 0.0f;
+    }
 
     derivedStats.pickupRadius = kBasePickupRadius + kPickupRadiusPerPoint * totalAttributes.secondary.alcanceColeta;
 
-    derivedStats.vampirismChance = totalAttributes.secondary.vampirismo * 0.01f;
+    derivedStats.vampirismChance = std::max(0.0f, totalAttributes.secondary.vampirismo * 0.01f);
     derivedStats.vampirismHealPercent = kVampirismHealPercent;
-    derivedStats.dodgeChance = totalAttributes.secondary.desvio * 0.01f;
+    derivedStats.dodgeChance = std::clamp(totalAttributes.secondary.desvio * 0.01f, 0.0f, kMaxDodgeChance);
     derivedStats.flatDamageReduction = totalAttributes.secondary.reducaoDano;
     derivedStats.luckBonus = totalAttributes.secondary.sorte * 0.01f;
 
     float curse = static_cast<float>(totalAttributes.secondary.maldicao);
-    derivedStats.damageTakenMultiplierFromCurse = 1.0f + kCurseDamageDelta * curse;
-    derivedStats.damageDealtMultiplierFromCurse = std::max(0.0f, 1.0f - kCurseDamageDelta * curse);
+    float curseMultiplier = 1.0f + (curse * kCursePercent);
+    derivedStats.damageTakenMultiplierFromCurse = std::max(0.0f, curseMultiplier);
+    float dealtDivisor = std::max(0.1f, 1.0f + curse * kCursePercent);
+    derivedStats.damageDealtMultiplierFromCurse = 1.0f / dealtDivisor;
 
     currentHealth = std::min(currentHealth, derivedStats.maxHealth);
 }
