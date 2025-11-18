@@ -30,6 +30,8 @@
 #include "font_manager.h"
 #include "chest.h"
 #include "hud.h"
+#include "enemy_spawner.h"
+#include "enemy_common.h"
 
 namespace {
 
@@ -39,6 +41,9 @@ constexpr float PLAYER_HALF_WIDTH = 20.0f;
 constexpr float PLAYER_HALF_HEIGHT = 16.0f;
 constexpr float PLAYER_RENDER_HALF_WIDTH = PLAYER_HALF_WIDTH - 3.0f;
 constexpr float PLAYER_RENDER_HALF_HEIGHT = PLAYER_HALF_HEIGHT - 3.0f;
+constexpr float PLAYER_COLLISION_RADIUS = (PLAYER_HALF_WIDTH > PLAYER_HALF_HEIGHT)
+    ? PLAYER_HALF_WIDTH
+    : PLAYER_HALF_HEIGHT;
 
 struct CharacterSpriteResources {
     Texture2D idle{};
@@ -135,6 +140,19 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
         Vector2 drawPos{number.position.x - measure.x * 0.5f, number.position.y - measure.y};
         DrawTextEx(font, text.c_str(), drawPos, fontSize, 0.0f, baseColor);
     }
+}
+
+void PushDamageNumber(std::vector<DamageNumber>& numbers,
+                      const Vector2& position,
+                      float amount,
+                      bool isCritical,
+                      float lifetime = 1.0f) {
+    DamageNumber number{};
+    number.amount = amount;
+    number.isCritical = isCritical;
+    number.lifetime = lifetime;
+    number.position = position;
+    numbers.push_back(number);
 }
 
 ForgeInstance* ResolveTrackedForge(RoomManager& manager, const InventoryUIState& uiState) {
@@ -899,6 +917,29 @@ Rectangle DoorInteractionArea(const RoomLayout& layout, const Doorway& door) {
     return DoorRectInsideRoom(layout, door);
 }
 
+void UpdateDoorInteractionForRoom(Room& room, bool hasActiveEnemies) {
+    RoomLayout& layout = room.Layout();
+    for (Doorway& doorway : layout.doors) {
+        if (!doorway.doorState) {
+            continue;
+        }
+
+        DoorInstance& doorState = *doorway.doorState;
+        bool isClosed = !(doorState.open || doorState.opening);
+
+        if (hasActiveEnemies && isClosed) {
+            if (doorState.interactionState == DoorInteractionState::Unlocked) {
+                doorState.interactionState = DoorInteractionState::Unavailable;
+            }
+            continue;
+        }
+
+        if (!hasActiveEnemies && doorState.interactionState == DoorInteractionState::Unavailable) {
+            doorState.interactionState = DoorInteractionState::Unlocked;
+        }
+    }
+}
+
 bool IsInputMovingToward(Direction direction, const Vector2& input) {
     constexpr float kEpsilon = 0.1f;
     switch (direction) {
@@ -1211,6 +1252,12 @@ int main() {
     RoomManager roomManager{worldSeed};
     RoomRenderer roomRenderer;
     ProjectileSystem projectileSystem;
+    ProjectileSystem enemyProjectileSystem;
+    EnemySpawner enemySpawner;
+    std::mt19937 enemyRng(static_cast<std::mt19937::result_type>(worldSeed));
+    using EnemyList = std::vector<std::unique_ptr<Enemy>>;
+    std::unordered_map<RoomCoords, EnemyList, RoomCoordsHash> roomEnemies;
+    std::unordered_set<RoomCoords, RoomCoordsHash> roomsWithSpawnedEnemies;
     PlayerCharacter player = CreateKnightCharacter();
     CharacterSpriteResources playerSprites{};
     LoadCharacterSprites(player.appearance, playerSprites);
@@ -1246,6 +1293,16 @@ int main() {
     std::vector<DoorMaskData> doorMaskData;
     doorMaskData.reserve(16);
     std::unordered_map<RoomCoords, RoomRevealState, RoomCoordsHash> roomRevealStates;
+
+    auto ensureRoomEnemies = [&](Room& room) {
+        RoomCoords coords = room.GetCoords();
+        if (roomsWithSpawnedEnemies.count(coords) > 0) {
+            return;
+        }
+        EnemyList& storage = roomEnemies[coords];
+        enemySpawner.SpawnEnemiesForRoom(room, storage, enemyRng);
+        roomsWithSpawnedEnemies.insert(coords);
+    };
 
     Camera2D camera{};
     camera.offset = Vector2{SCREEN_WIDTH * 0.5f, SCREEN_HEIGHT * 0.5f};
@@ -1331,6 +1388,7 @@ int main() {
         }
 
         Room& activeRoom = roomManager.GetCurrentRoom();
+        ensureRoomEnemies(activeRoom);
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, activeRoom.Layout());
         if (const ForgeInstance* forge = activeRoom.GetForge()) {
             desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
@@ -1386,6 +1444,8 @@ int main() {
             roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
         }
 
+        ensureRoomEnemies(*currentRoomPtr);
+
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, currentRoomPtr->Layout());
         if (const ForgeInstance* forge = currentRoomPtr->GetForge()) {
             desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
@@ -1412,6 +1472,28 @@ int main() {
         spawnContext.origin = playerPosition;
         spawnContext.followTarget = &playerPosition;
         spawnContext.aimDirection = aim;
+
+        for (auto& enemyEntry : roomEnemies) {
+            Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
+            if (enemyRoom == nullptr) {
+                continue;
+            }
+            bool playerInside = (enemyEntry.first == roomManager.GetCurrentCoords());
+            for (auto& enemyPtr : enemyEntry.second) {
+                if (!enemyPtr || !enemyPtr->IsAlive()) {
+                    continue;
+                }
+                EnemyUpdateContext enemyContext{
+                    delta,
+                    player,
+                    playerPosition,
+                    *enemyRoom,
+                    playerInside,
+                    enemyProjectileSystem
+                };
+                enemyPtr->Update(enemyContext);
+            }
+        }
 
         ForgeInstance* activeForge = nullptr;
         ShopInstance* activeShop = nullptr;
@@ -1452,6 +1534,60 @@ int main() {
         }
 
         projectileSystem.Update(delta);
+
+        for (auto& enemyEntry : roomEnemies) {
+            Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
+            if (enemyRoom == nullptr) {
+                continue;
+            }
+            auto& enemyList = enemyEntry.second;
+            for (auto& enemyPtr : enemyList) {
+                if (!enemyPtr || !enemyPtr->IsAlive() || !enemyPtr->HasCompletedFade()) {
+                    continue;
+                }
+                auto hits = projectileSystem.CollectDamageEvents(
+                    enemyPtr->GetPosition(),
+                    enemyPtr->GetCollisionRadius(),
+                    reinterpret_cast<std::uintptr_t>(enemyPtr.get()),
+                    0.0f);
+                if (hits.empty()) {
+                    continue;
+                }
+                for (const auto& hit : hits) {
+                    bool died = enemyPtr->TakeDamage(hit.amount);
+                    PushDamageNumber(damageNumbers, enemyPtr->GetPosition(), hit.amount, hit.isCritical);
+                    if (died) {
+                        break;
+                    }
+                }
+            }
+            enemyList.erase(
+                std::remove_if(enemyList.begin(), enemyList.end(),
+                               [](const std::unique_ptr<Enemy>& enemy) {
+                                   return !enemy || !enemy->IsAlive();
+                               }),
+                enemyList.end());
+
+            bool hasActiveEnemies = std::any_of(
+                enemyList.begin(),
+                enemyList.end(),
+                [](const std::unique_ptr<Enemy>& enemy) {
+                    return enemy && enemy->IsAlive();
+                });
+            UpdateDoorInteractionForRoom(*enemyRoom, hasActiveEnemies);
+        }
+
+        enemyProjectileSystem.Update(delta);
+
+        auto playerHits = enemyProjectileSystem.CollectDamageEvents(
+            playerPosition,
+            PLAYER_COLLISION_RADIUS,
+            reinterpret_cast<std::uintptr_t>(&player),
+            0.0f);
+        for (const auto& hit : playerHits) {
+            player.currentHealth = std::max(0.0f, player.currentHealth - hit.amount);
+            PushDamageNumber(damageNumbers, playerPosition, hit.amount, hit.isCritical);
+        }
 
         Room& interactionRoom = roomManager.GetCurrentRoom();
         activeForge = interactionRoom.GetForge();
@@ -1876,6 +2012,36 @@ int main() {
             }
         }
 
+        auto drawEnemies = [&](bool drawAfterPlayer) {
+            for (const auto& enemyEntry : roomEnemies) {
+                const Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
+                if (enemyRoom == nullptr) {
+                    continue;
+                }
+                float roomVisibility = resolveRoomVisibility(*enemyRoom);
+                if (roomVisibility <= 0.0f) {
+                    continue;
+                }
+                bool isActiveRoom = (enemyRoom->GetCoords() == roomManager.GetCurrentCoords());
+                for (const auto& enemyPtr : enemyEntry.second) {
+                    if (!enemyPtr || !enemyPtr->IsAlive()) {
+                        continue;
+                    }
+                    bool enemyAfterPlayer = false;
+                    if (isActiveRoom) {
+                        enemyAfterPlayer = (enemyPtr->GetPosition().y >= playerPosition.y);
+                    }
+                    if (enemyAfterPlayer != drawAfterPlayer) {
+                        continue;
+                    }
+                    EnemyDrawContext drawContext{};
+                    drawContext.roomVisibility = roomVisibility;
+                    drawContext.isActiveRoom = isActiveRoom;
+                    enemyPtr->Draw(drawContext);
+                }
+            }
+        };
+
         auto drawDoors = [&](bool drawAfterPlayer, bool aboveMask) {
             for (const DoorRenderData& doorData : doorRenderData) {
                 if (doorData.drawAfterPlayer != drawAfterPlayer || doorData.drawAboveMask != aboveMask || doorData.doorway == nullptr) {
@@ -1886,6 +2052,7 @@ int main() {
         };
 
         drawDoors(false, false);
+        drawEnemies(false);
 
         if (!DrawCharacterSprite(playerSprites, snappedPlayerPosition, playerIsMoving)) {
             Rectangle renderRect{
@@ -1898,6 +2065,7 @@ int main() {
             DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
         }
 
+        drawEnemies(true);
         drawDoors(true, false);
 
         if (drawForgeAfterPlayer && activeForge != nullptr) {
@@ -1911,6 +2079,7 @@ int main() {
         }
 
         projectileSystem.Draw();
+        enemyProjectileSystem.Draw();
 
         if (!damageNumbers.empty()) {
             DrawDamageNumbers(damageNumbers);
@@ -2030,6 +2199,7 @@ int main() {
         EndDrawing();
     }
 
+    EnemyCommon::ShutdownSpriteCache();
     UnloadCharacterSprites(playerSprites);
     UnloadGameFont();
     CloseWindow();

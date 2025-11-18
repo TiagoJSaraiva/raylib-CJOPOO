@@ -846,8 +846,8 @@ RoomType RoomManager::PickRoomType(const RoomCoords& coords) {
         bossChance = 1.0 + 0.5 * roomsSinceBoss_;
     }
 
-    const double forgeChance = 20.0; // ALTERAR NO FUTURO PARA AJUSTAR A FREQUENCIA DE FORGE
-    const double shopChance = 20.0;
+    const double forgeChance = 12.0; // ALTERAR NO FUTURO PARA AJUSTAR A FREQUENCIA DE FORGE
+    const double shopChance = 12.0;
     const double chestChance = 10.0;
 
     double total = normalChance + forgeChance + shopChance + chestChance + bossChance;
