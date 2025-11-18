@@ -12,6 +12,11 @@
 
 namespace {
 
+constexpr float VERTICAL_DOOR_SPRITE_ROOM_OFFSET_NORTH = 15.0f; // Offset exclusivo para portas Norte
+constexpr float VERTICAL_DOOR_SPRITE_ROOM_OFFSET_SOUTH = 42.0f; // Offset exclusivo para portas Sul
+constexpr float HORIZONTAL_DOOR_SPRITE_ROOM_OFFSET = 1.0f; // Ajusta distancia para portas Leste/Oeste
+constexpr float HORIZONTAL_DOOR_SPRITE_HEIGHT_OFFSET = -30.0f; // Ajusta offset vertical adicional para portas Leste/Oeste
+
 float TileToPixel(int tile) {
     return static_cast<float>(tile * TILE_SIZE);
 }
@@ -499,6 +504,10 @@ void RoomRenderer::DrawDoorSprite(const Rectangle& hitbox,
         dest.x = hitbox.x;
         float baseY = hitbox.y + hitbox.height;
         dest.y = baseY - dest.height - 38.0f;
+        float verticalOffset = (direction == Direction::North)
+                                   ? VERTICAL_DOOR_SPRITE_ROOM_OFFSET_NORTH
+                                   : VERTICAL_DOOR_SPRITE_ROOM_OFFSET_SOUTH;
+        dest.y += verticalOffset;
     } else {
         float scale = (src.height > 0.0f) ? (hitbox.height / src.height) : 1.0f;
         if (scale <= 0.0f) {
@@ -508,6 +517,11 @@ void RoomRenderer::DrawDoorSprite(const Rectangle& hitbox,
         dest.width = src.width * scale;
         dest.x = hitbox.x + (hitbox.width - dest.width) * 0.5f;
         dest.y = hitbox.y;
+        if (HORIZONTAL_DOOR_SPRITE_ROOM_OFFSET != 0.0f) {
+            // Ajusta distancia do sprite em relacao a sala (Leste empurra, Oeste puxa)
+            dest.x += (direction == Direction::East ? HORIZONTAL_DOOR_SPRITE_ROOM_OFFSET : -HORIZONTAL_DOOR_SPRITE_ROOM_OFFSET);
+        }
+        dest.y += HORIZONTAL_DOOR_SPRITE_HEIGHT_OFFSET;
     }
 
     Color tint{255, 255, 255, static_cast<unsigned char>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f)};

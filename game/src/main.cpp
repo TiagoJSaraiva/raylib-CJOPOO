@@ -61,6 +61,7 @@ struct DoorRenderData {
     Doorway* doorway{nullptr};
     DoorInstance* instance{nullptr};
     Rectangle hitbox{};
+    Rectangle collisionHitbox{};
     bool frontView{true};
     float alpha{1.0f};
     bool showPrompt{false};
@@ -83,13 +84,11 @@ struct RoomRevealState {
 };
 
 constexpr float DOOR_COLLIDER_THICKNESS = 24.0f;
-constexpr float DOOR_OFFSET_FROM_ROOM = 5.0f;
+constexpr float DOOR_OFFSET_FROM_ROOM = 15.0f;
 constexpr float DOOR_INTERACTION_DISTANCE = 150.0f;
 constexpr float DOOR_FADE_DURATION = 1.0f;
 constexpr float DOOR_MASK_CLEARANCE = 1.0f;
-// Controle a "grossura" extra aplicada somente nas mascaras horizontais.
 constexpr float HORIZONTAL_CORRIDOR_MASK_EXTRA_HEIGHT = static_cast<float>(TILE_SIZE);
-// Ajuste este offset para deslocar a mascara horizontal para cima/baixo.
 constexpr float HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET = static_cast<float>(TILE_SIZE) * 0.5f;
 
 void UpdateDamageNumbers(std::vector<DamageNumber>& numbers, float deltaSeconds) {
@@ -190,6 +189,7 @@ float DoorVisibilityAlpha(const DoorInstance& state) {
 
 float TileToPixel(int tile);
 Vector2 SnapToPixel(const Vector2& value);
+Rectangle DoorRectInsideRoom(const RoomLayout& layout, const Doorway& door);
 
 Rectangle ComputeDoorHitbox(const RoomLayout& layout, const Doorway& door) {
     Rectangle rect{};
@@ -229,6 +229,37 @@ Rectangle ComputeDoorHitbox(const RoomLayout& layout, const Doorway& door) {
         }
     }
     return rect;
+}
+
+Rectangle ComputeDoorCollisionHitbox(const RoomLayout& layout,
+                                     const Doorway& door,
+                                     const Rectangle& renderHitbox) {
+    Rectangle collision = renderHitbox;
+    switch (door.direction) {
+        case Direction::North: {
+            Rectangle doorway = DoorRectInsideRoom(layout, door);
+            collision.x = doorway.x;
+            collision.width = doorway.width;
+            collision.height = DOOR_COLLIDER_THICKNESS;
+            float roomTop = TileToPixel(layout.tileBounds.y);
+            collision.y = roomTop - collision.height;
+            break;
+        }
+        case Direction::South: {
+            Rectangle doorway = DoorRectInsideRoom(layout, door);
+            collision.x = doorway.x;
+            collision.width = doorway.width;
+            collision.height = DOOR_COLLIDER_THICKNESS;
+            float roomBottom = TileToPixel(layout.tileBounds.y + layout.heightTiles);
+            collision.y = roomBottom;
+            break;
+        }
+        case Direction::East:
+        case Direction::West:
+            collision = renderHitbox;
+            break;
+    }
+    return collision;
 }
 
 bool ClipCorridorMaskBehindDoor(Direction direction,
@@ -1168,7 +1199,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
 } // namespace
 
 int main() {
-    SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TOPMOST);
+    SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TOPMOST | FLAG_VSYNC_HINT);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Prototype - Room Generation");
     const int monitorIndex = GetCurrentMonitor();
     const Vector2 monitorPosition = GetMonitorPosition(monitorIndex);
@@ -1314,7 +1345,11 @@ int main() {
             if (!doorData.fromActiveRoom) {
                 continue;
             }
-            desiredPosition = ResolveCollisionWithRectangle(doorData.hitbox, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+            const Rectangle& collider = (doorData.collisionHitbox.width > 0.0f &&
+                                         doorData.collisionHitbox.height > 0.0f)
+                                            ? doorData.collisionHitbox
+                                            : doorData.hitbox;
+            desiredPosition = ResolveCollisionWithRectangle(collider, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
 
         Vector2 movementDelta = Vector2Subtract(desiredPosition, playerPosition);
@@ -1472,6 +1507,7 @@ int main() {
                 DoorInstance& doorState = *door.doorState;
                 DoorInstance* instancePtr = door.doorState.get();
                 Rectangle doorHitbox = ComputeDoorHitbox(layout, door);
+                Rectangle doorCollisionHitbox = ComputeDoorCollisionHitbox(layout, door, doorHitbox);
 
                 if (doorState.opening && !doorState.open) {
                     if (animatedDoorInstances.insert(instancePtr).second) {
@@ -1527,6 +1563,7 @@ int main() {
                 data.biome = biome;
                 data.frontView = (door.direction == Direction::North || door.direction == Direction::South);
                 data.hitbox = doorHitbox;
+                data.collisionHitbox = doorCollisionHitbox;
                 data.alpha = doorAlpha * roomVisibility;
                 data.drawAfterPlayer = (data.hitbox.y > playerPosition.y);
                 data.fromActiveRoom = isActiveRoom;
