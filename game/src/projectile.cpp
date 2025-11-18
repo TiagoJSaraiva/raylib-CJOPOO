@@ -1249,6 +1249,10 @@ void ProjectileSystem::Draw() const {
     }
 }
 
+void ProjectileSystem::Clear() {
+    projectiles_.clear();
+}
+
 void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, const ProjectileSpawnContext& context) {
     if (blueprint.common.projectilesPerShot <= 0) {
         return;

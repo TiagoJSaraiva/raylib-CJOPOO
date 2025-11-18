@@ -115,6 +115,26 @@ void ShowMessage(InventoryUIState& state, const std::string& text) {
     state.feedbackTimer = kFeedbackDuration;
 }
 
+ItemActiveAbility MakeHealingPotionAbility() {
+    constexpr float kHealAmount = 50.0f;
+    ItemActiveAbility ability{};
+    ability.name = "Infusao Revigorante";
+    ability.description = "Recupera instantaneamente 50 pontos de vida do portador.";
+    ability.cooldownSeconds = 0.0f;
+    ability.consumesItemOnUse = true;
+    ability.handler = [=](InventoryUIState& state, PlayerCharacter& player, int) {
+        float maxHealth = player.derivedStats.maxHealth;
+        if (player.currentHealth >= maxHealth - 0.1f) {
+            return false;
+        }
+        player.currentHealth = std::min(maxHealth, player.currentHealth + kHealAmount);
+        state.feedbackMessage = "Pocao de cura consumida.";
+        state.feedbackTimer = kFeedbackDuration;
+        return true;
+    };
+    return ability;
+}
+
 const ItemDefinition* FindItemDefinition(const InventoryUIState& state, int id) {
     if (id <= 0) {
         return nullptr;
@@ -500,6 +520,24 @@ std::string BuildAbilityPlaceholder(ItemCategory category) {
     }
 }
 
+std::string BuildAbilityDescription(const ItemDefinition* itemDef) {
+    if (itemDef != nullptr && itemDef->HasActiveAbility()) {
+        const ItemActiveAbility& ability = itemDef->activeAbility;
+        std::ostringstream oss;
+        oss << "Habilidade Ativa: " << ability.name << "\n" << ability.description;
+        if (ability.cooldownSeconds > 0.0f) {
+            oss << "\n\nRecarga: " << FormatFloat(ability.cooldownSeconds, 1) << "s";
+        }
+        if (ability.consumesItemOnUse) {
+            oss << "\nConsumo: Remove o item equipado ao usar.";
+        }
+        oss << "\n\nAtalho: Pressione o slot correspondente (1 a 5).";
+        return oss.str();
+    }
+    ItemCategory category = itemDef ? itemDef->category : ItemCategory::None;
+    return BuildAbilityPlaceholder(category);
+}
+
 Color RarityToColor(int rarity);
 void AppendForgeCombos(const InventoryUIState& state, int itemId, std::string& text);
 
@@ -709,7 +747,7 @@ void DrawItemDetailPanel(InventoryUIState& state,
         return;
     }
 
-    std::string abilityText = BuildAbilityPlaceholder(category);
+    std::string abilityText = BuildAbilityDescription(itemDef);
     float textWidth = std::max(0.0f, scrollBounds.width - 12.0f);
     std::vector<std::string> abilityLines = WrapTextLines(abilityText, textWidth, bodyFont);
     float abilityContentHeight = abilityLines.empty()
@@ -888,6 +926,9 @@ void EnsureEquipmentCapacity(InventoryUIState& state, size_t size) {
     if (state.equipmentSlots.size() < size) {
         state.equipmentSlots.resize(size);
     }
+    if (state.equipmentAbilityCooldowns.size() < size) {
+        state.equipmentAbilityCooldowns.resize(size, 0.0f);
+    }
 }
 
 void EnsureShopCapacity(InventoryUIState& state, size_t size) {
@@ -933,15 +974,6 @@ void SetWeaponSlot(InventoryUIState& state, int index, int itemId) {
     EnsureWeaponCapacity(state, static_cast<size_t>(index) + 1);
     state.weaponSlotIds[index] = itemId;
     state.weaponSlots[index] = ItemNameFromId(state, itemId);
-}
-
-void SetEquipmentSlot(InventoryUIState& state, int index, int itemId) {
-    if (index < 0) {
-        return;
-    }
-    EnsureEquipmentCapacity(state, static_cast<size_t>(index) + 1);
-    state.equipmentSlotIds[index] = itemId;
-    state.equipmentSlots[index] = ItemNameFromId(state, itemId);
 }
 
 void SetShopSlot(InventoryUIState& state, int index, int itemId, int price, int stock) {
@@ -1522,6 +1554,9 @@ void HandleEquipInventory(InventoryUIState& state, int index) {
     }
 
     ItemCategory type = ItemCategoryFromId(state, itemId);
+    const ItemDefinition* def = FindItemDefinition(state, itemId);
+    bool canEquipAbilityItem = (def != nullptr) && def->HasActiveAbility();
+
     if (type == ItemCategory::Weapon) {
         if (ResolveWeaponBlueprint(state, itemId) == nullptr) {
             ShowMessage(state, "Esta arma ainda nao pode ser utilizada.");
@@ -1541,13 +1576,28 @@ void HandleEquipInventory(InventoryUIState& state, int index) {
         return;
     }
 
-    if (type == ItemCategory::Armor) {
+    if (type == ItemCategory::Armor || canEquipAbilityItem) {
         EnsureEquipmentCapacity(state, std::max<size_t>(5, state.equipmentSlotIds.size()));
+        bool stackable = IsStackableCategory(type);
+        bool consumeSingleUnit = canEquipAbilityItem && stackable;
         for (int slot = 0; slot < static_cast<int>(state.equipmentSlotIds.size()); ++slot) {
             if (state.equipmentSlotIds[slot] == 0) {
                 SetEquipmentSlot(state, slot, itemId);
-                ClearInventorySlot(state, index);
-                state.selectedInventoryIndex = -1;
+                if (consumeSingleUnit) {
+                    int availableQuantity = (index < static_cast<int>(state.inventoryQuantities.size()))
+                        ? state.inventoryQuantities[index]
+                        : 1;
+                    if (availableQuantity > 1) {
+                        SetInventorySlot(state, index, itemId, availableQuantity - 1);
+                        state.selectedInventoryIndex = index;
+                    } else {
+                        ClearInventorySlot(state, index);
+                        state.selectedInventoryIndex = -1;
+                    }
+                } else {
+                    ClearInventorySlot(state, index);
+                    state.selectedInventoryIndex = -1;
+                }
                 state.selectedEquipmentIndex = slot;
                 return;
             }
@@ -1980,6 +2030,22 @@ PlayerAttributes GatherEquipmentBonuses(const InventoryUIState& state) {
     return totals;
 }
 
+const ItemDefinition* GetItemDefinition(const InventoryUIState& state, int id) {
+    return FindItemDefinition(state, id);
+}
+
+void SetEquipmentSlot(InventoryUIState& state, int index, int itemId) {
+    if (index < 0) {
+        return;
+    }
+    EnsureEquipmentCapacity(state, static_cast<size_t>(index) + 1);
+    state.equipmentSlotIds[index] = itemId;
+    state.equipmentSlots[index] = ItemNameFromId(state, itemId);
+    if (index < static_cast<int>(state.equipmentAbilityCooldowns.size())) {
+        state.equipmentAbilityCooldowns[index] = 0.0f;
+    }
+}
+
 bool SyncEquipmentBonuses(const InventoryUIState& state, PlayerCharacter& player) {
     PlayerAttributes desired = GatherEquipmentBonuses(state);
     if (player.equipmentBonuses == desired) {
@@ -2221,6 +2287,7 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     state.weaponSlots.clear();
     state.equipmentSlotIds.clear();
     state.equipmentSlots.clear();
+    state.equipmentAbilityCooldowns.clear();
     state.inventoryItemIds.clear();
     state.inventoryItems.clear();
     state.inventoryQuantities.clear();
@@ -2259,7 +2326,8 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
                        const WeaponBlueprint* blueprint = nullptr,
                        const PlayerAttributes& bonuses = PlayerAttributes{},
                        const char* spritePath = nullptr,
-                       Vector2 drawSize = Vector2{0.0f, 0.0f}) {
+                       Vector2 drawSize = Vector2{0.0f, 0.0f},
+                       ItemActiveAbility ability = ItemActiveAbility{}) {
         ItemDefinition def{};
         def.id = id;
         def.name = name;
@@ -2274,6 +2342,9 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
             def.inventorySpritePath = spritePath;
         }
         def.inventorySpriteDrawSize = drawSize;
+        if (ability.IsValid()) {
+            def.activeAbility = std::move(ability);
+        }
         state.items.push_back(std::move(def));
         state.itemNameToId[name] = id;
     };
@@ -2298,6 +2369,12 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     const int idColeteCouro = 113;
     const int idEspaldeiraBronze = 114;
     const int idPingenteBronze = 115;
+    const int idAmuletoSorrateiro = 120;
+    const int idCouracaCaido = 121;
+    const int idPocaoCura = 150;
+    const int idkitDoTestador = 159;
+
+    ItemActiveAbility healingPotionAbility = MakeHealingPotionAbility();
 
     addItem(idFarrapo,
     "Farrapo",
@@ -2330,6 +2407,22 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
         nullptr,
     PlayerAttributes{},
     "assets/img/itens/Lingote_de_bronze.png",
+    Vector2{56.0f, 56.0f});
+
+    PlayerAttributes kitDoTestador{};
+    kitDoTestador.secondary.vampirismo = 10;
+    kitDoTestador.primary.vigor = 3;
+    kitDoTestador.attack.foco = 5;
+    kitDoTestador.attack.forca = 5;
+    addItem(idkitDoTestador,
+        "Kit do Testador",
+        ItemCategory::Armor,
+        "Equipamento de alta qualidade, usado pra testar jogos que ainda nao estao bem balanceados.",
+        5,
+        5,
+    nullptr,
+    kitDoTestador,
+    "assets/img/itens/Kit_do_Testador.png",
     Vector2{56.0f, 56.0f});
 
     PlayerAttributes tunicaBonus{};
@@ -2413,43 +2506,57 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     "assets/img/itens/Pingente_de_bronze.png",
     Vector2{56.0f, 56.0f});
 
+    PlayerAttributes amuletoSorrateiroBonus{};
+    amuletoSorrateiroBonus.secondary.vampirismo = 2.0f;
+    amuletoSorrateiroBonus.secondary.desvio = 10.0f;
+    addItem(idAmuletoSorrateiro,
+        "Amuleto do Sorrateiro",
+        ItemCategory::Armor,
+        "Talisma furtivo que pulsa com magia rubra, facilitando golpes furtivos e esquivas improvaveis.",
+        4,
+        120,
+        nullptr,
+        amuletoSorrateiroBonus,
+        "assets/img/itens/Amuleto_do_Sorrateiro.png",
+        Vector2{56.0f, 56.0f});
+
+    PlayerAttributes couracaCaidoBonus{};
+    couracaCaidoBonus.secondary.reducaoDano = 10.0f;
+    couracaCaidoBonus.secondary.maldicao = 2;
+    addItem(idCouracaCaido,
+        "Couraca do Caido",
+        ItemCategory::Armor,
+        "Placas negras que absorvem parte dos impactos, mas sussurram maldicoes antigas ao usuario.",
+        4,
+        140,
+        nullptr,
+        couracaCaidoBonus,
+        "assets/img/itens/Couraca_do_caido.png",
+        Vector2{56.0f, 56.0f});
+
+    addItem(idPocaoCura,
+        "Pocao de cura",
+        ItemCategory::Consumable,
+        "Elixir alquimico de emergencia que restaura uma porcao generosa da vitalidade.",
+        2,
+        40,
+        nullptr,
+        PlayerAttributes{},
+        "assets/img/itens/Pocao_de_cura.png",
+        Vector2{56.0f, 56.0f},
+        healingPotionAbility);
+
     EnsureWeaponCapacity(state, 2);
     SetWeaponSlot(state, 0, 1);
     SetWeaponSlot(state, 1, 3);
+    SetEquipmentSlot(state, 0, idkitDoTestador);
 
     EnsureEquipmentCapacity(state, 5);
-    SetEquipmentSlot(state, 0, idTunica);
-    SetEquipmentSlot(state, 1, idCalcadosSimples);
-    SetEquipmentSlot(state, 2, idElmoBronze);
-    SetEquipmentSlot(state, 3, idColeteCouro);
-    SetEquipmentSlot(state, 4, idPingenteBronze);
-
-    const std::vector<std::pair<int, int>> inventorySeed{
-        {1, 1},
-        {2, 1},
-        {3, 1},
-        {4, 1},
-        {21, 1},
-        {19, 1},
-        {idFarrapo, 6},
-        {idTiraCouro, 4},
-        {idLingoteBronze, 3},
-        {idTunica, 1},
-        {idCalcadosSimples, 1},
-        {idElmoBronze, 1},
-        {idColeteCouro, 1},
-        {idEspaldeiraBronze, 1},
-        {idPingenteBronze, 1}
-    };
 
     state.inventoryItemIds.resize(24, 0);
     state.inventoryItems.resize(24);
     state.inventoryQuantities.resize(24, 0);
     state.inventoryTypes.resize(24, ItemCategory::None);
-
-    for (size_t i = 0; i < inventorySeed.size(); ++i) {
-        SetInventorySlot(state, static_cast<int>(i), inventorySeed[i].first, inventorySeed[i].second);
-    }
 
     state.shopItemIds.clear();
     state.shopItems.clear();
@@ -2465,7 +2572,7 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     state.forgeRecipes[MakeForgeKey(idTiraCouro, idTiraCouro)] = idColeteCouro;
     state.forgeRecipes[MakeForgeKey(idTiraCouro, idLingoteBronze)] = idEspaldeiraBronze;
 
-    state.coins = 125;
+    state.coins = 0;
     RefreshForgeChance(state);
 
     state.hasActiveChest = false;
@@ -2555,29 +2662,39 @@ void RenderInventoryUI(InventoryUIState& state,
     GuiGroupBox(attributesRect, "Personagem");
 
     Vector2 attrPos{attributesRect.x + 20.0f, attributesRect.y + 36.0f};
-    DrawAttributeLabel(attrPos, "Vida", static_cast<int>(std::round(player.currentHealth)));
-    attrPos.y += 26.0f;
-    DrawAttributeLabel(attrPos, "Vida Max", static_cast<int>(std::round(player.derivedStats.maxHealth)));
-    attrPos.y += 32.0f;
+    constexpr float kLineSpacing = 22.0f;
+    constexpr float kGroupSpacing = 28.0f;
+    auto drawIntStat = [&](const char* label, int value, float spacing) {
+        DrawAttributeLabel(attrPos, label, value);
+        attrPos.y += spacing;
+    };
+    auto drawFloatStat = [&](const char* label, float value, int decimals, float spacing) {
+        DrawAttributeLabel(attrPos, label, value, decimals);
+        attrPos.y += spacing;
+    };
 
-    DrawAttributeLabel(attrPos, "Poder", player.totalAttributes.primary.poder);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Defesa", player.totalAttributes.primary.defesa);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Vigor", player.totalAttributes.primary.vigor);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Velocidade", player.totalAttributes.primary.velocidade);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Destreza", player.totalAttributes.primary.destreza);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Inteligencia", player.totalAttributes.primary.inteligencia);
+    drawIntStat("Vida", static_cast<int>(std::round(player.currentHealth)), 26.0f);
+    drawIntStat("Vida Max", static_cast<int>(std::round(player.derivedStats.maxHealth)), kGroupSpacing);
 
-    attrPos.y += 32.0f;
-    DrawAttributeLabel(attrPos, "Letalidade", player.totalAttributes.secondary.letalidade, 2);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Sorte", player.totalAttributes.secondary.sorte, 2);
-    attrPos.y += 22.0f;
-    DrawAttributeLabel(attrPos, "Vampirismo", player.totalAttributes.secondary.vampirismo, 2);
+    drawIntStat("Poder", player.totalAttributes.primary.poder, kLineSpacing);
+    drawIntStat("Defesa", player.totalAttributes.primary.defesa, kLineSpacing);
+    drawIntStat("Vigor", player.totalAttributes.primary.vigor, kLineSpacing);
+    drawIntStat("Velocidade", player.totalAttributes.primary.velocidade, kLineSpacing);
+    drawIntStat("Destreza", player.totalAttributes.primary.destreza, kLineSpacing);
+    drawIntStat("Inteligencia", player.totalAttributes.primary.inteligencia, kGroupSpacing);
+
+    drawIntStat("Constituicao", player.totalAttributes.attack.constituicao, kLineSpacing);
+    drawIntStat("Forca", player.totalAttributes.attack.forca, kLineSpacing);
+    drawIntStat("Foco", player.totalAttributes.attack.foco, kLineSpacing);
+    drawIntStat("Misticismo", player.totalAttributes.attack.misticismo, kLineSpacing);
+    drawIntStat("Conhecimento", player.totalAttributes.attack.conhecimento, kGroupSpacing);
+
+    drawFloatStat("Vampirismo", player.totalAttributes.secondary.vampirismo, 2, kLineSpacing);
+    drawFloatStat("Letalidade", player.totalAttributes.secondary.letalidade, 2, kLineSpacing);
+    drawFloatStat("Reducao de Dano", player.totalAttributes.secondary.reducaoDano, 2, kLineSpacing);
+    drawFloatStat("Desvio", player.totalAttributes.secondary.desvio, 2, kLineSpacing);
+    drawFloatStat("Sorte", player.totalAttributes.secondary.sorte, 2, kLineSpacing);
+    drawIntStat("Maldicao", player.totalAttributes.secondary.maldicao, kLineSpacing);
 
     Rectangle contentRect{
         attributesRect.x + attributesRect.width + padding,

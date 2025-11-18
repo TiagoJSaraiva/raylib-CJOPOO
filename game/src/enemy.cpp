@@ -305,6 +305,7 @@ void Enemy::ResetSpawnState() {
     fadeCompleted_ = false;
     alpha_ = 0.0f;
     returningToOrigin_ = false;
+    hasTakenDamage_ = false;
 }
 
 bool Enemy::TakeDamage(float amount) {
@@ -314,6 +315,7 @@ bool Enemy::TakeDamage(float amount) {
     if (amount <= 0.0f) {
         return false;
     }
+    hasTakenDamage_ = true;
     currentHealth_ = std::max(0.0f, currentHealth_ - amount);
     return currentHealth_ <= 0.0f;
 }

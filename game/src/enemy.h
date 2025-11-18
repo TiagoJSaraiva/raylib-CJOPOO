@@ -63,6 +63,8 @@ public:
     float GetHalfHeight() const { return collisionHalfHeight_; }
 
     float GetSpeed() const { return speed_; }
+    float GetHealthFraction() const { return (maxHealth_ > 0.0f) ? (currentHealth_ / maxHealth_) : 0.0f; }
+    bool HasTakenDamage() const { return hasTakenDamage_; }
 
     bool IsActive() const { return active_; }
     bool HasCompletedFade() const { return fadeCompleted_; }
@@ -116,6 +118,7 @@ private:
     float fadeDuration_{0.45f};
 
     bool returningToOrigin_{false};
+    bool hasTakenDamage_{false};
 
     float collisionRadius_{22.0f};
 };

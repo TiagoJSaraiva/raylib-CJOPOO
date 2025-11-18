@@ -139,6 +139,7 @@ public:
     ProjectileSystem& operator=(const ProjectileSystem&) = delete;
     void Update(float deltaSeconds);
     void Draw() const;
+    void Clear();
 
     void SpawnProjectile(const ProjectileBlueprint& blueprint, const ProjectileSpawnContext& context);
 

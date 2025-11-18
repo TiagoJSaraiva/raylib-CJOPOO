@@ -17,6 +17,13 @@ struct CachedEnemyTexture {
 
 std::unordered_map<std::string, CachedEnemyTexture> g_enemyTextureCache;
 
+constexpr float kHealthBarWidthPadding = 8.0f;
+constexpr float kHealthBarHeight = 2.0f;
+constexpr float kHealthBarVerticalOffset = 80.0f;
+constexpr float kHealthBarBackgroundThickness = 1.0f;
+const Color kHealthBarBackgroundColor = Color{12, 12, 18, 200};
+const Color kHealthBarFillColor = Color{196, 64, 64, 230};
+
 bool EndsWithExtension(const std::string& path, const std::string& extension) {
     if (path.size() < extension.size()) {
         return false;
@@ -237,6 +244,41 @@ void EnemyCommon::Draw(const EnemyDrawContext& context) const {
     if (!drew) {
         float radius = GetCollisionRadius();
         DrawCircleV(position, radius, tint);
+    }
+
+    if (HasTakenDamage()) {
+        float baseWidth = 0.0f;
+        if (spriteInfo_.frameWidth > 0) {
+            baseWidth = static_cast<float>(spriteInfo_.frameWidth);
+        } else if (idleTexture_.id != 0) {
+            baseWidth = static_cast<float>(idleTexture_.width);
+        } else {
+            baseWidth = GetCollisionRadius() * 2.0f;
+        }
+        float barWidth = std::max(8.0f, baseWidth + kHealthBarWidthPadding);
+        float barHeight = std::max(1.0f, kHealthBarHeight);
+        float border = std::max(0.0f, kHealthBarBackgroundThickness);
+
+        float centerX = position.x;
+        float barY = position.y - kHealthBarVerticalOffset;
+        Rectangle background{
+            centerX - barWidth * 0.5f,
+            barY,
+            barWidth,
+            barHeight + border * 2.0f
+        };
+        DrawRectangleRec(background, kHealthBarBackgroundColor);
+
+        float fillWidth = std::max(0.0f, (barWidth - border * 2.0f) * std::clamp(GetHealthFraction(), 0.0f, 1.0f));
+        if (fillWidth > 0.0f) {
+            Rectangle fill{
+                background.x + border,
+                background.y + border,
+                fillWidth,
+                barHeight
+            };
+            DrawRectangleRec(fill, kHealthBarFillColor);
+        }
     }
 }
 

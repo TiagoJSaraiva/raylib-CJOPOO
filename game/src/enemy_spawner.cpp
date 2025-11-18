@@ -61,14 +61,14 @@ void EnemySpawner::RegisterDefaults() {
 
     // Caverna
     EnemyTemplate caveRanged{};
-    caveRanged.config = MakeConfig(100, "caverna_ranged", BiomeType::Cave, 42.0f, 165.0f, 1.0f, 22.0f);
+    caveRanged.config = MakeConfig(100, "caverna_ranged", BiomeType::Cave, 21.0f, 82.5f, 1.0f, 22.0f);
     caveRanged.range = 520.0f;
     caveRanged.weapon = &GetArcoSimplesWeaponBlueprint();
         caveRanged.sprite = MakeSpriteInfo("./assets/img/enemies/caverna_ranged");
     templates_[BiomeType::Cave].push_back(caveRanged);
 
     EnemyTemplate caveMelee{};
-    caveMelee.config = MakeConfig(101, "caverna_melee", BiomeType::Cave, 80.0f, 190.0f, 1.2f, 24.0f);
+    caveMelee.config = MakeConfig(101, "caverna_melee", BiomeType::Cave, 40.0f, 95.0f, 1.2f, 24.0f);
     caveMelee.range = 140.0f;
     caveMelee.weapon = &GetEspadaCurtaWeaponBlueprint();
         caveMelee.sprite = MakeSpriteInfo("./assets/img/enemies/caverna_melee");
@@ -76,14 +76,14 @@ void EnemySpawner::RegisterDefaults() {
 
     // Dungeon
     EnemyTemplate dungeonRanged{};
-    dungeonRanged.config = MakeConfig(110, "dungeon_ranged", BiomeType::Dungeon, 55.0f, 170.0f, 1.0f, 22.0f);
+    dungeonRanged.config = MakeConfig(110, "dungeon_ranged", BiomeType::Dungeon, 27.5f, 85.0f, 1.0f, 22.0f);
     dungeonRanged.range = 560.0f;
     dungeonRanged.weapon = &GetCajadoDeCarvalhoWeaponBlueprint();
         dungeonRanged.sprite = MakeSpriteInfo("./assets/img/enemies/dungeon_ranged");
     templates_[BiomeType::Dungeon].push_back(dungeonRanged);
 
     EnemyTemplate dungeonMelee{};
-    dungeonMelee.config = MakeConfig(111, "dungeon_melee", BiomeType::Dungeon, 95.0f, 185.0f, 1.3f, 26.0f);
+    dungeonMelee.config = MakeConfig(111, "dungeon_melee", BiomeType::Dungeon, 47.5f, 92.5f, 1.3f, 26.0f);
     dungeonMelee.range = 150.0f;
     dungeonMelee.weapon = &GetMachadinhaWeaponBlueprint();
         dungeonMelee.sprite = MakeSpriteInfo("./assets/img/enemies/dungeon_melee");
@@ -91,14 +91,14 @@ void EnemySpawner::RegisterDefaults() {
 
     // Mansao
     EnemyTemplate mansionRanged{};
-    mansionRanged.config = MakeConfig(120, "mansao_ranged", BiomeType::Mansion, 60.0f, 175.0f, 1.1f, 22.0f);
+    mansionRanged.config = MakeConfig(120, "mansao_ranged", BiomeType::Mansion, 30.0f, 87.5f, 1.1f, 22.0f);
     mansionRanged.range = 540.0f;
     mansionRanged.weapon = &GetArcoSimplesWeaponBlueprint();
         mansionRanged.sprite = MakeSpriteInfo("./assets/img/enemies/mansao_ranged");
     templates_[BiomeType::Mansion].push_back(mansionRanged);
 
     EnemyTemplate mansionMelee{};
-    mansionMelee.config = MakeConfig(121, "mansao_melee", BiomeType::Mansion, 105.0f, 200.0f, 1.4f, 26.0f);
+    mansionMelee.config = MakeConfig(121, "mansao_melee", BiomeType::Mansion, 52.5f, 100.0f, 1.4f, 26.0f);
     mansionMelee.range = 160.0f;
     mansionMelee.weapon = &GetEspadaRunicaWeaponBlueprint();
         mansionMelee.sprite = MakeSpriteInfo("./assets/img/enemies/mansao_melee");
@@ -128,7 +128,9 @@ void EnemySpawner::SpawnEnemiesForRoom(Room& room,
     }
 
     int tileArea = layout.widthTiles * layout.heightTiles;
-    int spawnCount = static_cast<int>(std::round(static_cast<float>(tileArea) / 10.0f));
+    float baseCount = static_cast<float>(tileArea) / 10.0f;
+    float adjustedCount = baseCount * 0.3f;
+    int spawnCount = static_cast<int>(std::round(std::max(adjustedCount, 0.0f)));
     spawnCount = std::max(spawnCount, 1);
 
     const std::vector<EnemyTemplate>& defs = it->second;

@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <unordered_map>
 #include <string>
 #include <vector>
@@ -14,6 +15,7 @@
 struct PlayerCharacter;
 struct WeaponState;
 struct WeaponBlueprint;
+struct InventoryUIState;
 class Chest;
 class CommonChest;
 
@@ -33,6 +35,18 @@ enum class ItemCategory {
     Result
 };
 
+using ItemAbilityHandler = std::function<bool(InventoryUIState&, PlayerCharacter&, int)>;
+
+struct ItemActiveAbility {
+    std::string name;
+    std::string description;
+    float cooldownSeconds{0.0f};
+    bool consumesItemOnUse{false};
+    ItemAbilityHandler handler{};
+
+    bool IsValid() const { return static_cast<bool>(handler); }
+};
+
 struct ItemDefinition {
     int id{0};
     std::string name;
@@ -45,6 +59,9 @@ struct ItemDefinition {
     PlayerAttributes attributeBonuses{};
     std::string inventorySpritePath;
     Vector2 inventorySpriteDrawSize{0.0f, 0.0f};
+    ItemActiveAbility activeAbility{};
+
+    bool HasActiveAbility() const { return activeAbility.IsValid(); }
 };
 
 struct InventoryUIState {
@@ -90,6 +107,7 @@ struct InventoryUIState {
     std::vector<ItemDefinition> items;
     std::vector<int> weaponSlotIds;
     std::vector<int> equipmentSlotIds;
+    std::vector<float> equipmentAbilityCooldowns;
     std::vector<int> inventoryItemIds;
     std::vector<int> inventoryQuantities;
     std::vector<int> shopItemIds;
@@ -134,6 +152,9 @@ void RenderInventoryUI(InventoryUIState& state,
 
 PlayerAttributes GatherEquipmentBonuses(const InventoryUIState& state);
 bool SyncEquipmentBonuses(const InventoryUIState& state, PlayerCharacter& player);
+
+const ItemDefinition* GetItemDefinition(const InventoryUIState& state, int id);
+void SetEquipmentSlot(InventoryUIState& state, int index, int itemId);
 
 const WeaponBlueprint* ResolveWeaponBlueprint(const InventoryUIState& state, int itemId);
 void LoadForgeContents(InventoryUIState& state, const ForgeInstance& forge);

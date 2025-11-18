@@ -95,6 +95,7 @@ constexpr float DOOR_FADE_DURATION = 1.0f;
 constexpr float DOOR_MASK_CLEARANCE = 1.0f;
 constexpr float HORIZONTAL_CORRIDOR_MASK_EXTRA_HEIGHT = static_cast<float>(TILE_SIZE);
 constexpr float HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET = static_cast<float>(TILE_SIZE) * 0.5f;
+const Vector2 kTrainingDummyOffset{TILE_SIZE * 2.5f, 0.0f};
 
 void UpdateDamageNumbers(std::vector<DamageNumber>& numbers, float deltaSeconds) {
     for (auto& number : numbers) {
@@ -192,6 +193,94 @@ void SaveActiveShopContents(InventoryUIState& uiState, RoomManager& manager) {
 void SaveActiveStations(InventoryUIState& uiState, RoomManager& manager) {
     SaveActiveForgeContents(uiState, manager);
     SaveActiveShopContents(uiState, manager);
+}
+
+void UpdateEquipmentAbilityCooldowns(InventoryUIState& state, float deltaSeconds) {
+    if (state.equipmentAbilityCooldowns.empty()) {
+        return;
+    }
+    for (float& timer : state.equipmentAbilityCooldowns) {
+        if (timer > 0.0f) {
+            timer = std::max(0.0f, timer - deltaSeconds);
+        }
+    }
+}
+
+bool TryActivateEquipmentAbility(InventoryUIState& state, PlayerCharacter& player, int slotIndex) {
+    if (slotIndex < 0 || slotIndex >= static_cast<int>(state.equipmentSlotIds.size())) {
+        return false;
+    }
+    if (slotIndex >= static_cast<int>(state.equipmentAbilityCooldowns.size())) {
+        return false;
+    }
+    int itemId = state.equipmentSlotIds[slotIndex];
+    if (itemId <= 0) {
+        return false;
+    }
+
+    float& cooldown = state.equipmentAbilityCooldowns[slotIndex];
+    if (cooldown > 0.0f) {
+        return false;
+    }
+
+    const ItemDefinition* def = GetItemDefinition(state, itemId);
+    if (def == nullptr || !def->HasActiveAbility()) {
+        return false;
+    }
+
+    const ItemActiveAbility& ability = def->activeAbility;
+    if (!ability.handler) {
+        return false;
+    }
+
+    bool activated = ability.handler(state, player, slotIndex);
+    if (!activated) {
+        return false;
+    }
+
+    cooldown = std::max(0.0f, ability.cooldownSeconds);
+    if (ability.consumesItemOnUse) {
+        SetEquipmentSlot(state, slotIndex, 0);
+    }
+    return true;
+}
+
+bool DrawDeathOverlay() {
+    const int screenWidth = GetScreenWidth();
+    const int screenHeight = GetScreenHeight();
+    DrawRectangle(0, 0, screenWidth, screenHeight, Color{8, 10, 16, 180});
+
+    const Font& font = GetGameFont();
+    const char* title = "Voce perdeu!";
+    const float titleSize = 62.0f;
+    Vector2 titleMeasure = MeasureTextEx(font, title, titleSize, 0.0f);
+    Vector2 titlePos{
+        screenWidth * 0.5f - titleMeasure.x * 0.5f,
+        screenHeight * 0.35f - titleMeasure.y * 0.5f
+    };
+    DrawTextEx(font, title, titlePos, titleSize, 0.0f, Color{230, 70, 70, 255});
+
+    Rectangle buttonRect{
+        screenWidth * 0.5f - 150.0f,
+        titlePos.y + titleMeasure.y + 40.0f,
+        300.0f,
+        70.0f
+    };
+    Vector2 mouse = GetMousePosition();
+    bool hovered = CheckCollisionPointRec(mouse, buttonRect);
+    Color buttonColor = hovered ? Color{220, 70, 70, 255} : Color{150, 34, 34, 245};
+    DrawRectangleRec(buttonRect, buttonColor);
+    DrawRectangleLinesEx(buttonRect, 2.0f, Color{255, 255, 255, 255});
+
+    const char* buttonLabel = "Recomecar";
+    const float buttonFont = 32.0f;
+    Vector2 labelMeasure = MeasureTextEx(font, buttonLabel, buttonFont, 0.0f);
+    Vector2 labelPos{
+        buttonRect.x + (buttonRect.width - labelMeasure.x) * 0.5f,
+        buttonRect.y + (buttonRect.height - labelMeasure.y) * 0.5f
+    };
+    DrawTextEx(font, buttonLabel, labelPos, buttonFont, 0.0f, Color{255, 255, 255, 255});
+    return hovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 }
 
 float DoorVisibilityAlpha(const DoorInstance& state) {
@@ -1248,7 +1337,7 @@ int main() {
     SetTargetFPS(60);
     LoadGameFont("assets/font/alagard.ttf", 32);
 
-    const std::uint64_t worldSeed = GenerateWorldSeed();
+    std::uint64_t worldSeed = GenerateWorldSeed();
     RoomManager roomManager{worldSeed};
     RoomRenderer roomRenderer;
     ProjectileSystem projectileSystem;
@@ -1262,28 +1351,13 @@ int main() {
     CharacterSpriteResources playerSprites{};
     LoadCharacterSprites(player.appearance, playerSprites);
     WeaponState leftHandWeapon;
-    leftHandWeapon.blueprint = &GetEspadaCurtaWeaponBlueprint();
     WeaponState rightHandWeapon;
-    rightHandWeapon.blueprint = &GetArcoSimplesWeaponBlueprint();
 
     InventoryUIState inventoryUI;
     DebugConsoleState debugConsole;
-    InitializeInventoryUIDummyData(inventoryUI);
-    SyncEquipmentBonuses(inventoryUI, player);
 
-    RefreshPlayerWeaponBonuses(player, leftHandWeapon, rightHandWeapon);
-
-    leftHandWeapon.RecalculateDerivedStats(player);
-    rightHandWeapon.RecalculateDerivedStats(player);
-
-    roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
-
-    Vector2 playerPosition = RoomCenter(roomManager.GetCurrentRoom().Layout());
-
-    const Vector2 trainingDummyOffset{TILE_SIZE * 2.5f, 0.0f};
+    Vector2 playerPosition{0.0f, 0.0f};
     TrainingDummy trainingDummy{};
-    trainingDummy.homeRoom = roomManager.GetCurrentCoords();
-    trainingDummy.position = Vector2Add(playerPosition, trainingDummyOffset);
     trainingDummy.radius = 52.0f;
 
 
@@ -1310,9 +1384,80 @@ int main() {
     camera.zoom = 1.0f;
 
     bool playerIsMoving = false;
+    bool playerDead = false;
+
+    auto BeginNewRun = [&](bool regenerateSeed) {
+        if (regenerateSeed) {
+            worldSeed = GenerateWorldSeed();
+        }
+
+        roomManager = RoomManager{worldSeed};
+        enemyRng.seed(static_cast<std::mt19937::result_type>(worldSeed));
+        roomEnemies.clear();
+        roomsWithSpawnedEnemies.clear();
+        roomRevealStates.clear();
+        damageNumbers.clear();
+        projectileSystem.Clear();
+        enemyProjectileSystem.Clear();
+
+        inventoryUI = InventoryUIState{};
+        InitializeInventoryUIDummyData(inventoryUI);
+        inventoryUI.open = false;
+        inventoryUI.mode = InventoryViewMode::Inventory;
+        inventoryUI.selectedInventoryIndex = -1;
+        inventoryUI.selectedEquipmentIndex = -1;
+        inventoryUI.selectedWeaponIndex = -1;
+        inventoryUI.selectedShopIndex = -1;
+        inventoryUI.selectedForgeSlot = -1;
+        inventoryUI.selectedChestIndex = -1;
+        inventoryUI.feedbackMessage.clear();
+        inventoryUI.feedbackTimer = 0.0f;
+        inventoryUI.shopTradeActive = false;
+        inventoryUI.shopTradeReadyToConfirm = false;
+        inventoryUI.hasActiveForge = false;
+        inventoryUI.hasActiveShop = false;
+        inventoryUI.hasActiveChest = false;
+        inventoryUI.activeChest = nullptr;
+        inventoryUI.chestUiType = InventoryUIState::ChestUIType::None;
+        inventoryUI.chestSupportsDeposit = false;
+        inventoryUI.chestSupportsTakeAll = false;
+
+        player = CreateKnightCharacter();
+        leftHandWeapon = WeaponState{};
+        rightHandWeapon = WeaponState{};
+        SyncEquipmentBonuses(inventoryUI, player);
+        SyncEquippedWeapons(inventoryUI, leftHandWeapon, rightHandWeapon);
+        RefreshPlayerWeaponBonuses(player, leftHandWeapon, rightHandWeapon);
+        leftHandWeapon.RecalculateDerivedStats(player);
+        rightHandWeapon.RecalculateDerivedStats(player);
+
+        roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
+        playerPosition = RoomCenter(roomManager.GetCurrentRoom().Layout());
+
+        trainingDummy.homeRoom = roomManager.GetCurrentCoords();
+        trainingDummy.position = Vector2Add(playerPosition, kTrainingDummyOffset);
+        trainingDummy.radius = 52.0f;
+        trainingDummy.isImmune = false;
+        trainingDummy.immunitySecondsRemaining = 0.0f;
+
+        player.currentHealth = player.derivedStats.maxHealth;
+        playerIsMoving = false;
+        playerDead = false;
+        camera.target = playerPosition;
+        camera.zoom = 1.0f;
+
+        CloseDebugConsole(debugConsole);
+        debugConsole.inventoryContext = DebugConsoleState::InventoryContext::None;
+        debugConsole.forgeInstance.reset();
+        debugConsole.shopInstance.reset();
+        debugConsole.chestInstance.reset();
+    };
+
+    BeginNewRun(false);
 
     while (!WindowShouldClose()) {
         const float delta = GetFrameTime();
+        UpdateEquipmentAbilityCooldowns(inventoryUI, delta);
 
         bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
         if (shiftHeld && IsKeyPressed(KEY_ZERO)) {
@@ -1342,7 +1487,7 @@ int main() {
 
         bool debugInputBlocked = debugConsole.open;
 
-        if (!debugInputBlocked && (IsKeyPressed(KEY_TAB) || IsKeyPressed(KEY_I))) {
+        if (!debugInputBlocked && !playerDead && (IsKeyPressed(KEY_TAB) || IsKeyPressed(KEY_I))) {
             bool wasOpen = inventoryUI.open;
             inventoryUI.open = !inventoryUI.open;
             if (inventoryUI.open) {
@@ -1374,7 +1519,7 @@ int main() {
         }
 
         Vector2 input{0.0f, 0.0f};
-        if (!inventoryUI.open && !debugInputBlocked) {
+        if (!inventoryUI.open && !debugInputBlocked && !playerDead) {
             if (IsKeyDown(KEY_W)) input.y -= 1.0f;
             if (IsKeyDown(KEY_S)) input.y += 1.0f;
             if (IsKeyDown(KEY_A)) input.x -= 1.0f;
@@ -1508,7 +1653,15 @@ int main() {
         float chestRadius = 0.0f;
         bool chestNearby = false;
 
-        if (!inventoryUI.open && !debugInputBlocked) {
+        if (!inventoryUI.open && !debugInputBlocked && !playerDead) {
+            const KeyboardKey abilityKeys[] = {KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE};
+            int trackedSlots = std::min<int>(5, static_cast<int>(inventoryUI.equipmentSlotIds.size()));
+            for (int slot = 0; slot < trackedSlots; ++slot) {
+                if (IsKeyPressed(abilityKeys[slot])) {
+                    TryActivateEquipmentAbility(inventoryUI, player, slot);
+                }
+            }
+
             auto weaponInputActive = [](const WeaponState& weapon, int mouseButton) {
                 if (weapon.blueprint == nullptr) {
                     return false;
@@ -1626,13 +1779,47 @@ int main() {
             incomingDamage = std::max(0.0f, incomingDamage - flatReduction);
             incomingDamage *= (1.0f - percentReduction);
             incomingDamage *= curseDamageMultiplier;
-
-            if (incomingDamage <= 0.0f) {
-                continue;
-            }
+            incomingDamage = std::max(1.0f, incomingDamage);
 
             player.currentHealth = std::max(0.0f, player.currentHealth - incomingDamage);
             PushDamageNumber(damageNumbers, playerPosition, incomingDamage, hit.isCritical);
+        }
+
+        if (!playerDead && player.currentHealth <= 0.0f) {
+            player.currentHealth = 0.0f;
+            playerDead = true;
+            playerIsMoving = false;
+            SaveActiveStations(inventoryUI, roomManager);
+            inventoryUI.open = false;
+            inventoryUI.mode = InventoryViewMode::Inventory;
+            inventoryUI.selectedInventoryIndex = -1;
+            inventoryUI.selectedEquipmentIndex = -1;
+            inventoryUI.selectedWeaponIndex = -1;
+            inventoryUI.selectedShopIndex = -1;
+            inventoryUI.selectedForgeSlot = -1;
+            inventoryUI.selectedChestIndex = -1;
+            inventoryUI.hasActiveForge = false;
+            inventoryUI.hasActiveShop = false;
+            inventoryUI.hasActiveChest = false;
+            inventoryUI.pendingForgeBreak = false;
+            inventoryUI.forgeState = ForgeState::Working;
+            inventoryUI.shopTradeActive = false;
+            inventoryUI.shopTradeReadyToConfirm = false;
+            inventoryUI.shopTradeInventoryIndex = -1;
+            inventoryUI.shopTradeShopIndex = -1;
+            inventoryUI.shopTradeRequiredRarity = 0;
+            inventoryUI.activeForgeCoords = RoomCoords{};
+            inventoryUI.activeShopCoords = RoomCoords{};
+            inventoryUI.activeChestCoords = RoomCoords{};
+            inventoryUI.activeChest = nullptr;
+            inventoryUI.chestUiType = InventoryUIState::ChestUIType::None;
+            inventoryUI.chestSupportsDeposit = false;
+            inventoryUI.chestSupportsTakeAll = false;
+            inventoryUI.chestTitle.clear();
+            inventoryUI.chestItemIds.clear();
+            inventoryUI.chestItems.clear();
+            inventoryUI.chestQuantities.clear();
+            inventoryUI.chestTypes.clear();
         }
 
         Room& interactionRoom = roomManager.GetCurrentRoom();
@@ -1802,7 +1989,7 @@ int main() {
                 float distanceSq = Vector2DistanceSqr(playerPosition, forgeAnchor);
                 forgeNearby = distanceSq <= (forgeRadius * forgeRadius);
 
-                if (!debugInputBlocked && forgeNearby && IsKeyPressed(KEY_E)) {
+                if (!debugInputBlocked && !playerDead && forgeNearby && IsKeyPressed(KEY_E)) {
                     SaveActiveStations(inventoryUI, roomManager);
                     inventoryUI.open = true;
                     inventoryUI.mode = InventoryViewMode::Forge;
@@ -1841,7 +2028,7 @@ int main() {
                 float distanceSq = Vector2DistanceSqr(playerPosition, shopAnchor);
                 shopNearby = distanceSq <= (shopRadius * shopRadius);
 
-                if (!debugInputBlocked && shopNearby && IsKeyPressed(KEY_E)) {
+                if (!debugInputBlocked && !playerDead && shopNearby && IsKeyPressed(KEY_E)) {
                     SaveActiveStations(inventoryUI, roomManager);
                     inventoryUI.open = true;
                     inventoryUI.mode = InventoryViewMode::Shop;
@@ -1876,7 +2063,7 @@ int main() {
                 float distanceSq = Vector2DistanceSqr(playerPosition, chestAnchor);
                 chestNearby = distanceSq <= (chestRadius * chestRadius);
 
-                if (!debugInputBlocked && chestNearby && IsKeyPressed(KEY_E)) {
+                if (!debugInputBlocked && !playerDead && chestNearby && IsKeyPressed(KEY_E)) {
                     SaveActiveStations(inventoryUI, roomManager);
                     inventoryUI.open = true;
                     inventoryUI.mode = InventoryViewMode::Chest;
@@ -1987,7 +2174,7 @@ int main() {
         if (activeDoorPrompt != nullptr) {
             activeDoorPrompt->showPrompt = true;
             activeDoorPrompt->isLocked = (activeDoorPrompt->instance->interactionState == DoorInteractionState::Locked);
-            if (!debugInputBlocked && !inventoryUI.open && IsKeyPressed(KEY_E)) {
+            if (!debugInputBlocked && !inventoryUI.open && !playerDead && IsKeyPressed(KEY_E)) {
                 if (!activeDoorPrompt->isLocked) {
                     activeDoorPrompt->instance->opening = true;
                     activeDoorPrompt->instance->fadeProgress = 0.0f;
@@ -2228,9 +2415,11 @@ int main() {
 
         EndMode2D();
 
-        DrawHUD(player, inventoryUI);
+        if (!playerDead) {
+            DrawHUD(player, inventoryUI);
+        }
 
-        if (inventoryUI.open) {
+        if (!playerDead && inventoryUI.open) {
             RenderInventoryUI(inventoryUI, player, leftHandWeapon, rightHandWeapon,
                               Vector2{static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())},
                               activeShop);
@@ -2240,9 +2429,19 @@ int main() {
             DrawDebugConsoleOverlay(debugConsole);
         }
 
+        bool restartRequested = false;
+        if (playerDead) {
+            restartRequested = DrawDeathOverlay();
+        }
+
         SaveActiveStations(inventoryUI, roomManager);
 
         EndDrawing();
+
+        if (restartRequested) {
+            BeginNewRun(true);
+            continue;
+        }
     }
 
     EnemyCommon::ShutdownSpriteCache();
