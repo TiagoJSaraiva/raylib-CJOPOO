@@ -13,48 +13,48 @@
 
 namespace {
 
-constexpr float kHealthBarWidth = 256.0f;
-constexpr float kHealthBarHeight = 64.0f;
-constexpr float kHealthBarLeftPadding = 32.0f;
-constexpr float kHealthBarBottomPadding = 32.0f;
-constexpr float kHealthBarFontSize = 30.0f;
-constexpr float kHealthBarTextSpacing = 0.0f;
-constexpr Color kFilledColor{220, 20, 60, 150}; // traditional red with transparency
-constexpr Color kEmptyColor{255, 140, 140, 150}; // lighter red background
-constexpr Color kHealthTextColor{0, 0, 0, 255};
+constexpr float kHealthBarWidth = 256.0f; // Largura total da barra de vida no HUD
+constexpr float kHealthBarHeight = 64.0f; // Altura da barra de vida
+constexpr float kHealthBarLeftPadding = 32.0f; // Espaco do lado esquerdo antes de desenhar a barra
+constexpr float kHealthBarBottomPadding = 32.0f; // Distancia da barra ate a base da tela
+constexpr float kHealthBarFontSize = 30.0f; // Tamanho da fonte para o texto de HP
+constexpr float kHealthBarTextSpacing = 0.0f; // Espacamento entre caracteres na barra de HP
+constexpr Color kFilledColor{220, 20, 60, 150}; // Cor preenchida da parte com vida
+constexpr Color kEmptyColor{255, 140, 140, 150}; // Cor da parte vazia da barra de vida
+constexpr Color kHealthTextColor{0, 0, 0, 255}; // Cor do texto numérico da barra de HP
 
-constexpr float kSlotSize = 64.0f;
-constexpr float kSlotSpacing = 12.0f;
-constexpr int kEquipmentSlotCount = 5;
-constexpr int kWeaponSlotCount = 2;
-constexpr float kEquipmentBottomPadding = 32.0f;
-constexpr float kEquipmentRightPadding = 32.0f;
-constexpr float kWeaponGroupGap = 32.0f;
-constexpr float kEquipmentLabelRightOffset = 306.0f;
-constexpr float kEquipmentLabelBottomOffset = 10.0f;
-constexpr float kEquipmentLabelFontSize = 14.0f;
-constexpr float kWeaponLabelFontSize = 14.0f;
-constexpr float kWeaponLabelVerticalGap = 8.0f;
-constexpr Vector2 kWeaponLabelOffset{-45.0f, 0.0f};
-constexpr Color kSlotBackgroundColor{54, 58, 72, 220};
-constexpr Color kEmptySlotBorder{70, 80, 100, 255};
-constexpr Color kHudLabelColor{0, 0, 0, 255};
-constexpr Color kHudLabelOutlineColor{255, 255, 255, 255};
-constexpr float kHudLabelOutlineThickness = 1.0f;
-constexpr float kSlotSpritePadding = 0.0f;
+constexpr float kSlotSize = 64.0f; // Tamanho padrao de cada slot de equipamento/arma
+constexpr float kSlotSpacing = 12.0f; // Espaco entre slots
+constexpr int kEquipmentSlotCount = 5; // Quantidade de slots exibidos para equipamentos
+constexpr int kWeaponSlotCount = 2; // Quantidade de slots para armas
+constexpr float kEquipmentBottomPadding = 32.0f; // Distancia da fileira de equipamentos ate a base da tela
+constexpr float kEquipmentRightPadding = 32.0f; // Distancia dos equipamentos ate a lateral direita
+constexpr float kWeaponGroupGap = 32.0f; // Separacao horizontal entre equipamentos e armas
+constexpr float kEquipmentLabelRightOffset = 306.0f; // Offset horizontal para posicionar o rotulo "equipamento"
+constexpr float kEquipmentLabelBottomOffset = 10.0f; // Offset vertical para o rotulo de equipamentos
+constexpr float kEquipmentLabelFontSize = 14.0f; // Tamanho da fonte do rotulo de equipamentos
+constexpr float kWeaponLabelFontSize = 14.0f; // Tamanho da fonte do rotulo de armas
+constexpr float kWeaponLabelVerticalGap = 8.0f; // Distancia vertical entre slots de armas e rotulo
+constexpr Vector2 kWeaponLabelOffset{-45.0f, 0.0f}; // Ajuste adicional para posicionar o texto "armas"
+constexpr Color kSlotBackgroundColor{54, 58, 72, 220}; // Cor de fundo dos slots
+constexpr Color kEmptySlotBorder{70, 80, 100, 255}; // Cor padrão do contorno quando o slot esta vazio
+constexpr Color kHudLabelColor{0, 0, 0, 255}; // Cor principal dos rotulos de HUD
+constexpr Color kHudLabelOutlineColor{255, 255, 255, 255}; // Cor do contorno dos rotulos
+constexpr float kHudLabelOutlineThickness = 1.0f; // Espessura usada para o contorno de texto
+constexpr float kSlotSpritePadding = 0.0f; // Margem interna aplicada quando ajusta sprites aos slots
 
-struct HudSpriteCacheEntry {
-    Texture2D texture{};
-    bool attemptedLoad{false};
+struct HudSpriteCacheEntry { // Entrada cacheando textura carregada para icones do HUD
+    Texture2D texture{}; // Textura carregada da sprite
+    bool attemptedLoad{false}; // Indica se ja tentamos carregar o arquivo correspondente
 };
 
-std::unordered_map<std::string, HudSpriteCacheEntry> g_hudSpriteCache{};
+std::unordered_map<std::string, HudSpriteCacheEntry> g_hudSpriteCache{}; // Cache global de sprites usados pelo HUD
 
-float ResolveBarYPosition() {
+float ResolveBarYPosition() { // Nao recebe parametros; calcula a coordenada Y da barra de vida com base no padding configurado
     return static_cast<float>(GetScreenHeight()) - kHealthBarBottomPadding - kHealthBarHeight;
 }
 
-Texture2D LoadHudTexture(const std::string& path) {
+Texture2D LoadHudTexture(const std::string& path) { // Recebe um caminho e tenta carregar a textura correspondente, aplicando filtro adequado
     if (path.empty()) {
         return Texture2D{};
     }
@@ -68,7 +68,7 @@ Texture2D LoadHudTexture(const std::string& path) {
     return texture;
 }
 
-Texture2D AcquireHudTexture(const std::string& path) {
+Texture2D AcquireHudTexture(const std::string& path) { // Recebe caminho, verifica cache e garante que a textura esteja carregada antes de retornar
     if (path.empty()) {
         return Texture2D{};
     }
@@ -80,7 +80,7 @@ Texture2D AcquireHudTexture(const std::string& path) {
     return entry.texture;
 }
 
-const ItemDefinition* FindHudItemDefinition(const InventoryUIState& state, int itemId) {
+const ItemDefinition* FindHudItemDefinition(const InventoryUIState& state, int itemId) { // Recebe estado/informação do item e procura definition correspondente nos registros para uso no HUD
     if (itemId <= 0) {
         return nullptr;
     }
@@ -92,7 +92,7 @@ const ItemDefinition* FindHudItemDefinition(const InventoryUIState& state, int i
     return nullptr;
 }
 
-Color RarityToColor(int rarity) {
+Color RarityToColor(int rarity) { // Recebe nivel de raridade e devolve a cor associada para contorno do slot
     switch (rarity) {
         case 1:
             return Color{160, 160, 160, 255};
@@ -111,7 +111,7 @@ Color RarityToColor(int rarity) {
     }
 }
 
-Color ResolveSlotBorderColor(const InventoryUIState& state, int itemId) {
+Color ResolveSlotBorderColor(const InventoryUIState& state, int itemId) { // Determina a cor do contorno do slot a partir do item equipado ou usa cor padrao
     if (itemId <= 0) {
         return kEmptySlotBorder;
     }
@@ -122,7 +122,7 @@ Color ResolveSlotBorderColor(const InventoryUIState& state, int itemId) {
     return RarityToColor(def->rarity);
 }
 
-bool DrawHudWeaponSprite(const WeaponBlueprint& blueprint, const Rectangle& rect) {
+bool DrawHudWeaponSprite(const WeaponBlueprint& blueprint, const Rectangle& rect) { // Recebe blueprint/retangulo e desenha sprite de arma no slot, retornando sucesso
     const WeaponInventorySprite& sprite = blueprint.inventorySprite;
     if (sprite.spritePath.empty()) {
         return false;
@@ -151,7 +151,7 @@ bool DrawHudWeaponSprite(const WeaponBlueprint& blueprint, const Rectangle& rect
     return true;
 }
 
-bool DrawHudItemSprite(const ItemDefinition& def, const Rectangle& rect) {
+bool DrawHudItemSprite(const ItemDefinition& def, const Rectangle& rect) { // Recebe definicao do item e retangulo alvo para desenhar sprite estatico no HUD
     if (def.inventorySpritePath.empty()) {
         return false;
     }
@@ -176,7 +176,7 @@ bool DrawHudItemSprite(const ItemDefinition& def, const Rectangle& rect) {
     return true;
 }
 
-bool DrawHudIcon(const InventoryUIState& state, const Rectangle& rect, int itemId) {
+bool DrawHudIcon(const InventoryUIState& state, const Rectangle& rect, int itemId) { // Decide qual sprite usar para o item especificado e tenta desenha-lo; retorna sucesso
     if (itemId <= 0) {
         return false;
     }
@@ -190,7 +190,7 @@ bool DrawHudIcon(const InventoryUIState& state, const Rectangle& rect, int itemI
     return DrawHudItemSprite(*def, rect);
 }
 
-void DrawHudSlotLabel(const std::string& label, const Rectangle& rect) {
+void DrawHudSlotLabel(const std::string& label, const Rectangle& rect) { // Recebe label e retangulo e desenha o texto centralizado no slot quando nao ha icone
     if (label.empty()) {
         return;
     }
@@ -207,7 +207,7 @@ void DrawHudSlotLabel(const std::string& label, const Rectangle& rect) {
 void DrawHudSlot(const InventoryUIState& state,
                  const Rectangle& rect,
                  int itemId,
-                 const std::string& label) {
+                 const std::string& label) { // Desenha fundo/contorno do slot e tenta renderizar icone ou label de fallback
     DrawRectangleRec(rect, kSlotBackgroundColor);
     DrawRectangleLinesEx(rect, 2.0f, ResolveSlotBorderColor(state, itemId));
     if (!DrawHudIcon(state, rect, itemId)) {
@@ -220,7 +220,7 @@ void DrawTextWithOutline(const std::string& text,
                          float fontSize,
                          float spacing,
                          Color fillColor,
-                         Color outlineColor) {
+                         Color outlineColor) { // Desenha texto com contorno renderizando offsets e depois o preenchimento principal
     const Font& font = GetGameFont();
     const Vector2 offsets[] = {
         {-kHudLabelOutlineThickness, 0.0f},
@@ -235,22 +235,22 @@ void DrawTextWithOutline(const std::string& text,
     DrawTextEx(font, text.c_str(), position, fontSize, spacing, fillColor);
 }
 
-float EquipmentRowStartX(float screenWidth) {
+float EquipmentRowStartX(float screenWidth) { // Recebe largura da tela e calcula X inicial dos slots de equipamento
     const float rightmostSlotX = screenWidth - kEquipmentRightPadding - kSlotSize;
     return rightmostSlotX - (kSlotSize + kSlotSpacing) * static_cast<float>(kEquipmentSlotCount - 1);
 }
 
-float SlotRowY(float screenHeight) {
+float SlotRowY(float screenHeight) { // Recebe altura da tela e devolve Y base da fileira de slots
     return screenHeight - kEquipmentBottomPadding - kSlotSize;
 }
 
-float WeaponRowStartX(float equipmentStartX) {
+float WeaponRowStartX(float equipmentStartX) { // Calcula a posicao inicial dos slots de armas a partir do inicio dos equipamentos
     float width = kSlotSize * kWeaponSlotCount + kSlotSpacing * static_cast<float>(kWeaponSlotCount - 1);
     float target = equipmentStartX - kWeaponGroupGap - width;
     return std::max(16.0f, target);
 }
 
-void DrawEquipmentRow(const InventoryUIState& state, float startX, float slotY) {
+void DrawEquipmentRow(const InventoryUIState& state, float startX, float slotY) { // Itera pelos slots de equipamento e desenha cada um com seu label/item
     for (int i = 0; i < kEquipmentSlotCount; ++i) {
         float x = startX + static_cast<float>(i) * (kSlotSize + kSlotSpacing);
         Rectangle rect{x, slotY, kSlotSize, kSlotSize};
@@ -260,7 +260,7 @@ void DrawEquipmentRow(const InventoryUIState& state, float startX, float slotY) 
     }
 }
 
-void DrawWeaponRow(const InventoryUIState& state, float startX, float slotY) {
+void DrawWeaponRow(const InventoryUIState& state, float startX, float slotY) { // Similar ao anterior mas para os slots de armas
     for (int i = 0; i < kWeaponSlotCount; ++i) {
         float x = startX + static_cast<float>(i) * (kSlotSize + kSlotSpacing);
         Rectangle rect{x, slotY, kSlotSize, kSlotSize};
@@ -270,7 +270,7 @@ void DrawWeaponRow(const InventoryUIState& state, float startX, float slotY) {
     }
 }
 
-void DrawEquipmentLabel(float screenWidth, float screenHeight) {
+void DrawEquipmentLabel(float screenWidth, float screenHeight) { // Recebe dimensoes da tela e desenha o rotulo "equipamento" acima da fileira
     const std::string text = "equipamento";
     const Font& font = GetGameFont();
     Vector2 textSize = MeasureTextEx(font, text.c_str(), kEquipmentLabelFontSize, 0.0f);
@@ -279,7 +279,7 @@ void DrawEquipmentLabel(float screenWidth, float screenHeight) {
     DrawTextWithOutline(text, Vector2{x, y}, kEquipmentLabelFontSize, 0.0f, kHudLabelColor, kHudLabelOutlineColor);
 }
 
-void DrawWeaponLabel(float startX, float slotY) {
+void DrawWeaponLabel(float startX, float slotY) { // Desenha o rotulo "armas" alinhado aos slots correspondentes
     const std::string text = "armas";
     const Font& font = GetGameFont();
     float rowWidth = kSlotSize * kWeaponSlotCount + kSlotSpacing * static_cast<float>(kWeaponSlotCount - 1);
@@ -289,7 +289,7 @@ void DrawWeaponLabel(float startX, float slotY) {
     DrawTextWithOutline(text, Vector2{x, y}, kWeaponLabelFontSize, 0.0f, kHudLabelColor, kHudLabelOutlineColor);
 }
 
-void DrawEquipmentAndWeapons(const InventoryUIState& state) {
+void DrawEquipmentAndWeapons(const InventoryUIState& state) { // Compoe a secao completa de slots/rotulos usando as funcoes acima
     const float screenWidth = static_cast<float>(GetScreenWidth());
     const float screenHeight = static_cast<float>(GetScreenHeight());
     const float slotY = SlotRowY(screenHeight);
@@ -303,7 +303,7 @@ void DrawEquipmentAndWeapons(const InventoryUIState& state) {
 
 } // namespace
 
-void DrawHUD(const PlayerCharacter& player, const InventoryUIState& inventoryState) {
+void DrawHUD(const PlayerCharacter& player, const InventoryUIState& inventoryState) { // Recebe o jogador e o estado de inventario, calcula barra de HP e desenha slots + textos no HUD, sem retorno
     const float barX = kHealthBarLeftPadding;
     const float barY = ResolveBarYPosition();
     const float totalWidth = kHealthBarWidth;

@@ -35,16 +35,24 @@
 
 namespace {
 
+// Largura/altura alvo do backbuffer de jogo em modo janela cheia.
 constexpr int SCREEN_WIDTH = 1920;
 constexpr int SCREEN_HEIGHT = 1080;
+
+// Metade das dimensões do collider principal do jogador para facilitar cálculos de bounding boxes.
 constexpr float PLAYER_HALF_WIDTH = 20.0f;
 constexpr float PLAYER_HALF_HEIGHT = 16.0f;
+
+// Ajuste visual que deixa o sprite ligeiramente menor que o collider real.
 constexpr float PLAYER_RENDER_HALF_WIDTH = PLAYER_HALF_WIDTH - 3.0f;
 constexpr float PLAYER_RENDER_HALF_HEIGHT = PLAYER_HALF_HEIGHT - 3.0f;
+
+// Raio utilizado em checagens circulares rápidas para colisão aproximada do jogador.
 constexpr float PLAYER_COLLISION_RADIUS = (PLAYER_HALF_WIDTH > PLAYER_HALF_HEIGHT)
     ? PLAYER_HALF_WIDTH
     : PLAYER_HALF_HEIGHT;
 
+// Pacote com os recursos de sprite do personagem principal (texturas e animação).
 struct CharacterSpriteResources {
     Texture2D idle{};
     Texture2D walking{};
@@ -54,6 +62,7 @@ struct CharacterSpriteResources {
     int currentFrame{0};
 };
 
+// Dados temporários de um pop-up de dano desenhado na tela.
 struct DamageNumber {
     Vector2 position{};
     float amount{0.0f};
@@ -62,6 +71,7 @@ struct DamageNumber {
     float lifetime{1.0f};
 };
 
+// Informações pré-calculadas para desenhar uma porta específica na cena.
 struct DoorRenderData {
     Doorway* doorway{nullptr};
     DoorInstance* instance{nullptr};
@@ -88,6 +98,7 @@ struct RoomRevealState {
     float alpha{0.0f};
 };
 
+// Constantes que controlam posicionamento, colisão e efeitos visuais das portas.
 constexpr float DOOR_COLLIDER_THICKNESS = 24.0f;
 constexpr float DOOR_OFFSET_FROM_ROOM = 15.0f;
 constexpr float DOOR_INTERACTION_DISTANCE = 150.0f;
@@ -95,8 +106,11 @@ constexpr float DOOR_FADE_DURATION = 1.0f;
 constexpr float DOOR_MASK_CLEARANCE = 1.0f;
 constexpr float HORIZONTAL_CORRIDOR_MASK_EXTRA_HEIGHT = static_cast<float>(TILE_SIZE);
 constexpr float HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET = static_cast<float>(TILE_SIZE) * 0.5f;
+
+// Offset aplicado ao boneco de treinamento em relação ao centro da sala inicial.
 const Vector2 kTrainingDummyOffset{TILE_SIZE * 2.5f, 0.0f};
 
+// Atualiza timers, move números de dano para cima e remove entradas cujo tempo expirou.
 void UpdateDamageNumbers(std::vector<DamageNumber>& numbers, float deltaSeconds) {
     for (auto& number : numbers) {
         number.age += deltaSeconds;
@@ -110,6 +124,7 @@ void UpdateDamageNumbers(std::vector<DamageNumber>& numbers, float deltaSeconds)
         numbers.end());
 }
 
+// Renderiza todos os números de dano ativos com fade out e indicador crítico.
 void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
     if (numbers.empty()) {
         return;
@@ -143,6 +158,7 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
     }
 }
 
+// Cria uma nova entrada de número de dano com valores padrão e adiciona à lista.
 void PushDamageNumber(std::vector<DamageNumber>& numbers,
                       const Vector2& position,
                       float amount,
@@ -156,6 +172,7 @@ void PushDamageNumber(std::vector<DamageNumber>& numbers,
     numbers.push_back(number);
 }
 
+// Recupera a forja rastreada pelo inventário (se existir na sala atual).
 ForgeInstance* ResolveTrackedForge(RoomManager& manager, const InventoryUIState& uiState) {
     if (!uiState.hasActiveForge) {
         return nullptr;
@@ -167,12 +184,14 @@ ForgeInstance* ResolveTrackedForge(RoomManager& manager, const InventoryUIState&
     return trackedRoom->GetForge();
 }
 
+// Persiste o conteúdo da forja ativa no estado do inventário para evitar perda em transições.
 void SaveActiveForgeContents(InventoryUIState& uiState, RoomManager& manager) {
     if (ForgeInstance* forge = ResolveTrackedForge(manager, uiState)) {
         StoreForgeContents(uiState, *forge);
     }
 }
 
+// Recupera a loja ativa referenciada pelo inventário (se a sala ainda existir).
 ShopInstance* ResolveTrackedShop(RoomManager& manager, const InventoryUIState& uiState) {
     if (!uiState.hasActiveShop) {
         return nullptr;
@@ -184,17 +203,20 @@ ShopInstance* ResolveTrackedShop(RoomManager& manager, const InventoryUIState& u
     return trackedRoom->GetShop();
 }
 
+// Sincroniza o conteúdo da loja ativa com o inventário antes de fechar/trocar de sala.
 void SaveActiveShopContents(InventoryUIState& uiState, RoomManager& manager) {
     if (ShopInstance* shop = ResolveTrackedShop(manager, uiState)) {
         StoreShopContents(uiState, *shop);
     }
 }
 
+// Versão conveniente que garante salvar tanto forjas quanto lojas rastreadas.
 void SaveActiveStations(InventoryUIState& uiState, RoomManager& manager) {
     SaveActiveForgeContents(uiState, manager);
     SaveActiveShopContents(uiState, manager);
 }
 
+// Decrementa cooldowns das habilidades de equipamentos conforme o delta de tempo.
 void UpdateEquipmentAbilityCooldowns(InventoryUIState& state, float deltaSeconds) {
     if (state.equipmentAbilityCooldowns.empty()) {
         return;
@@ -206,6 +228,7 @@ void UpdateEquipmentAbilityCooldowns(InventoryUIState& state, float deltaSeconds
     }
 }
 
+// Tenta acionar a habilidade ativa associada ao slot de equipamento indicado.
 bool TryActivateEquipmentAbility(InventoryUIState& state, PlayerCharacter& player, int slotIndex) {
     if (slotIndex < 0 || slotIndex >= static_cast<int>(state.equipmentSlotIds.size())) {
         return false;
@@ -245,6 +268,8 @@ bool TryActivateEquipmentAbility(InventoryUIState& state, PlayerCharacter& playe
     return true;
 }
 
+// Desenha a tela de morte e retorna true se o jogador clicou no botão de reinício.
+// Exibe painel de game over e checa clique do mouse no botão "Recomeçar".
 bool DrawDeathOverlay() {
     const int screenWidth = GetScreenWidth();
     const int screenHeight = GetScreenHeight();
@@ -283,6 +308,7 @@ bool DrawDeathOverlay() {
     return hovered && IsMouseButtonPressed(MOUSE_LEFT_BUTTON);
 }
 
+// Calcula o alfa de visibilidade de uma porta conforme estado de abertura/fechamento.
 float DoorVisibilityAlpha(const DoorInstance& state) {
     if (state.open) {
         return 0.0f;
@@ -298,6 +324,7 @@ float TileToPixel(int tile);
 Vector2 SnapToPixel(const Vector2& value);
 Rectangle DoorRectInsideRoom(const RoomLayout& layout, const Doorway& door);
 
+// Gera o retângulo externo usado para colisão/seleção de uma porta.
 Rectangle ComputeDoorHitbox(const RoomLayout& layout, const Doorway& door) {
     Rectangle rect{};
     const float tileSize = static_cast<float>(TILE_SIZE);
@@ -338,6 +365,7 @@ Rectangle ComputeDoorHitbox(const RoomLayout& layout, const Doorway& door) {
     return rect;
 }
 
+// Calcula uma hitbox especializada para colisões dentro do interior da sala.
 Rectangle ComputeDoorCollisionHitbox(const RoomLayout& layout,
                                      const Doorway& door,
                                      const Rectangle& renderHitbox) {
@@ -369,6 +397,7 @@ Rectangle ComputeDoorCollisionHitbox(const RoomLayout& layout,
     return collision;
 }
 
+// Ajusta a máscara do corredor para não ultrapassar a posição visual da porta.
 bool ClipCorridorMaskBehindDoor(Direction direction,
                                 const Rectangle& doorHitbox,
                                 Rectangle& corridorMask) {
@@ -419,12 +448,14 @@ bool ClipCorridorMaskBehindDoor(Direction direction,
     return false;
 }
 
+// Retorna a cor final utilizada ao desenhar a máscara de corredor com o alfa desejado.
 Color DoorMaskColor(float alpha) {
     Color color{24, 26, 33, 255};
     color.a = static_cast<unsigned char>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
     return color;
 }
 
+// Estado do console de debug in-game que permite executar comandos rápidos.
 struct DebugConsoleState {
     static constexpr int kMaxCommandLength = 96;
 
@@ -444,6 +475,7 @@ struct DebugConsoleState {
     std::unique_ptr<Chest> chestInstance{};
 };
 
+// Remove espaços em branco nas extremidades do comando digitado.
 std::string TrimCommand(const std::string& text) {
     size_t start = 0;
     while (start < text.size() && std::isspace(static_cast<unsigned char>(text[start]))) {
@@ -456,6 +488,7 @@ std::string TrimCommand(const std::string& text) {
     return text.substr(start, end - start);
 }
 
+// Procura um item definido na lista de definições com base no ID.
 const ItemDefinition* FindDebugItemDefinitionById(const InventoryUIState& state, int itemId) {
     if (itemId <= 0) {
         return nullptr;
@@ -468,16 +501,19 @@ const ItemDefinition* FindDebugItemDefinitionById(const InventoryUIState& state,
     return nullptr;
 }
 
+// Zera o buffer de entrada do console para evitar caracteres residuais.
 void ClearDebugCommandBuffer(DebugConsoleState& state) {
     state.commandBuffer.fill('\0');
 }
 
+// Fecha o console de debug e limpa todos os campos de texto.
 void CloseDebugConsole(DebugConsoleState& state) {
     state.open = false;
     state.textBoxActive = false;
     ClearDebugCommandBuffer(state);
 }
 
+// Desfaz qualquer contexto temporário de inventário aberto via console de debug.
 void ResetDebugInventoryContext(DebugConsoleState& state, InventoryUIState& inventory) {
     using Context = DebugConsoleState::InventoryContext;
     if (state.inventoryContext == Context::Chest) {
@@ -510,6 +546,7 @@ void ResetDebugInventoryContext(DebugConsoleState& state, InventoryUIState& inve
     inventory.open = false;
 }
 
+// Garante que o inventário esteja aberto em modo neutro antes de ativar contextos especiais.
 void PrepareInventoryForDebug(DebugConsoleState& state,
                               InventoryUIState& inventory,
                               RoomManager& manager) {
@@ -526,6 +563,7 @@ void PrepareInventoryForDebug(DebugConsoleState& state,
     inventory.feedbackTimer = 0.0f;
 }
 
+// Ativa um inventário simulado de forja para testes rápidos de crafting.
 void ActivateDebugForgeContext(DebugConsoleState& state, InventoryUIState& inventory) {
     state.inventoryContext = DebugConsoleState::InventoryContext::Forge;
     state.forgeInstance = std::make_unique<ForgeInstance>();
@@ -535,6 +573,7 @@ void ActivateDebugForgeContext(DebugConsoleState& state, InventoryUIState& inven
     LoadForgeContents(inventory, *state.forgeInstance);
 }
 
+// Ativa uma loja virtual com seed randômica para testar lógica de comércio.
 void ActivateDebugShopContext(DebugConsoleState& state, InventoryUIState& inventory) {
     state.inventoryContext = DebugConsoleState::InventoryContext::Shop;
     state.shopInstance = std::make_unique<ShopInstance>();
@@ -546,6 +585,7 @@ void ActivateDebugShopContext(DebugConsoleState& state, InventoryUIState& invent
     LoadShopContents(inventory, *state.shopInstance);
 }
 
+// Abre um baú fictício criado pelo console e sincroniza-o com o inventário UI.
 bool ActivateDebugChestContext(DebugConsoleState& state,
                                InventoryUIState& inventory,
                                RoomManager& manager,
@@ -561,6 +601,7 @@ bool ActivateDebugChestContext(DebugConsoleState& state,
     return true;
 }
 
+// Processa o texto digitado no console e executa o comando correspondente se válido.
 bool ExecuteDebugCommand(const std::string& rawCommand,
                          DebugConsoleState& state,
                          InventoryUIState& inventory,
@@ -636,6 +677,7 @@ bool ExecuteDebugCommand(const std::string& rawCommand,
     return false;
 }
 
+// Renderiza o painel semi-transparente do console de debug, incluindo caixa de texto.
 void DrawDebugConsoleOverlay(DebugConsoleState& state) {
     const int screenWidth = GetScreenWidth();
     const int screenHeight = GetScreenHeight();
@@ -671,11 +713,13 @@ void DrawDebugConsoleOverlay(DebugConsoleState& state) {
                state.textBoxActive);
 }
 
+// Limpa o buffer interno de caracteres do Raylib para evitar que inputs vazem.
 void FlushTextInputBuffer() {
     while (GetCharPressed() != 0) {
     }
 }
 
+// Tenta carregar uma textura caso o arquivo exista; caso contrário emite log e retorna vazio.
 Texture2D LoadTextureIfExists(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -693,6 +737,7 @@ Texture2D LoadTextureIfExists(const std::string& path) {
     return texture;
 }
 
+// Envolve a chamada UnloadTexture garantindo que só seja feito quando o id for válido.
 void UnloadTextureIfValid(Texture2D& texture) {
     if (texture.id != 0) {
         UnloadTexture(texture);
@@ -700,6 +745,7 @@ void UnloadTextureIfValid(Texture2D& texture) {
     }
 }
 
+// Descarrega todas as texturas do personagem e reseta os contadores de animação.
 void UnloadCharacterSprites(CharacterSpriteResources& resources) {
     UnloadTextureIfValid(resources.idle);
     UnloadTextureIfValid(resources.walking);
@@ -708,6 +754,7 @@ void UnloadCharacterSprites(CharacterSpriteResources& resources) {
     resources.currentFrame = 0;
 }
 
+// Carrega as texturas de idle/walk definidas no blueprint e prepara o clip de animação.
 void LoadCharacterSprites(const CharacterAppearanceBlueprint& appearance, CharacterSpriteResources& outResources) {
     UnloadCharacterSprites(outResources);
 
@@ -745,6 +792,7 @@ void LoadCharacterSprites(const CharacterAppearanceBlueprint& appearance, Charac
     }
 }
 
+// Avança o frame de animação do personagem caso esteja se movendo.
 void UpdateCharacterAnimation(CharacterSpriteResources& resources, bool isMoving, float deltaSeconds) {
     if (resources.walking.id == 0 || resources.frameCount <= 1) {
         resources.currentFrame = 0;
@@ -767,6 +815,7 @@ void UpdateCharacterAnimation(CharacterSpriteResources& resources, bool isMoving
     }
 }
 
+// Desenha o sprite do personagem com base nos recursos carregados e no estado de movimento.
 bool DrawCharacterSprite(const CharacterSpriteResources& resources,
                          Vector2 anchorPosition,
                          bool isMoving) {
@@ -811,6 +860,7 @@ bool DrawCharacterSprite(const CharacterSpriteResources& resources,
     return true;
 }
 
+// Soma todos os bônus passivos fornecidos pelas armas equipadas.
 PlayerAttributes GatherWeaponPassiveBonuses(const WeaponState& leftWeapon,
                                             const WeaponState& rightWeapon) {
     PlayerAttributes totals{};
@@ -823,6 +873,7 @@ PlayerAttributes GatherWeaponPassiveBonuses(const WeaponState& leftWeapon,
     return totals;
 }
 
+// Reaplica os bônus das armas ao jogador e recalcula os atributos derivados.
 void RefreshPlayerWeaponBonuses(PlayerCharacter& player,
                                 const WeaponState& leftWeapon,
                                 const WeaponState& rightWeapon) {
@@ -830,6 +881,7 @@ void RefreshPlayerWeaponBonuses(PlayerCharacter& player,
     player.RecalculateStats();
 }
 
+// Garante que o WeaponState esteja alinhado com o item alocado no slot de armas da UI.
 bool SyncWeaponStateFromSlot(const InventoryUIState& inventoryUI,
                              int slotIndex,
                              WeaponState& weaponState) {
@@ -849,6 +901,7 @@ bool SyncWeaponStateFromSlot(const InventoryUIState& inventoryUI,
     return false;
 }
 
+// Atualiza simultaneamente as armas esquerda/direita com base nos slots de inventário.
 bool SyncEquippedWeapons(const InventoryUIState& inventoryUI,
                          WeaponState& leftWeapon,
                          WeaponState& rightWeapon) {
@@ -858,6 +911,7 @@ bool SyncEquippedWeapons(const InventoryUIState& inventoryUI,
     return changed;
 }
 
+// Entidade usada em sala inicial para testes de dano/mecânicas.
 struct TrainingDummy {
     Vector2 position{};
     float radius{48.0f};
@@ -866,6 +920,7 @@ struct TrainingDummy {
     float immunitySecondsRemaining{0.0f};
 };
 
+// Cria uma seed pseudo-aleatória utilizada pela geração procedural das salas.
 std::uint64_t GenerateWorldSeed() {
     std::random_device rd;
     std::uint64_t seed = (static_cast<std::uint64_t>(rd()) << 32) ^ static_cast<std::uint64_t>(rd());
@@ -875,10 +930,12 @@ std::uint64_t GenerateWorldSeed() {
     return seed;
 }
 
+// Converte coordenadas em tiles para coordenadas em pixels (tamanho padrão do tile).
 float TileToPixel(int tile) {
     return static_cast<float>(tile * TILE_SIZE);
 }
 
+// Converte um retângulo em tiles para o equivalente em pixels.
 Rectangle TileRectToPixels(const TileRect& rect) {
     return Rectangle{
         TileToPixel(rect.x),
@@ -888,6 +945,7 @@ Rectangle TileRectToPixels(const TileRect& rect) {
     };
 }
 
+// Determina o retângulo interno da porta dentro dos limites da sala.
 Rectangle DoorRectInsideRoom(const RoomLayout& layout, const Doorway& door) {
     Rectangle rect{};
     float baseX = TileToPixel(layout.tileBounds.x + door.offset);
@@ -926,6 +984,7 @@ Rectangle DoorRectInsideRoom(const RoomLayout& layout, const Doorway& door) {
     return rect;
 }
 
+// Retorna o retângulo axis-aligned que representa o jogador a partir do centro.
 Rectangle PlayerBounds(const Vector2& center) {
     return Rectangle{
         center.x - PLAYER_HALF_WIDTH,
@@ -935,6 +994,7 @@ Rectangle PlayerBounds(const Vector2& center) {
     };
 }
 
+// Ajusta a posição para fora de um retângulo qualquer usando separação mínima.
 Vector2 ResolveCollisionWithRectangle(const Rectangle& obstacle,
                                       Vector2 position,
                                       float halfWidth,
@@ -969,6 +1029,7 @@ Vector2 ResolveCollisionWithRectangle(const Rectangle& obstacle,
     return position;
 }
 
+// Wrapper que resolve colisão entre jogador e forja.
 Vector2 ResolveCollisionWithForge(const ForgeInstance& forge,
                                   Vector2 position,
                                   float halfWidth,
@@ -976,6 +1037,7 @@ Vector2 ResolveCollisionWithForge(const ForgeInstance& forge,
     return ResolveCollisionWithRectangle(forge.hitbox, position, halfWidth, halfHeight);
 }
 
+// Wrapper que resolve colisão entre jogador e loja.
 Vector2 ResolveCollisionWithShop(const ShopInstance& shop,
                                  Vector2 position,
                                  float halfWidth,
@@ -983,6 +1045,7 @@ Vector2 ResolveCollisionWithShop(const ShopInstance& shop,
     return ResolveCollisionWithRectangle(shop.hitbox, position, halfWidth, halfHeight);
 }
 
+// Wrapper que resolve colisão entre jogador e baú.
 Vector2 ResolveCollisionWithChest(const Chest& chest,
                                   Vector2 position,
                                   float halfWidth,
@@ -990,15 +1053,18 @@ Vector2 ResolveCollisionWithChest(const Chest& chest,
     return ResolveCollisionWithRectangle(chest.Hitbox(), position, halfWidth, halfHeight);
 }
 
+// Calcula o ponto central de uma sala usando seus limites em tiles.
 Vector2 RoomCenter(const RoomLayout& layout) {
     Rectangle bounds = TileRectToPixels(layout.tileBounds);
     return Vector2{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
 }
 
+// Arredonda um vetor para a grade inteira de pixels.
 Vector2 SnapToPixel(const Vector2& value) {
     return Vector2{std::round(value.x), std::round(value.y)};
 }
 
+// Define a área onde o jogador precisa entrar para interagir/transicionar pela porta.
 Rectangle DoorInteractionArea(const RoomLayout& layout, const Doorway& door) {
     if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0) {
         return TileRectToPixels(door.corridorTiles);
@@ -1006,6 +1072,7 @@ Rectangle DoorInteractionArea(const RoomLayout& layout, const Doorway& door) {
     return DoorRectInsideRoom(layout, door);
 }
 
+// Bloqueia/desbloqueia portas com base na presença de inimigos ativos na sala.
 void UpdateDoorInteractionForRoom(Room& room, bool hasActiveEnemies) {
     RoomLayout& layout = room.Layout();
     for (Doorway& doorway : layout.doors) {
@@ -1029,6 +1096,7 @@ void UpdateDoorInteractionForRoom(Room& room, bool hasActiveEnemies) {
     }
 }
 
+// Checa se o vetor de input aponta para frente na direção da porta.
 bool IsInputMovingToward(Direction direction, const Vector2& input) {
     constexpr float kEpsilon = 0.1f;
     switch (direction) {
@@ -1044,6 +1112,7 @@ bool IsInputMovingToward(Direction direction, const Vector2& input) {
     return false;
 }
 
+// Verifica se o AABB definido pelo centro/half extents cabe totalmente dentro do retângulo.
 bool IsBoxInsideRect(const Rectangle& rect,
                      const Vector2& position,
                      float halfWidth,
@@ -1059,6 +1128,7 @@ bool IsBoxInsideRect(const Rectangle& rect,
     return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
 }
 
+// Clampa o centro da caixa para mantê-la dentro do retângulo alvo.
 Vector2 ClampBoxToRect(const Rectangle& rect,
                        const Vector2& position,
                        float halfWidth,
@@ -1088,6 +1158,7 @@ Vector2 ClampBoxToRect(const Rectangle& rect,
     return clamped;
 }
 
+// Impede que o jogador saia dos tiles acessíveis, incluindo corredores e portas.
 void ClampPlayerToAccessibleArea(Vector2& position,
                                  float halfWidth,
                                  float halfHeight,
@@ -1270,6 +1341,7 @@ void ClampPlayerToAccessibleArea(Vector2& position,
     position = bestPosition;
 }
 
+// Determina se o jogador avançou o suficiente na direção da porta para iniciar a transição.
 bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, const Vector2& movement) {
     constexpr float kForwardEpsilon = 0.05f;
 
@@ -1328,6 +1400,7 @@ bool ShouldTransitionThroughDoor(const Doorway& door, const Vector2& position, c
 }
 } // namespace
 
+// Loop principal do jogo: inicializa Raylib, controla estados das salas, jogador e UI.
 int main() {
     SetConfigFlags(FLAG_WINDOW_UNDECORATED | FLAG_WINDOW_TOPMOST | FLAG_VSYNC_HINT);
     InitWindow(SCREEN_WIDTH, SCREEN_HEIGHT, "Prototype - Room Generation");
@@ -1368,6 +1441,7 @@ int main() {
     doorMaskData.reserve(16);
     std::unordered_map<RoomCoords, RoomRevealState, RoomCoordsHash> roomRevealStates;
 
+    // Garante que a lista de inimigos para a sala indicada já foi gerada/spawnada.
     auto ensureRoomEnemies = [&](Room& room) {
         RoomCoords coords = room.GetCoords();
         if (roomsWithSpawnedEnemies.count(coords) > 0) {
@@ -1386,6 +1460,7 @@ int main() {
     bool playerIsMoving = false;
     bool playerDead = false;
 
+    // Reseta completamente o estado da run, com opção de gerar nova seed procedural.
     auto BeginNewRun = [&](bool regenerateSeed) {
         if (regenerateSeed) {
             worldSeed = GenerateWorldSeed();
@@ -1526,6 +1601,7 @@ int main() {
             if (IsKeyDown(KEY_D)) input.x += 1.0f;
         }
 
+        // Calcula alvo de movimento com base no input normalizado e velocidade derivada.
         Vector2 desiredPosition = playerPosition;
         if (Vector2LengthSqr(input) > 0.0f) {
             input = Vector2Normalize(input);
@@ -1534,6 +1610,7 @@ int main() {
 
         Room& activeRoom = roomManager.GetCurrentRoom();
         ensureRoomEnemies(activeRoom);
+        // Primeira etapa de restrição: mantêm jogador dentro dos tiles e evita colidir com estações da sala atual.
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, activeRoom.Layout());
         if (const ForgeInstance* forge = activeRoom.GetForge()) {
             desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
@@ -1560,6 +1637,7 @@ int main() {
         Room* currentRoomPtr = &activeRoom;
         bool movedRoom = false;
 
+        // Verifica colisão com cada porta e, se condições forem atendidas, solicita transição de sala.
         for (auto& door : activeRoom.Layout().doors) {
             if (door.sealed) {
                 continue;
@@ -1591,6 +1669,7 @@ int main() {
 
         ensureRoomEnemies(*currentRoomPtr);
 
+        // Segunda etapa de clamp/colisão após potencial transição de sala.
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, currentRoomPtr->Layout());
         if (const ForgeInstance* forge = currentRoomPtr->GetForge()) {
             desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
@@ -1613,6 +1692,7 @@ int main() {
             aim = Vector2{1.0f, 0.0f};
         }
 
+        // Contexto base para criação de projéteis disparados no frame atual.
         ProjectileSpawnContext spawnContext{};
         spawnContext.origin = playerPosition;
         spawnContext.followTarget = &playerPosition;
@@ -1654,6 +1734,7 @@ int main() {
         bool chestNearby = false;
 
         if (!inventoryUI.open && !debugInputBlocked && !playerDead) {
+            // Dispara habilidades de equipamento para slots 1-5 usando teclas numéricas.
             const KeyboardKey abilityKeys[] = {KEY_ONE, KEY_TWO, KEY_THREE, KEY_FOUR, KEY_FIVE};
             int trackedSlots = std::min<int>(5, static_cast<int>(inventoryUI.equipmentSlotIds.size()));
             for (int slot = 0; slot < trackedSlots; ++slot) {
@@ -1662,6 +1743,7 @@ int main() {
                 }
             }
 
+            // Define regra de input para arma: clique único ou hold contínuo conforme blueprint.
             auto weaponInputActive = [](const WeaponState& weapon, int mouseButton) {
                 if (weapon.blueprint == nullptr) {
                     return false;
@@ -1686,11 +1768,13 @@ int main() {
             }
         }
 
+        // Atualiza trajetória dos projéteis do jogador.
         projectileSystem.Update(delta);
 
         const float outgoingDamageMultiplier = player.derivedStats.damageDealtMultiplierFromCurse;
         const float lifeStealPercent = player.derivedStats.vampirismChance;
 
+        // Aplica dano dos projéteis do jogador em todos os inimigos vivos.
         for (auto& enemyEntry : roomEnemies) {
             Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
             if (enemyRoom == nullptr) {
@@ -1750,6 +1834,7 @@ int main() {
             UpdateDoorInteractionForRoom(*enemyRoom, hasActiveEnemies);
         }
 
+        // Atualiza disparos inimigos e coleta dano recebido pelo jogador.
         enemyProjectileSystem.Update(delta);
 
         auto playerHits = enemyProjectileSystem.CollectDamageEvents(
@@ -1785,6 +1870,7 @@ int main() {
             PushDamageNumber(damageNumbers, playerPosition, incomingDamage, hit.isCritical);
         }
 
+        // Quando a vida chega a zero, fecha UIs ativos e reseta estados persistidos.
         if (!playerDead && player.currentHealth <= 0.0f) {
             player.currentHealth = 0.0f;
             playerDead = true;
@@ -1828,6 +1914,7 @@ int main() {
         activeChest = interactionRoom.GetChest();
         const RoomCoords interactionCoords = interactionRoom.GetCoords();
 
+        // Marca a sala atual como totalmente revelada no mapa visual.
         roomRevealStates[interactionCoords].alpha = 1.0f;
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
@@ -1836,6 +1923,7 @@ int main() {
             }
         }
 
+        // Função auxiliar usada na renderização para saber quanto da sala deve aparecer.
         auto resolveRoomVisibility = [&](const Room& room) {
             if (room.GetCoords() == roomManager.GetCurrentCoords()) {
                 return 1.0f;
@@ -1857,6 +1945,7 @@ int main() {
         std::unordered_set<DoorInstance*> animatedDoorInstances;
         animatedDoorInstances.reserve(16);
 
+        // Percorre todas as portas conhecidas para pré-calcular dados de renderização e máscaras.
         for (auto& entry : roomManager.Rooms()) {
             Room& room = *entry.second;
             float roomVisibility = resolveRoomVisibility(room);
@@ -1945,6 +2034,7 @@ int main() {
         bool debugShopActive = debugConsole.inventoryContext == DebugConsoleState::InventoryContext::Shop;
         bool debugChestActive = debugConsole.inventoryContext == DebugConsoleState::InventoryContext::Chest;
 
+        // Caso o jogador tenha deixado a sala de uma estação ativa, salva os dados e fecha a UI correspondente.
         if ((inventoryUI.hasActiveForge && inventoryUI.activeForgeCoords != interactionCoords) ||
             (inventoryUI.hasActiveShop && inventoryUI.activeShopCoords != interactionCoords) ||
             (inventoryUI.hasActiveChest && inventoryUI.activeChestCoords != interactionCoords)) {
@@ -1982,6 +2072,7 @@ int main() {
             }
         }
 
+        // Interação com forja: abre UI ao pressionar E quando dentro do raio.
         if (!debugForgeActive) {
             if (activeForge != nullptr) {
                 forgeAnchor = Vector2{activeForge->anchorX, activeForge->anchorY};
@@ -2021,6 +2112,7 @@ int main() {
             }
         }
 
+        // Interação com loja: lógica semelhante à forja.
         if (!debugShopActive) {
             if (activeShop != nullptr) {
                 shopAnchor = Vector2{activeShop->anchorX, activeShop->anchorY};
@@ -2056,6 +2148,7 @@ int main() {
             }
         }
 
+        // Interação com baús: sincroniza slots e limpa estados ao sair do alcance.
         if (!debugChestActive) {
             if (activeChest != nullptr) {
                 chestAnchor = Vector2{activeChest->AnchorX(), activeChest->AnchorY()};
@@ -2098,11 +2191,13 @@ int main() {
             }
         }
 
+        // Se o jogador fecha o inventário enquanto um contexto de debug estava ativo, limpa o console.
         if (!inventoryUI.open &&
             debugConsole.inventoryContext != DebugConsoleState::InventoryContext::None) {
             ResetDebugInventoryContext(debugConsole, inventoryUI);
         }
 
+        // Temporizador de imunidade do dummy impede testes de DPS em loops infinitos.
         if (trainingDummy.isImmune) {
             trainingDummy.immunitySecondsRemaining -= delta;
             if (trainingDummy.immunitySecondsRemaining <= 0.0f) {
@@ -2113,6 +2208,7 @@ int main() {
 
         bool dummyActive = (roomManager.GetCurrentCoords() == trainingDummy.homeRoom);
         if (dummyActive) {
+            // Converte impactos do jogador no dummy em números de dano com jitter visual.
             float dummyImmunity = trainingDummy.isImmune ? trainingDummy.immunitySecondsRemaining : 0.0f;
             std::vector<ProjectileSystem::DamageEvent> damageEvents = projectileSystem.CollectDamageEvents(
                 trainingDummy.position,
@@ -2140,6 +2236,7 @@ int main() {
 
         UpdateDamageNumbers(damageNumbers, delta);
 
+        // Seleciona a porta mais próxima dentro do raio de interação para mostrar o prompt contextual.
         DoorRenderData* activeDoorPrompt = nullptr;
         float closestDoorDistance = std::numeric_limits<float>::max();
         for (DoorRenderData& doorData : doorRenderData) {
@@ -2182,6 +2279,7 @@ int main() {
             }
         }
 
+        // Fixar posição no grid evita jitter visual do sprite ao mover a câmera.
         Vector2 snappedPlayerPosition = SnapToPixel(playerPosition);
         Camera2D renderCamera = camera;
         renderCamera.target = snappedPlayerPosition;
@@ -2190,6 +2288,7 @@ int main() {
         ClearBackground(Color{24, 26, 33, 255});
 
         BeginMode2D(renderCamera);
+        // Renderiza pisos/paredes primeiro para todas as salas com visibilidade > 0.
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
             bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());
@@ -2245,6 +2344,7 @@ int main() {
             }
         }
 
+        // Helper que desenha inimigos em duas passagens (antes e depois do jogador) para manter parallax.
         auto drawEnemies = [&](bool drawAfterPlayer) {
             for (const auto& enemyEntry : roomEnemies) {
                 const Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
@@ -2275,6 +2375,7 @@ int main() {
             }
         };
 
+        // Helper que desenha portas respeitando camada (abaixo/acima do jogador e mask).
         auto drawDoors = [&](bool drawAfterPlayer, bool aboveMask) {
             for (const DoorRenderData& doorData : doorRenderData) {
                 if (doorData.drawAfterPlayer != drawAfterPlayer || doorData.drawAboveMask != aboveMask || doorData.doorway == nullptr) {
@@ -2288,6 +2389,7 @@ int main() {
         drawEnemies(false);
 
         if (!DrawCharacterSprite(playerSprites, snappedPlayerPosition, playerIsMoving)) {
+            // Fallback simples caso sprites não estejam disponíveis.
             Rectangle renderRect{
                 snappedPlayerPosition.x - PLAYER_RENDER_HALF_WIDTH,
                 snappedPlayerPosition.y - PLAYER_RENDER_HALF_HEIGHT,
@@ -2328,6 +2430,7 @@ int main() {
             roomRenderer.DrawRoomForeground(room, isActive, roomVisibility);
         }
 
+        // Aplica máscaras escuras aos corredores conectados a portas ainda fechadas.
         for (const DoorMaskData& mask : doorMaskData) {
             if (!mask.hasCorridorMask) {
                 continue;
@@ -2339,6 +2442,7 @@ int main() {
         drawDoors(false, true);
         drawDoors(true, true);
 
+        // Sequência de prompts contextuais para estações e portas próximas.
         if (activeForge != nullptr && forgeNearby) {
             const char* promptText = activeForge->IsBroken() ? "Forja quebrada (E para inspecionar)" : "Pressione E para usar a forja";
             const Font& font = GetGameFont();
@@ -2416,24 +2520,29 @@ int main() {
         EndMode2D();
 
         if (!playerDead) {
+            // HUD principal (vida, armas, buffs) fica visível apenas quando vivo.
             DrawHUD(player, inventoryUI);
         }
 
         if (!playerDead && inventoryUI.open) {
+            // Painel de inventário/forge/shop sobreposto em tela cheia.
             RenderInventoryUI(inventoryUI, player, leftHandWeapon, rightHandWeapon,
                               Vector2{static_cast<float>(GetScreenWidth()), static_cast<float>(GetScreenHeight())},
                               activeShop);
         }
 
         if (debugConsole.open) {
+            // Console de debug tem prioridade máxima e bloqueia input.
             DrawDebugConsoleOverlay(debugConsole);
         }
 
         bool restartRequested = false;
         if (playerDead) {
+            // Quando morto, desenha overlay e captura clique para reiniciar.
             restartRequested = DrawDeathOverlay();
         }
 
+        // Persiste conteúdo de forjas/lojas/baús caso jogador saia abruptamente com Alt+F4.
         SaveActiveStations(inventoryUI, roomManager);
 
         EndDrawing();
@@ -2444,6 +2553,7 @@ int main() {
         }
     }
 
+    // Limpeza final dos recursos globais e da janela Raylib.
     EnemyCommon::ShutdownSpriteCache();
     UnloadCharacterSprites(playerSprites);
     UnloadGameFont();

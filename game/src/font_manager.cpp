@@ -5,11 +5,11 @@
 #include <iostream>
 
 namespace {
-Font g_gameFont = GetFontDefault();
-bool g_fontOwned = false;
+Font g_gameFont = GetFontDefault(); // Fonte atualmente usada pelo jogo (pode ser padrao ou customizada)
+bool g_fontOwned = false; // Indica se a fonte carregada foi alocada pelo jogo e precisa ser liberada
 }
 
-void LoadGameFont(const std::string& path, int baseSize) {
+void LoadGameFont(const std::string& path, int baseSize) { // Recebe caminho e tamanho base, recarrega a fonte e atualiza o estado global retornando automaticamente
     if (g_fontOwned && g_gameFont.texture.id != 0) {
         UnloadFont(g_gameFont);
         g_gameFont = GetFontDefault();
@@ -39,7 +39,7 @@ void LoadGameFont(const std::string& path, int baseSize) {
     GuiSetFont(g_gameFont);
 }
 
-void UnloadGameFont() {
+void UnloadGameFont() { // Sem parametros; libera fonte customizada se houver e aplica fonte padrao novamente
     if (g_fontOwned && g_gameFont.texture.id != 0) {
         UnloadFont(g_gameFont);
         g_gameFont = GetFontDefault();
@@ -49,6 +49,6 @@ void UnloadGameFont() {
     GuiSetFont(g_gameFont);
 }
 
-const Font& GetGameFont() {
+const Font& GetGameFont() { // Sem parametros; retorna por referencia a fonte hoje ativa
     return g_gameFont;
 }
