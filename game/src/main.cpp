@@ -69,6 +69,7 @@ struct DoorRenderData {
     BiomeType biome{BiomeType::Unknown};
     bool drawAfterPlayer{false};
     bool fromActiveRoom{false};
+    bool drawAboveMask{false};
 };
 
 struct DoorMaskData {
@@ -86,6 +87,10 @@ constexpr float DOOR_OFFSET_FROM_ROOM = 5.0f;
 constexpr float DOOR_INTERACTION_DISTANCE = 150.0f;
 constexpr float DOOR_FADE_DURATION = 1.0f;
 constexpr float DOOR_MASK_CLEARANCE = 1.0f;
+// Controle a "grossura" extra aplicada somente nas mascaras horizontais.
+constexpr float HORIZONTAL_CORRIDOR_MASK_EXTRA_HEIGHT = static_cast<float>(TILE_SIZE);
+// Ajuste este offset para deslocar a mascara horizontal para cima/baixo.
+constexpr float HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET = static_cast<float>(TILE_SIZE) * 0.5f;
 
 void UpdateDamageNumbers(std::vector<DamageNumber>& numbers, float deltaSeconds) {
     for (auto& number : numbers) {
@@ -184,6 +189,7 @@ float DoorVisibilityAlpha(const DoorInstance& state) {
 }
 
 float TileToPixel(int tile);
+Vector2 SnapToPixel(const Vector2& value);
 
 Rectangle ComputeDoorHitbox(const RoomLayout& layout, const Doorway& door) {
     Rectangle rect{};
@@ -851,6 +857,10 @@ Vector2 RoomCenter(const RoomLayout& layout) {
     return Vector2{bounds.x + bounds.width * 0.5f, bounds.y + bounds.height * 0.5f};
 }
 
+Vector2 SnapToPixel(const Vector2& value) {
+    return Vector2{std::round(value.x), std::round(value.y)};
+}
+
 Rectangle DoorInteractionArea(const RoomLayout& layout, const Doorway& door) {
     if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0) {
         return TileRectToPixels(door.corridorTiles);
@@ -1493,6 +1503,10 @@ int main() {
                                 const float wallThickness = static_cast<float>(TILE_SIZE);
                                 corridorMask.y -= wallThickness;
                                 corridorMask.height += wallThickness * 2.0f;
+                                // Ajuste o offset/extra height usando as constantes declaradas no topo do arquivo.
+                                corridorMask.y -= HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET;
+                                corridorMask.height += HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET;
+                                corridorMask.height += HORIZONTAL_CORRIDOR_MASK_EXTRA_HEIGHT;
                             }
                             mask.hasCorridorMask = true;
                             mask.corridorMask = corridorMask;
@@ -1516,6 +1530,7 @@ int main() {
                 data.alpha = doorAlpha * roomVisibility;
                 data.drawAfterPlayer = (data.hitbox.y > playerPosition.y);
                 data.fromActiveRoom = isActiveRoom;
+                data.drawAboveMask = (door.direction == Direction::North || door.direction == Direction::South);
                 doorRenderData.push_back(data);
             }
         }
@@ -1761,10 +1776,14 @@ int main() {
             }
         }
 
+        Vector2 snappedPlayerPosition = SnapToPixel(playerPosition);
+        Camera2D renderCamera = camera;
+        renderCamera.target = snappedPlayerPosition;
+
         BeginDrawing();
         ClearBackground(Color{24, 26, 33, 255});
 
-        BeginMode2D(camera);
+        BeginMode2D(renderCamera);
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
             bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());
@@ -1820,29 +1839,21 @@ int main() {
             }
         }
 
-        auto drawDoors = [&](bool drawAfterPlayer) {
+        auto drawDoors = [&](bool drawAfterPlayer, bool aboveMask) {
             for (const DoorRenderData& doorData : doorRenderData) {
-                if (doorData.drawAfterPlayer != drawAfterPlayer || doorData.doorway == nullptr) {
+                if (doorData.drawAfterPlayer != drawAfterPlayer || doorData.drawAboveMask != aboveMask || doorData.doorway == nullptr) {
                     continue;
                 }
                 roomRenderer.DrawDoorSprite(doorData.hitbox, doorData.doorway->direction, doorData.biome, doorData.alpha);
             }
         };
 
-        for (const DoorMaskData& mask : doorMaskData) {
-            if (!mask.hasCorridorMask) {
-                continue;
-            }
-            Color maskColor = DoorMaskColor(mask.alpha);
-            DrawRectangleRec(mask.corridorMask, maskColor);
-        }
+        drawDoors(false, false);
 
-        drawDoors(false);
-
-        if (!DrawCharacterSprite(playerSprites, playerPosition, playerIsMoving)) {
+        if (!DrawCharacterSprite(playerSprites, snappedPlayerPosition, playerIsMoving)) {
             Rectangle renderRect{
-                playerPosition.x - PLAYER_RENDER_HALF_WIDTH,
-                playerPosition.y - PLAYER_RENDER_HALF_HEIGHT,
+                snappedPlayerPosition.x - PLAYER_RENDER_HALF_WIDTH,
+                snappedPlayerPosition.y - PLAYER_RENDER_HALF_HEIGHT,
                 PLAYER_RENDER_HALF_WIDTH * 2.0f,
                 PLAYER_RENDER_HALF_HEIGHT * 2.0f
             };
@@ -1850,7 +1861,7 @@ int main() {
             DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
         }
 
-        drawDoors(true);
+        drawDoors(true, false);
 
         if (drawForgeAfterPlayer && activeForge != nullptr) {
             roomRenderer.DrawForgeInstance(*activeForge, true);
@@ -1877,6 +1888,17 @@ int main() {
             }
             roomRenderer.DrawRoomForeground(room, isActive, roomVisibility);
         }
+
+        for (const DoorMaskData& mask : doorMaskData) {
+            if (!mask.hasCorridorMask) {
+                continue;
+            }
+            Color maskColor = DoorMaskColor(mask.alpha);
+            DrawRectangleRec(mask.corridorMask, maskColor);
+        }
+
+        drawDoors(false, true);
+        drawDoors(true, true);
 
         if (activeForge != nullptr && forgeNearby) {
             const char* promptText = activeForge->IsBroken() ? "Forja quebrada (E para inspecionar)" : "Pressione E para usar a forja";
