@@ -8,8 +8,10 @@
 #include <string>
 #include <vector>
 
+// Declaração antecipada do contexto utilizado ao disparar projéteis.
 struct ProjectileSpawnContext;
 
+// Categorias principais de projéteis usados pelo jogador.
 enum class ProjectileKind {
     Blunt,
     Swing,
@@ -18,12 +20,14 @@ enum class ProjectileKind {
     Ranged
 };
 
+// Define como o sprite/linha da arma deve ser exibido durante o ataque.
 enum class WeaponDisplayMode {
     Hidden,
     Fixed,
     AimAligned
 };
 
+// Conjunto de parâmetros compartilhados entre todos os tipos de projéteis.
 struct ProjectileCommonParams {
     float damage{0.0f};
     float lifespanSeconds{0.0f};
@@ -51,6 +55,7 @@ struct ProjectileCommonParams {
     float perTargetHitCooldownSeconds{0.0f};
 };
 
+// Configuração específica para ataques circulares de curto alcance (martelos etc.).
 struct BluntProjectileParams {
     float radius{48.0f};
     float travelDegrees{0.0f};
@@ -59,6 +64,7 @@ struct BluntProjectileParams {
     bool followOwner{true};
 };
 
+// Parâmetros para golpes de arco padrão (espadas, machados).
 struct SwingProjectileParams {
     float length{88.0f};
     float thickness{24.0f};
@@ -66,6 +72,7 @@ struct SwingProjectileParams {
     bool followOwner{true};
 };
 
+// Define comportamento de estocadas diretas (lanças, estiletes).
 struct SpearProjectileParams {
     float length{96.0f};
     float thickness{16.0f};
@@ -77,6 +84,7 @@ struct SpearProjectileParams {
     Vector2 offset{0.0f, 0.0f};
 };
 
+// Abrange animações 360° completas, como halteres giratórios.
 struct FullCircleSwingParams {
     float length{96.0f};
     float thickness{28.0f};
@@ -85,12 +93,14 @@ struct FullCircleSwingParams {
     bool followOwner{true};
 };
 
+// Dados específicos de projéteis físicos disparados (flechas, balas).
 struct AmmunitionProjectileParams {
     float speed{420.0f};
     float maxDistance{480.0f};
     float radius{6.0f};
 };
 
+// Variantes contínuas/laser com duração limitada e fade.
 struct LaserProjectileParams {
     float length{360.0f};
     float thickness{14.0f};
@@ -100,11 +110,13 @@ struct LaserProjectileParams {
     float staffHoldExtraSeconds{0.35f};
 };
 
+// Tipos secundários de projéteis "arremessados" complementares.
 enum class ThrownProjectileKind {
     Ammunition,
     Laser
 };
 
+// Configuração completa de um projétil auxiliar disparado ao final de um golpe melee.
 struct ThrownProjectileBlueprint {
     ThrownProjectileKind kind{ThrownProjectileKind::Ammunition};
     ProjectileCommonParams common{};
@@ -113,6 +125,7 @@ struct ThrownProjectileBlueprint {
     bool followOwner{false};
 };
 
+// Blueprint principal usado por armas; combina parâmetros comuns e específicos.
 struct ProjectileBlueprint {
     ProjectileKind kind{ProjectileKind::Blunt};
     ProjectileCommonParams common{};
@@ -124,12 +137,14 @@ struct ProjectileBlueprint {
     std::vector<ThrownProjectileBlueprint> thrownProjectiles{};
 };
 
+// Informações de contexto usadas no momento do disparo (origem, alvo, direção).
 struct ProjectileSpawnContext {
     Vector2 origin{};
     const Vector2* followTarget{nullptr};
     Vector2 aimDirection{1.0f, 0.0f};
 };
 
+// Sistema responsável por atualizar, renderizar e detectar colisões de projéteis.
 class ProjectileSystem {
 public:
     ProjectileSystem();
@@ -143,12 +158,14 @@ public:
 
     void SpawnProjectile(const ProjectileBlueprint& blueprint, const ProjectileSpawnContext& context);
 
+    // Evento de dano retornado ao detectar colisão entre projétil e alvo.
     struct DamageEvent {
         float amount{0.0f};
         bool isCritical{false};
         float suggestedImmunitySeconds{0.0f};
     };
 
+    // Coleta impactos que ocorreram contra determinado alvo circular.
     std::vector<DamageEvent> CollectDamageEvents(const Vector2& targetCenter,
                                                 float targetRadius,
                                                 std::uintptr_t targetId = 0,
@@ -157,6 +174,8 @@ public:
     struct ProjectileInstance;
 
 private:
+    // Lista ativa de projéteis em voo.
     std::vector<std::unique_ptr<ProjectileInstance>> projectiles_;
+    // RNG usado para spreads, críticos etc.
     std::mt19937 rng_;
 };

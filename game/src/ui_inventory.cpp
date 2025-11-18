@@ -19,11 +19,13 @@
 
 namespace {
 
+// Funções auxiliares locais para localizar itens/derivar categoria.
 const ItemDefinition* FindItemDefinition(const InventoryUIState& state, int id);
 ItemCategory ItemCategoryFromId(const InventoryUIState& state, int id);
 
 } // namespace
 
+// Retorna blueprint de arma associada ao item do inventário, se existir.
 const WeaponBlueprint* ResolveWeaponBlueprint(const InventoryUIState& state, int itemId) {
     const ItemDefinition* def = FindItemDefinition(state, itemId);
     if (def == nullptr || def->category != ItemCategory::Weapon) {
@@ -34,6 +36,7 @@ const WeaponBlueprint* ResolveWeaponBlueprint(const InventoryUIState& state, int
 
 namespace {
 
+// Valores padrão para feedback visual e parametrizações das listas.
 constexpr float kFeedbackDuration = 2.5f;
 constexpr float kBodyTextSpacing = 2.0f;
 constexpr int kDefaultShopStock = 1; // Non-consumables default to a single copy
@@ -51,6 +54,7 @@ struct InventorySpriteCacheEntry {
 
 std::unordered_map<std::string, InventorySpriteCacheEntry> g_inventorySpriteCache{};
 
+// Carrega sprite da arma/item caso o arquivo exista.
 Texture2D LoadInventorySpriteIfAvailable(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -67,6 +71,7 @@ Texture2D LoadInventorySpriteIfAvailable(const std::string& path) {
     return texture;
 }
 
+// Usa cache global para evitar recarregar sprites de inventário a cada quadro.
 Texture2D AcquireInventorySpriteTexture(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -80,6 +85,7 @@ Texture2D AcquireInventorySpriteTexture(const std::string& path) {
     return entry.texture;
 }
 
+// Desenha sprite customizado de arma na grade do inventário.
 bool DrawWeaponInventorySprite(const WeaponBlueprint& blueprint, const Rectangle& rect) {
     const WeaponInventorySprite& sprite = blueprint.inventorySprite;
     if (sprite.spritePath.empty()) {
@@ -110,11 +116,13 @@ bool DrawWeaponInventorySprite(const WeaponBlueprint& blueprint, const Rectangle
     return true;
 }
 
+// Atualiza mensagem de feedback exibida na UI com timer padrão.
 void ShowMessage(InventoryUIState& state, const std::string& text) {
     state.feedbackMessage = text;
     state.feedbackTimer = kFeedbackDuration;
 }
 
+// Cria habilidade ativa de protótipo (poção de cura) usada nos testes.
 ItemActiveAbility MakeHealingPotionAbility() {
     constexpr float kHealAmount = 50.0f;
     ItemActiveAbility ability{};
@@ -135,6 +143,7 @@ ItemActiveAbility MakeHealingPotionAbility() {
     return ability;
 }
 
+// Varre vetor de definições procurando o id solicitado.
 const ItemDefinition* FindItemDefinition(const InventoryUIState& state, int id) {
     if (id <= 0) {
         return nullptr;
@@ -147,6 +156,7 @@ const ItemDefinition* FindItemDefinition(const InventoryUIState& state, int id) 
     return nullptr;
 }
 
+// Converte float formatando casas decimais fixas para tooltips.
 std::string FormatFloat(float value, int decimals) {
     std::ostringstream oss;
     oss << std::fixed << std::setprecision(decimals) << value;
@@ -173,6 +183,7 @@ constexpr const char* kIconRange = "[ALC]";
 constexpr const char* kIconLuck = "[SOR]";
 constexpr const char* kIconCurse = "[MAL]";
 
+// Retorna etiqueta curta associada ao atributo da arma.
 std::string WeaponAttributeIcon(WeaponAttributeKey key) {
     switch (key) {
         case WeaponAttributeKey::Constitution:
@@ -189,6 +200,7 @@ std::string WeaponAttributeIcon(WeaponAttributeKey key) {
     return "[ATR]";
 }
 
+// Tradução amigável de raridade numérica para texto.
 std::string RarityName(int rarity) {
     switch (rarity) {
         case 0:
@@ -210,6 +222,7 @@ std::string RarityName(int rarity) {
     }
 }
 
+// Descrição breve para cada categoria de item.
 std::string ItemCategoryLabel(ItemCategory category) {
     switch (category) {
         case ItemCategory::Weapon:
@@ -227,10 +240,12 @@ std::string ItemCategoryLabel(ItemCategory category) {
     }
 }
 
+// Define se o item pode empilhar no inventário/baú.
 bool IsStackableCategory(ItemCategory category) {
     return category == ItemCategory::Consumable || category == ItemCategory::Material;
 }
 
+// Quantidade máxima por pilha em função da categoria.
 int MaxStackForCategory(ItemCategory category) {
     if (category == ItemCategory::Consumable) {
         return kConsumableMaxStack;
@@ -241,6 +256,7 @@ int MaxStackForCategory(ItemCategory category) {
     return 1;
 }
 
+// Busca primeiro slot vazio dentro do baú informado.
 int FindEmptyChestSlot(const Chest& chest) {
     const auto& slots = chest.GetSlots();
     for (int i = 0; i < static_cast<int>(slots.size()); ++i) {
@@ -251,6 +267,7 @@ int FindEmptyChestSlot(const Chest& chest) {
     return -1;
 }
 
+// Verifica se o baú suporta receber determinada quantidade do item.
 bool ChestCanAccept(const Chest& chest,
                     const InventoryUIState& state,
                     int itemId,
@@ -287,6 +304,7 @@ bool ChestCanAccept(const Chest& chest,
     return emptySlots >= quantity;
 }
 
+// Deposita itens no baú lidando com pilhas/slots livres. Retorna primeiro slot usado.
 int AddItemToChest(Chest& chest,
                    const InventoryUIState& state,
                    int itemId,
@@ -354,6 +372,7 @@ int AddItemToChest(Chest& chest,
     return (remaining == 0) ? firstSlotUsed : -1;
 }
 
+// Quebra texto longo em múltiplas linhas baseando-se na largura disponível.
 std::vector<std::string> WrapTextLines(const std::string& text,
                                        float maxWidth,
                                        float fontSize) {
@@ -2412,6 +2431,7 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     PlayerAttributes kitDoTestador{};
     kitDoTestador.secondary.vampirismo = 10;
     kitDoTestador.primary.vigor = 3;
+    kitDoTestador.primary.defesa = 5;
     kitDoTestador.attack.foco = 5;
     kitDoTestador.attack.forca = 5;
     addItem(idkitDoTestador,
@@ -2538,8 +2558,8 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
         "Pocao de cura",
         ItemCategory::Consumable,
         "Elixir alquimico de emergencia que restaura uma porcao generosa da vitalidade.",
-        2,
-        40,
+        1,
+        20,
         nullptr,
         PlayerAttributes{},
         "assets/img/itens/Pocao_de_cura.png",

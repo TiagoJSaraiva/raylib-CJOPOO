@@ -9,6 +9,7 @@
 
 class Room;
 
+// Fabrica inimigos conforme bioma e configurações padrão.
 class EnemySpawner {
 public:
     EnemySpawner();
@@ -27,5 +28,6 @@ private:
 
     std::unordered_map<BiomeType, std::vector<EnemyTemplate>> templates_;
 
+    // Registra presets hardcoded utilizados na demo atual.
     void RegisterDefaults();
 };

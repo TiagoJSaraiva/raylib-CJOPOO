@@ -9,18 +9,23 @@
 
 namespace {
 
+// Conversão auxiliar para transformar radianos em graus.
 constexpr float kRadToDeg = 180.0f / PI;
 
+// Mantém texturas carregadas uma vez para reutilização entre projeções de armas.
 struct CachedTexture {
     Texture2D texture{};
     bool attemptedLoad{false};
 };
 
+// Armazena texturas carregadas por caminho para reutilização posterior.
 std::unordered_map<std::string, CachedTexture> g_spriteCache{};
 
+// Controla o tempo mínimo entre golpes do mesmo projétil e alvo.
 struct PerTargetHitTracker {
     std::unordered_map<std::uintptr_t, float> lastHitSeconds{};
 
+    // Retorna true se já se passou tempo suficiente desde o último acerto no alvo.
     bool CanHit(std::uintptr_t targetId, float currentTimeSeconds, float cooldownSeconds) const {
         if (cooldownSeconds <= 0.0f) {
             return true;
@@ -34,11 +39,13 @@ struct PerTargetHitTracker {
         return (currentTimeSeconds - it->second) >= cooldownSeconds;
     }
 
+    // Registra o instante em que o alvo foi atingido.
     void RecordHit(std::uintptr_t targetId, float currentTimeSeconds) {
         lastHitSeconds[targetId] = currentTimeSeconds;
     }
 };
 
+// Carrega textura apenas se existir fisicamente no disco.
 Texture2D LoadTextureIfAvailable(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -55,6 +62,7 @@ Texture2D LoadTextureIfAvailable(const std::string& path) {
     return Texture2D{};
 }
 
+// Retorna textura de sprite usando cache global para evitar carregamentos repetidos.
 Texture2D AcquireSpriteTexture(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -69,6 +77,7 @@ Texture2D AcquireSpriteTexture(const std::string& path) {
     return entry.texture;
 }
 
+// Limpa todas as texturas armazenadas quando o sistema é destruído.
 void ReleaseSpriteCache() {
     for (auto& pair : g_spriteCache) {
         CachedTexture& entry = pair.second;
@@ -82,12 +91,14 @@ void ReleaseSpriteCache() {
     g_spriteCache.clear();
 }
 
+// Clamps auxiliar limitado a [0,1] sem depender de std::clamp (evita incluir <algorithm> extra).
 float Clamp01(float value) {
     if (value < 0.0f) return 0.0f;
     if (value > 1.0f) return 1.0f;
     return value;
 }
 
+// Converte um vetor direção para ângulo em graus, cuidando de vetores quase nulos.
 float DirectionToDegrees(Vector2 dir) {
     const float lengthSq = dir.x * dir.x + dir.y * dir.y;
     if (lengthSq <= 1e-5f) {
@@ -96,6 +107,7 @@ float DirectionToDegrees(Vector2 dir) {
     return std::atan2(dir.y, dir.x) * kRadToDeg;
 }
 
+// Distância mínima entre um ponto e um segmento 2D; usada por armas do tipo linha.
 float DistancePointToSegment(Vector2 point, Vector2 segStart, Vector2 segEnd) {
     Vector2 segment = Vector2Subtract(segEnd, segStart);
     float segmentLengthSq = Vector2LengthSqr(segment);
@@ -114,6 +126,7 @@ struct WeaponDisplayState {
     float angleDeg{0.0f};
 };
 
+// Calcula offset e rotação do sprite da arma conforme modo de exibição escolhido.
 WeaponDisplayState ComputeWeaponDisplayState(const ProjectileCommonParams& common, const Vector2& aimDir, float aimAngleDeg) {
     WeaponDisplayState state{};
     switch (common.displayMode) {
@@ -140,6 +153,7 @@ WeaponDisplayState ComputeWeaponDisplayState(const ProjectileCommonParams& commo
     return state;
 }
 
+// Desenha um retângulo representando a arma caso ícones específicos não estejam disponíveis.
 void DrawWeaponDisplay(const ProjectileCommonParams& common, const Vector2& basePosition, float angleDegrees) {
     if (common.displayMode == WeaponDisplayMode::Hidden) {
         return;
@@ -160,6 +174,7 @@ void DrawWeaponDisplay(const ProjectileCommonParams& common, const Vector2& base
     DrawRectanglePro(rect, pivot, drawAngle, common.displayColor);
 }
 
+// Tenta desenhar sprite de arma; retorna false se não houver textura carregada.
 bool DrawWeaponSpriteFromPath(const std::string& spritePath,
                               const Vector2& basePosition,
                               float angleDegrees,
@@ -181,6 +196,7 @@ bool DrawWeaponSpriteFromPath(const std::string& spritePath,
     return true;
 }
 
+// Desenha sprite de projétil posicionado no centro indicado.
 bool DrawProjectileSpriteFromPath(const std::string& spritePath,
                                   const Vector2& center,
                                   float angleDegrees,
@@ -202,6 +218,7 @@ bool DrawProjectileSpriteFromPath(const std::string& spritePath,
     return true;
 }
 
+// Versão especializada para raios/lasers que ocupam um segmento de reta.
 bool DrawBeamSpriteFromPath(const std::string& spritePath,
                             const Vector2& start,
                             const Vector2& end,
@@ -229,11 +246,16 @@ bool DrawBeamSpriteFromPath(const std::string& spritePath,
 
 } // namespace
 
+// Classe base para todas as variações de projéteis, oferecendo interface de atualização/render.
 struct ProjectileSystem::ProjectileInstance {
     virtual ~ProjectileInstance() = default;
+    // Atualiza timers/posições internas conforme delta.
     virtual void Update(float deltaSeconds) = 0;
+    // Responsável por desenhar o projétil, se ainda ativo.
     virtual void Draw() const = 0;
+    // Indica se o projétil pode ser removido do vetor principal.
     virtual bool IsExpired() const = 0;
+    // Opcional: coleta eventos de dano contra um alvo.
     virtual void CollectHitEvents(const Vector2&,
                                   float,
                                   std::uintptr_t,
@@ -244,6 +266,7 @@ struct ProjectileSystem::ProjectileInstance {
 
 namespace {
 
+// Representa ataques curtos e semicirculares como marretas.
 class BluntProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     BluntProjectile(const ProjectileCommonParams& common,
@@ -259,6 +282,13 @@ public:
           startCenterDegrees_(startCenterDegrees),
           endCenterDegrees_(endCenterDegrees) {}
 
+    // Atualiza timers e acompanha o dono caso followOwner ativo.
+    // Controla progresso da animação linear do golpe.
+    // Calcula fases de extensão, idle e retração da estocada.
+    // Mantém rotação contínua e encerra após completar as revoluções solicitadas.
+    // Apenas controla duração do sprite exibido junto ao jogador.
+    // Move o projétil em linha reta até alcançar distância máxima ou expirar.
+    // Atualiza origem e controla tempo de exibição do feixe/fade.
     void Update(float deltaSeconds) override {
         if (followTarget_ != nullptr) {
             origin_ = *followTarget_;
@@ -270,6 +300,13 @@ public:
         }
     }
 
+    // Desenha sprite/forma do impacto conforme interpolação angular.
+    // Desenha sprite alinhado ao vetor do golpe ou fallback debug.
+    // Renderiza sprite ou hitbox retangular seguindo a direção da lança.
+    // Desenha arma girando ao redor do jogador ou fallback retângulo.
+    // Desenha sprite da arma ou representação simples, sem aplicar dano.
+    // Prioriza sprite customizado, caindo para círculo colorido se não houver textura.
+    // Desenha laser entre os pontos calculados, com fade opcional.
     void Draw() const override {
         if (expired_) {
             return;
@@ -329,6 +366,12 @@ public:
         }
     }
 
+    // Testa colisão aproximada contra um alvo retangular expandido.
+    // Usa distância até o segmento do golpe para gerar eventos de dano.
+    // Detecta colisões ao longo da linha da lança considerando espessura.
+    // Trata colisões com base na distância ao segmento do golpe em tempo real.
+    // Verifica colisão de círculo para aplicar dano único.
+    // Considera o feixe como segmento para aplicar dano repetido respeitando cooldown.
     void CollectHitEvents(const Vector2& targetCenter,
                           float targetRadius,
                           std::uintptr_t targetId,
@@ -405,6 +448,7 @@ private:
     PerTargetHitTracker perTargetHits_{};
 };
 
+// Golpes de corte tradicionais com hitbox em linha.
 class SwingProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     SwingProjectile(const ProjectileCommonParams& common,
@@ -557,6 +601,7 @@ private:
     PerTargetHitTracker perTargetHits_{};
 };
 
+// Estocadas lineares que avançam e retraem ao longo do tempo.
 class SpearProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     SpearProjectile(const ProjectileCommonParams& common,
@@ -746,6 +791,7 @@ private:
     PerTargetHitTracker perTargetHits_{};
 };
 
+// Armas que giram continuamente 360° em torno do jogador.
 class FullCircleSwingProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     FullCircleSwingProjectile(const ProjectileCommonParams& common,
@@ -881,6 +927,7 @@ private:
     PerTargetHitTracker perTargetHits_{};
 };
 
+// Apenas exibe o sprite da arma para ataques à distância (sem hitbox própria).
 class RangedWeaponDisplayProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     RangedWeaponDisplayProjectile(const ProjectileCommonParams& common,
@@ -966,6 +1013,7 @@ private:
     bool expired_{false};
 };
 
+// Projétil físico viajando em linha reta (flechas/balas) com duração limitada.
 class ThrownAmmunitionProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     ThrownAmmunitionProjectile(const ProjectileCommonParams& common,
@@ -1068,6 +1116,7 @@ private:
     bool damageApplied_{false};
 };
 
+// Representa feixes contínuos/lasers arremessados com duração e fade.
 class ThrownLaserProjectile final : public ProjectileSystem::ProjectileInstance {
 public:
     ThrownLaserProjectile(const ProjectileCommonParams& common,
@@ -1199,10 +1248,12 @@ public:
     }
 
 private:
+    // Verdadeiro enquanto o feixe principal ainda está em exibição.
     bool IsBeamVisible() const {
         return (beamDuration_ <= 0.0f) || !beamExpired_;
     }
 
+    // Calcula início/fim do feixe usando offsets configurados.
     void ComputeBeamSegment(Vector2& outStart, Vector2& outEnd) const {
         outStart = Vector2Add(origin_, startOffset_);
         outEnd = Vector2Add(outStart, Vector2Scale(direction_, params_.length));
@@ -1225,12 +1276,15 @@ private:
 
 } // namespace
 
+// Inicializa RNG usado para spreads/críticos.
 ProjectileSystem::ProjectileSystem() : rng_(std::random_device{}()) {}
 
+// Libera sprites carregados quando o sistema é destruído.
 ProjectileSystem::~ProjectileSystem() {
     ReleaseSpriteCache();
 }
 
+// Atualiza todos os projéteis ativos e limpa os que expiraram.
 void ProjectileSystem::Update(float deltaSeconds) {
     for (auto& projectile : projectiles_) {
         projectile->Update(deltaSeconds);
@@ -1243,16 +1297,19 @@ void ProjectileSystem::Update(float deltaSeconds) {
         projectiles_.end());
 }
 
+// Desenha cada projétil ativo (debug ou sprites customizados).
 void ProjectileSystem::Draw() const {
     for (const auto& projectile : projectiles_) {
         projectile->Draw();
     }
 }
 
+// Remove instantaneamente todos os projéteis, usado ao reiniciar a run.
 void ProjectileSystem::Clear() {
     projectiles_.clear();
 }
 
+// Instancia projéteis conforme blueprint e contexto atual do disparo.
 void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, const ProjectileSpawnContext& context) {
     if (blueprint.common.projectilesPerShot <= 0) {
         return;
@@ -1473,6 +1530,7 @@ std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents
                                                                                 float targetRadius,
                                                                                 std::uintptr_t targetId,
                                                                                 float targetImmunitySeconds) {
+    // Percorre lista de projéteis acumulando todos os impactos contra o alvo especificado.
     std::vector<DamageEvent> events;
     events.reserve(projectiles_.size());
 

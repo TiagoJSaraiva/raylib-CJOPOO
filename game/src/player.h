@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <string>
 
+// Identifica qual atributo ofensivo influencia o cálculo de dano de uma arma.
 enum class WeaponAttributeKey {
     Constitution,
     Strength,
@@ -11,6 +12,7 @@ enum class WeaponAttributeKey {
     Knowledge
 };
 
+// Coleção de atributos básicos que definem a progressão do personagem.
 struct PrimaryAttributes {
     int poder{0}; // Aumenta o dano total em %
     int defesa{0}; // Reduz o dano recebido em %
@@ -20,6 +22,7 @@ struct PrimaryAttributes {
     int inteligencia{0}; // Diminui o cooldown de habilidades (habilidades ainda não existem, mas esse atributo será usado no futuro)
 };
 
+// Bônus específicos aplicados a armas dependendo do atributo chave registrado no blueprint.
 struct AttackAttributes {
     int constituicao{0}; // Aumenta o dano de armas de atributo constituição
     int forca{0}; // Aumenta o dano de armas de atributo força
@@ -28,6 +31,7 @@ struct AttackAttributes {
     int conhecimento{0}; // Aumenta o dano de armas de atributo conhecimento
 };
 
+// Atributos auxiliares responsáveis por efeitos especiais e chances percentuais.
 struct SecondaryAttributes {
     float vampirismo{0.0f}; // % do dano causado que é convertido em vida (ainda não implementado)
     float letalidade{0.0f}; // Aumenta a chance de acerto crítico.
@@ -38,6 +42,7 @@ struct SecondaryAttributes {
     int maldicao{0}; // Reduz o dano causado e aumenta o dano recebido (ainda não sei se foi implementado)
 };
 
+// Agrupa os três blocos de atributos para facilitar operações de soma/comparação.
 struct PlayerAttributes {
     PrimaryAttributes primary{};
     AttackAttributes attack{};
@@ -68,6 +73,7 @@ inline bool operator!=(const PlayerAttributes& lhs, const PlayerAttributes& rhs)
     return !(lhs == rhs);
 }
 
+// Retorna um novo conjunto com a soma campo a campo dos atributos fornecidos.
 inline PlayerAttributes AddAttributes(const PlayerAttributes& a, const PlayerAttributes& b) {
     PlayerAttributes result{};
     result.primary.poder = a.primary.poder + b.primary.poder;
@@ -93,11 +99,13 @@ inline PlayerAttributes AddAttributes(const PlayerAttributes& a, const PlayerAtt
     return result;
 }
 
+// Soma atributos e escreve o resultado diretamente no destino.
 inline PlayerAttributes& AddAttributesInPlace(PlayerAttributes& target, const PlayerAttributes& source) {
     target = AddAttributes(target, source);
     return target;
 }
 
+// Estatísticas derivadas usadas em tempo de jogo após aplicar todos os bônus.
 struct PlayerDerivedStats {
     float maxHealth{100.0f};
     float movementSpeed{250.0f};
@@ -112,6 +120,7 @@ struct PlayerDerivedStats {
     float damageDealtMultiplierFromCurse{1.0f};
 };
 
+// Metadados para cortar e animar spritesheets de personagens.
 struct CharacterAnimationClip {
     std::string spriteSheetPath{};
     int frameWidth{0};
@@ -121,11 +130,13 @@ struct CharacterAnimationClip {
     bool verticalLayout{true};
 };
 
+// Blueprint que descreve as texturas de idle e caminhada de um personagem.
 struct CharacterAppearanceBlueprint {
     std::string idleSpritePath{};
     CharacterAnimationClip walking{};
 };
 
+// Representa o herói jogável com atributos agregados e vida/armadura atuais.
 struct PlayerCharacter {
     std::string id{};
     std::string displayName{};
@@ -140,8 +151,11 @@ struct PlayerCharacter {
     float currentHealth{0.0f};
     float currentArmor{0.0f};
 
+    // Atualiza totalAttributes e derivedStats com base em todos os bônus aplicáveis.
     void RecalculateStats();
+    // Retorna o valor do atributo de ataque associado à arma passada.
     int GetAttackAttributeValue(WeaponAttributeKey key) const;
 };
 
+// Cria o personagem padrão (cavaleiro) com atributos base configurados.
 PlayerCharacter CreateKnightCharacter();

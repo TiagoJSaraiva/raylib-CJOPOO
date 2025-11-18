@@ -11,6 +11,9 @@
 
 namespace {
 
+// Conjuntos internos para montar os projetis e stats de cada arma.
+
+// Configura hitbox/visual do ataque de broquel.
 ProjectileBlueprint MakeBroquelProjectileBlueprint() {
     short length = 38;
     short thickness = 80;
@@ -40,6 +43,7 @@ ProjectileBlueprint MakeBroquelProjectileBlueprint() {
     return blueprint;
 }
 
+// Blueprint completo do Broquel (estatísticas, cadência, passivos).
 WeaponBlueprint MakeBroquelWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Blueprint bundling weapon stats and visuals
     blueprint.name = "Broquel"; // Display name shown in UI
@@ -64,6 +68,7 @@ WeaponBlueprint MakeBroquelWeaponBlueprint() {
     return blueprint;
 }
 
+// Hitbox e aparencia do golpe da espada curta.
 ProjectileBlueprint MakeEspadaCurtaProjectileBlueprint() {
     ProjectileBlueprint blueprint{}; // Baseline projectile setup for sword slashes
     blueprint.kind = ProjectileKind::Swing; // Uses the swing arc implementation
@@ -85,6 +90,7 @@ ProjectileBlueprint MakeEspadaCurtaProjectileBlueprint() {
     return blueprint;
 }
 
+// Define escala/atributos da Espada Curta e vincula o projétil.
 WeaponBlueprint MakeEspadaCurtaWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Container describing how the short sword behaves
     blueprint.name = "Espada Curta"; // UI label for this weapon
@@ -108,6 +114,7 @@ WeaponBlueprint MakeEspadaCurtaWeaponBlueprint() {
     return blueprint;
 }
 
+// Configura thrust da Machadinha (projétil Spear).
 ProjectileBlueprint MakeMachadinhaProjectileBlueprint() {
     short length = 62;
     short thickness = 26;
@@ -137,6 +144,7 @@ ProjectileBlueprint MakeMachadinhaProjectileBlueprint() {
     return blueprint;
 }
 
+// Estatísticas gerais da machadinha, com foco em dano bruto.
 WeaponBlueprint MakeMachadinhaWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Blueprint for the hatchet weapon behavior
     blueprint.name = "Machadinha"; // Display name shown to the player
@@ -160,6 +168,7 @@ WeaponBlueprint MakeMachadinhaWeaponBlueprint() {
     return blueprint;
 }
 
+// Projétil que executa o giro completo da Espada Rúnica.
 ProjectileBlueprint MakeEspadaRunicaProjectileBlueprint() {
     ProjectileBlueprint blueprint{}; // Projectile container for the rune blade spin
     blueprint.kind = ProjectileKind::FullCircleSwing; // Performs a 360-degree spinning attack
@@ -185,6 +194,7 @@ ProjectileBlueprint MakeEspadaRunicaProjectileBlueprint() {
     return blueprint;
 }
 
+// Define comportamento lendário da Espada Rúnica.
 WeaponBlueprint MakeEspadaRunicaWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Blueprint describing the legendary rune sword
     blueprint.name = "Espada Runica"; // UI-facing name of the weapon
@@ -208,6 +218,7 @@ WeaponBlueprint MakeEspadaRunicaWeaponBlueprint() {
     return blueprint;
 }
 
+// Configura render e flecha disparada pelo Arco Simples.
 ProjectileBlueprint MakeArcoSimplesProjectileBlueprint() {
     ProjectileBlueprint blueprint{}; // Container for standard arrow projectiles
     blueprint.kind = ProjectileKind::Ranged; // Bow itself is rendered via ranged display logic
@@ -242,6 +253,7 @@ ProjectileBlueprint MakeArcoSimplesProjectileBlueprint() {
     return blueprint;
 }
 
+// Descreve dano/cadência do Arco Simples, com foco em Destreza.
 WeaponBlueprint MakeArcoSimplesWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Blueprint for the basic bow weapon
     blueprint.name = "Arco Simples"; // UI label for the bow
@@ -266,6 +278,7 @@ WeaponBlueprint MakeArcoSimplesWeaponBlueprint() {
     return blueprint;
 }
 
+// Projétil de feixe contínuo do Cajado de Carvalho.
 ProjectileBlueprint MakeCajadoDeCarvalhoProjectileBlueprint() {
     ProjectileBlueprint blueprint{}; // Projectile container for the druidic beam
     blueprint.kind = ProjectileKind::Ranged; // Staff is rendered via ranged weapon display
@@ -303,6 +316,7 @@ ProjectileBlueprint MakeCajadoDeCarvalhoProjectileBlueprint() {
     return blueprint;
 }
 
+// Blueprint da arma mágica baseada em Conhecimento.
 WeaponBlueprint MakeCajadoDeCarvalhoWeaponBlueprint() {
     WeaponBlueprint blueprint{}; // Blueprint defining the nature staff behaviour
     blueprint.name = "Cajado de Carvalho"; // UI-facing name

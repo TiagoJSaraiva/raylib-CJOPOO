@@ -10,6 +10,8 @@
 
 namespace {
 
+// Mantém texturas de inimigos em cache para evitar recarregamentos.
+
 struct CachedEnemyTexture {
     Texture2D texture{};
     bool attempted{false};
@@ -24,6 +26,7 @@ constexpr float kHealthBarBackgroundThickness = 1.0f;
 const Color kHealthBarBackgroundColor = Color{12, 12, 18, 200};
 const Color kHealthBarFillColor = Color{196, 64, 64, 230};
 
+// Verifica sufixo ignorando caixa para tentar fallback de extensão.
 bool EndsWithExtension(const std::string& path, const std::string& extension) {
     if (path.size() < extension.size()) {
         return false;
@@ -33,6 +36,7 @@ bool EndsWithExtension(const std::string& path, const std::string& extension) {
     });
 }
 
+// Carrega textura como está, aplicando filtro point se possível.
 Texture2D LoadTextureExact(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -47,6 +51,7 @@ Texture2D LoadTextureExact(const std::string& path) {
     return texture;
 }
 
+// Tenta carregar arquivo e, se faltar extensão, força sufixo .png.
 Texture2D LoadTextureWithFallback(const std::string& rawPath) {
     Texture2D texture = LoadTextureExact(rawPath);
     if (texture.id != 0) {
@@ -60,6 +65,7 @@ Texture2D LoadTextureWithFallback(const std::string& rawPath) {
     return texture;
 }
 
+// Retorna textura cacheada ou dispara carregamento lazy.
 Texture2D AcquireEnemyTexture(const std::string& path) {
     if (path.empty()) {
         return Texture2D{};
@@ -80,6 +86,7 @@ EnemyCommon::EnemyCommon(const EnemyConfig& config,
                          const EnemySpriteInfo& spriteInfo)
     : Enemy(config), weapon_(weapon), range_(range), spriteInfo_(spriteInfo) {}
 
+// Carrega texturas de idle/caminhada apenas uma vez.
 void EnemyCommon::EnsureTexturesLoaded() const {
     if (texturesLoaded_) {
         return;
@@ -89,6 +96,7 @@ void EnemyCommon::EnsureTexturesLoaded() const {
     texturesLoaded_ = true;
 }
 
+// Movimenta o inimigo em direção ao jogador e administra ataques.
 void EnemyCommon::Update(const EnemyUpdateContext& context) {
     float delta = context.deltaSeconds;
     attackCooldown_ = std::max(0.0f, attackCooldown_ - delta);
@@ -135,6 +143,7 @@ void EnemyCommon::Update(const EnemyUpdateContext& context) {
     UpdateAnimation(delta, isMoving_);
 }
 
+// Instancia projétil baseado no blueprint da arma configurada.
 void EnemyCommon::AttemptAttack(const EnemyUpdateContext& context,
                                 const Vector2& toPlayer,
                                 float distanceToPlayer) {
@@ -175,6 +184,7 @@ void EnemyCommon::AttemptAttack(const EnemyUpdateContext& context,
     attackCooldown_ = std::max(0.05f, attackInterval);
 }
 
+// Controla frames do spritesheet conforme o estado de movimento.
 void EnemyCommon::UpdateAnimation(float deltaSeconds, bool moving) {
     if (!moving || spriteInfo_.frameCount <= 1 || spriteInfo_.secondsPerFrame <= 0.0f) {
         animationTimer_ = 0.0f;
@@ -189,6 +199,7 @@ void EnemyCommon::UpdateAnimation(float deltaSeconds, bool moving) {
     }
 }
 
+// Renderiza sprite e barra de vida com alpha baseado em fade.
 void EnemyCommon::Draw(const EnemyDrawContext& context) const {
     if (!IsAlive()) {
         return;
@@ -282,6 +293,7 @@ void EnemyCommon::Draw(const EnemyDrawContext& context) const {
     }
 }
 
+// Libera texturas carregadas estaticamente para este tipo de inimigo.
 void EnemyCommon::ShutdownSpriteCache() {
     for (auto& entry : g_enemyTextureCache) {
         if (entry.second.texture.id != 0) {

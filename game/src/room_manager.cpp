@@ -10,22 +10,28 @@
 #include "room_types.h"
 #include "chest.h"
 
+// Responsável por gerar salas vizinhas, configurar portas e recursos especiais.
 namespace {
 
+// Mantém espaçamento mínimo entre retângulos de salas diferentes.
 constexpr int MIN_ROOM_SPACING_TILES = 2;
+// Garante corredores com pelo menos duas tiles por lado.
 constexpr int MIN_CORRIDOR_LENGTH_TILES = MIN_ROOM_SPACING_TILES * 2;
 constexpr int MAX_CORRIDOR_LENGTH_TILES = MIN_CORRIDOR_LENGTH_TILES * 3;
 
+// Sorteia inteiro inclusivo no intervalo dado para layouts e portas.
 int RandomInt(std::mt19937_64& rng, int minInclusive, int maxInclusive) {
     std::uniform_int_distribution<int> dist(minInclusive, maxInclusive);
     return dist(rng);
 }
 
+// Sorteia double inclusivo, usado para pesos/probabilidades.
 double RandomDouble(std::mt19937_64& rng, double minInclusive, double maxInclusive) {
     std::uniform_real_distribution<double> dist(minInclusive, maxInclusive);
     return dist(rng);
 }
 
+// Guarda retângulos propostos para sala/corredor durante tentativa de posicionamento.
 struct RoomPlacement {
     TileRect roomBounds{};
     TileRect corridorBounds{};
@@ -33,6 +39,7 @@ struct RoomPlacement {
     int entranceOffset{0};
 };
 
+// Expande retângulo adicionando margem em tiles para evitar sobreposição.
 TileRect ExpandWithMargin(const TileRect& rect, int marginTiles) {
     TileRect expanded = rect;
     expanded.x -= marginTiles;
@@ -42,14 +49,17 @@ TileRect ExpandWithMargin(const TileRect& rect, int marginTiles) {
     return expanded;
 }
 
+// Conversão auxiliar de coordenada em tiles para pixels.
 float TileToPixel(int tile) {
     return static_cast<float>(tile * TILE_SIZE);
 }
 
+// Verifica se o corredor já possui dimensões válidas.
 bool HasValidCorridor(const Doorway& door) {
     return door.corridorTiles.width > 0 && door.corridorTiles.height > 0;
 }
 
+// Retorna comprimento do corredor alinhado ao eixo da porta.
 int CorridorLengthForDirection(Direction direction, const TileRect& corridor) {
     if (direction == Direction::North || direction == Direction::South) {
         return corridor.height;
@@ -57,6 +67,7 @@ int CorridorLengthForDirection(Direction direction, const TileRect& corridor) {
     return corridor.width;
 }
 
+// Recalcula corredor físico entre duas salas de layouts conhecidos.
 TileRect ComputeCorridorBetweenRooms(const RoomLayout& originLayout, const Doorway& door, const RoomLayout& neighborLayout) {
     TileRect corridor{};
     const TileRect& originBounds = originLayout.tileBounds;
@@ -172,6 +183,7 @@ RoomPlacement ComputePlacement(const Room& originRoom, const Doorway& originDoor
     return placement;
 }
 
+// Informa quantos tiles cada parede pode acomodar para instalar portas.
 int WallLengthForDirection(int widthTiles, int heightTiles, Direction direction) {
     if (direction == Direction::North || direction == Direction::South) {
         return widthTiles;
@@ -179,10 +191,12 @@ int WallLengthForDirection(int widthTiles, int heightTiles, Direction direction)
     return heightTiles;
 }
 
+// Cria instância compartilhada que espelha o estado visual/colisão da porta.
 std::shared_ptr<DoorInstance> CreateDoorInstance() {
     return std::make_shared<DoorInstance>();
 }
 
+// Garante que uma porta possua instância compartilhada, reutilizando se já existir.
 std::shared_ptr<DoorInstance> EnsureDoorInstance(Doorway& door) {
     if (!door.doorState) {
         door.doorState = CreateDoorInstance();
@@ -192,12 +206,14 @@ std::shared_ptr<DoorInstance> EnsureDoorInstance(Doorway& door) {
 
 } // namespace
 
+// Semeia o gerenciador e cria sala inicial com vizinhos imediatos.
 RoomManager::RoomManager(std::uint64_t worldSeed)
     : worldSeed_(worldSeed) {
     CreateInitialRoom();
     EnsureNeighborsGenerated(currentRoomCoords_);
 }
 
+// Constrói a sala inicial (lobby) e configura estado básico.
 Room& RoomManager::CreateInitialRoom() {
     RoomCoords coords{0, 0};
     RoomSeedData seedData{RoomType::Lobby, BiomeType::Lobby, MakeRoomSeed(worldSeed_, coords)};
@@ -230,6 +246,7 @@ Room& RoomManager::CreateInitialRoom() {
     return createdRoom;
 }
 
+// Retorna referência à sala atualmente ativa na run.
 Room& RoomManager::GetCurrentRoom() {
     return *rooms_.at(currentRoomCoords_);
 }
@@ -238,10 +255,12 @@ const Room& RoomManager::GetCurrentRoom() const {
     return *rooms_.at(currentRoomCoords_);
 }
 
+// Acessa qualquer sala garantidamente existente.
 Room& RoomManager::GetRoom(const RoomCoords& coords) {
     return *rooms_.at(coords);
 }
 
+// Versão tolerantente a ausência de sala; retorna nullptr quando não gerada.
 Room* RoomManager::TryGetRoom(const RoomCoords& coords) {
     return FindRoom(coords);
 }
@@ -270,6 +289,7 @@ const Room* RoomManager::FindRoom(const RoomCoords& coords) const {
     return it->second.get();
 }
 
+// Tenta mover o jogador para sala adjacente, gerando neighbors sob demanda.
 bool RoomManager::MoveToNeighbor(Direction direction) {
     Room& current = GetCurrentRoom();
     Doorway* door = current.FindDoor(direction);
@@ -298,6 +318,7 @@ bool RoomManager::MoveToNeighbor(Direction direction) {
     return true;
 }
 
+// Assegura geração de salas adjacentes dentro de um raio BFS simples.
 void RoomManager::EnsureNeighborsGenerated(const RoomCoords& coords, int radius) {
     if (radius < 0) {
         radius = 0;
@@ -307,6 +328,7 @@ void RoomManager::EnsureNeighborsGenerated(const RoomCoords& coords, int radius)
     EnsureNeighborsRecursive(coords, radius, visited);
 }
 
+// Percorre grafo de salas recursivamente gerando portas e destinos.
 void RoomManager::EnsureNeighborsRecursive(const RoomCoords& coords, int depth, std::unordered_set<RoomCoords, RoomCoordsHash>& visited) {
     if (!visited.insert(coords).second) {
         return;
@@ -336,6 +358,7 @@ void RoomManager::EnsureNeighborsRecursive(const RoomCoords& coords, int depth, 
     }
 }
 
+// Garante que todas as portas da sala foram configuradas a partir do seed.
 void RoomManager::EnsureDoorsGenerated(Room& room) {
     if (room.DoorsInitialized()) {
         return;
@@ -345,6 +368,7 @@ void RoomManager::EnsureDoorsGenerated(Room& room) {
     room.SetDoorsInitialized(true);
 }
 
+// Cria (ou alinha) sala vizinha para uma porta específica.
 bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
     door.targetCoords = room.GetCoords() + ToDirectionOffset(door.direction);
 
@@ -410,6 +434,7 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
     return door.targetGenerated;
 }
 
+// Tenta instanciar nova sala respeitando espaçamento e tipo aleatório.
 Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     const RoomCoords targetCoords = originRoom.GetCoords() + ToDirectionOffset(originDoor.direction);
     std::mt19937_64 rng(MakeRoomSeed(worldSeed_, targetCoords));
@@ -509,6 +534,7 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     return created;
 }
 
+// Popula sala recém-criada com forja, loja ou baú conforme tipo.
 void RoomManager::InitializeRoomFeatures(Room& room) {
     switch (room.GetType()) {
         case RoomType::Forge: {
@@ -570,6 +596,7 @@ void RoomManager::InitializeRoomFeatures(Room& room) {
     }
 }
 
+// Calcula posicionamento e seed dos itens de loja.
 void RoomManager::InitializeShopFeatures(Room& room) {
     const RoomLayout& layout = room.Layout();
     const TileRect& bounds = layout.tileBounds;
@@ -601,6 +628,7 @@ void RoomManager::InitializeShopFeatures(Room& room) {
     room.SetShop(shop);
 }
 
+// Instancia baú comum ou persistente e posiciona hitbox na sala.
 void RoomManager::InitializeChestFeatures(Room& room, bool persistentPlayerChest) {
     const RoomLayout& layout = room.Layout();
     const TileRect& bounds = layout.tileBounds;
@@ -639,6 +667,7 @@ void RoomManager::InitializeChestFeatures(Room& room, bool persistentPlayerChest
     room.SetChest(std::move(chest));
 }
 
+// Replica portas conhecidas dos vizinhos e cria novas quando possível.
 void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDirection) {
     RoomLayout& layout = room.Layout();
     RoomCoords coords = room.GetCoords();
@@ -804,6 +833,7 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
 
 }
 
+// Ajusta offsets/corredores para alinhar portas de duas salas existentes.
 void RoomManager::AlignWithNeighbor(Room& room, Direction direction, Room& neighbor) {
     Doorway* existing = room.FindDoor(direction);
     if (existing && existing->targetGenerated) {
@@ -835,6 +865,7 @@ void RoomManager::AlignWithNeighbor(Room& room, Direction direction, Room& neigh
     }
 }
 
+// Define qual tipo de sala será criada em determinadas coordenadas.
 RoomType RoomManager::PickRoomType(const RoomCoords& coords) {
     std::mt19937_64 rng(MakeRoomSeed(worldSeed_, coords, static_cast<std::uint64_t>(roomsDiscovered_)));
 
@@ -875,6 +906,7 @@ RoomType RoomManager::PickRoomType(const RoomCoords& coords) {
     return RoomType::Boss;
 }
 
+// Atualiza contadores para balancear frequência de salas especiais/boss.
 void RoomManager::RegisterRoomDiscovery(RoomType type) {
     ++roomsDiscovered_;
     if (!bossSpawned_) {
@@ -887,6 +919,7 @@ void RoomManager::RegisterRoomDiscovery(RoomType type) {
     }
 }
 
+// Decide bioma da nova sala com base no bioma ativo/lobby.
 BiomeType RoomManager::DetermineBiomeForRoom(const Room& originRoom, const RoomCoords&) {
     BiomeType originBiome = originRoom.GetBiome();
     if (originBiome != BiomeType::Unknown && originBiome != BiomeType::Lobby) {
@@ -900,6 +933,7 @@ BiomeType RoomManager::DetermineBiomeForRoom(const Room& originRoom, const RoomC
     return activeBiome_;
 }
 
+// Sorteia bioma inicial entre as opções disponíveis.
 BiomeType RoomManager::PickInitialBiome() {
     static constexpr std::array<BiomeType, 3> kAvailableBiomes{
         BiomeType::Cave,
@@ -912,6 +946,7 @@ BiomeType RoomManager::PickInitialBiome() {
     return kAvailableBiomes[dist(rng)];
 }
 
+// Verifica se o retângulo proposto para nova sala colide com salas existentes.
 bool RoomManager::IsSpaceAvailable(const TileRect& candidateBounds) const {
     for (const auto& [coords, room] : rooms_) {
         TileRect paddedExisting = ExpandWithMargin(room->Layout().tileBounds, MIN_ROOM_SPACING_TILES);
@@ -922,6 +957,7 @@ bool RoomManager::IsSpaceAvailable(const TileRect& candidateBounds) const {
     return true;
 }
 
+// Detecta se o trajeto de um novo corredor cruza salas/corredores existentes.
 bool RoomManager::CorridorIntersectsRooms(const TileRect& corridor) const {
     if (corridor.width == 0 || corridor.height == 0) {
         return false;

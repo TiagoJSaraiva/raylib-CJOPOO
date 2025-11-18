@@ -12,19 +12,23 @@
 
 namespace {
 
+// Ajustes visuais usados para posicionar sprites das portas por direção.
 constexpr float VERTICAL_DOOR_SPRITE_ROOM_OFFSET_NORTH = 15.0f; // Offset exclusivo para portas Norte
 constexpr float VERTICAL_DOOR_SPRITE_ROOM_OFFSET_SOUTH = 42.0f; // Offset exclusivo para portas Sul
 constexpr float HORIZONTAL_DOOR_SPRITE_ROOM_OFFSET = 1.0f; // Ajusta distancia para portas Leste/Oeste
 constexpr float HORIZONTAL_DOOR_SPRITE_HEIGHT_OFFSET = -30.0f; // Ajusta offset vertical adicional para portas Leste/Oeste
 
+// Converte coordenadas em tiles para pixels (facilita cálculos retangulares).
 float TileToPixel(int tile) {
     return static_cast<float>(tile * TILE_SIZE);
 }
 
+// Traduz TileRect para Rectangle já em pixels, compatível com Raylib.
 Rectangle TileRectToPixels(const TileRect& rect) {
     return Rectangle{TileToPixel(rect.x), TileToPixel(rect.y), static_cast<float>(rect.width * TILE_SIZE), static_cast<float>(rect.height * TILE_SIZE)};
 }
 
+// Tenta carregar textura de mobiliário aplicando filtro adequado, logando falhas.
 Texture2D LoadFurnitureTexture(const char* path) {
     Texture2D texture{};
     if (path == nullptr) {
@@ -41,6 +45,7 @@ Texture2D LoadFurnitureTexture(const char* path) {
     return texture;
 }
 
+// Descarrega textura caso seja válida para evitar vazamentos.
 void UnloadTextureIfValid(Texture2D& texture) {
     if (texture.id != 0) {
         UnloadTexture(texture);
@@ -48,6 +53,7 @@ void UnloadTextureIfValid(Texture2D& texture) {
     }
 }
 
+// Coordenada discreta de tile que pode ser armazenada em hash set.
 struct TilePos {
     int x;
     int y;
@@ -65,12 +71,14 @@ struct TilePosHash {
     }
 };
 
+// Representa faixa contínua de tiles ocupada por uma porta na parede.
 struct DoorSpan {
     int rowY;
     int startX;
     int endX; // Exclusive
 };
 
+// Geometria derivada da sala usada para desenhar piso, paredes e corredores.
 struct RoomGeometry {
     Rectangle floorRect;
     std::unordered_set<TilePos, TilePosHash> walkableTiles;
@@ -79,6 +87,7 @@ struct RoomGeometry {
     std::vector<TileRect> corridorRects;
 };
 
+// Adiciona todos os tiles contidos em um TileRect ao conjunto informado.
 void AddTilesForRect(const TileRect& rect, std::unordered_set<TilePos, TilePosHash>& tiles) {
     if (rect.width <= 0 || rect.height <= 0) {
         return;
@@ -93,6 +102,7 @@ void AddTilesForRect(const TileRect& rect, std::unordered_set<TilePos, TilePosHa
 
 unsigned char ClampToByte(int value);
 
+// Gera variação leve na cor da parede para evitar aparência chapada.
 Color RandomWallColorForTile(int tileX, int tileY, Color baseColor) {
     std::uint64_t seedX = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileX));
     std::uint64_t seedY = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileY));
@@ -106,6 +116,7 @@ Color RandomWallColorForTile(int tileX, int tileY, Color baseColor) {
     return baseColor;
 }
 
+// Limita componente RGB para faixa [0,255].
 unsigned char ClampToByte(int value) {
     if (value < 0) {
         return 0;
@@ -116,6 +127,7 @@ unsigned char ClampToByte(int value) {
     return static_cast<unsigned char>(value);
 }
 
+// Ajusta todos os canais RGB aplicando delta positivo/negativo.
 Color OffsetRgb(Color color, int delta) {
     color.r = ClampToByte(static_cast<int>(color.r) + delta);
     color.g = ClampToByte(static_cast<int>(color.g) + delta);
@@ -123,6 +135,7 @@ Color OffsetRgb(Color color, int delta) {
     return color;
 }
 
+// Determina se um tile pertence à faixa de porta (evita desenhar parede ali).
 bool TileInDoorSpan(const TilePos& tile, const std::vector<DoorSpan>& spans) {
     for (const DoorSpan& span : spans) {
         if (tile.y == span.rowY && tile.x >= span.startX && tile.x < span.endX) {
@@ -132,6 +145,7 @@ bool TileInDoorSpan(const TilePos& tile, const std::vector<DoorSpan>& spans) {
     return false;
 }
 
+// Seleciona índice da textura de porta baseado no bioma.
 std::size_t DoorTextureIndex(BiomeType biome) {
     switch (biome) {
         case BiomeType::Cave:
@@ -145,6 +159,7 @@ std::size_t DoorTextureIndex(BiomeType biome) {
     }
 }
 
+// Desenha coluna da parede norte com leve acabamento superior.
 void DrawNorthWallColumn(int tileX, int topTileY, const Color& baseColor) {
     constexpr float kWallHeightTiles = 1.0f;
     float x = TileToPixel(tileX);
@@ -161,6 +176,7 @@ void DrawNorthWallColumn(int tileX, int topTileY, const Color& baseColor) {
     }
 }
 
+// Desenha coluna da parede sul adicionando degradê de luz/sombra.
 void DrawSouthWallColumn(int tileX, int floorTileY, const Color& baseColor) {
     const float tileSize = static_cast<float>(TILE_SIZE);
     float x = TileToPixel(tileX);
@@ -188,6 +204,7 @@ void DrawSouthWallColumn(int tileX, int floorTileY, const Color& baseColor) {
     }
 }
 
+// Cor base do piso por bioma.
 Color FloorColorForBiome(BiomeType biome) {
     switch (biome) {
         case BiomeType::Cave:
@@ -203,6 +220,7 @@ Color FloorColorForBiome(BiomeType biome) {
     }
 }
 
+// Define cor padrão das paredes dependendo do ambiente.
 Color WallBaseColorForBiome(BiomeType biome) {
     switch (biome) {
         case BiomeType::Cave:
@@ -218,6 +236,7 @@ Color WallBaseColorForBiome(BiomeType biome) {
     }
 }
 
+// Constrói dados auxiliares para desenhar piso, paredes e corredores da sala.
 RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
     RoomGeometry geometry{};
     geometry.floorRect = TileRectToPixels(layout.tileBounds);
@@ -268,6 +287,7 @@ RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
 
 } // namespace
 
+// Carrega texturas necessárias para renderizar props e portas.
 RoomRenderer::RoomRenderer() {
     forgeTexture_ = LoadFurnitureTexture("assets/img/furniture/forja/Forja.png");
     forgeBrokenTexture_ = LoadFurnitureTexture("assets/img/furniture/forja/Forja_broken.png");
@@ -283,6 +303,7 @@ RoomRenderer::RoomRenderer() {
     biomeDoorTextures_[2].side = LoadFurnitureTexture("assets/img/furniture/door/Mansao_door_side.png");
 }
 
+// Libera texturas carregadas na destruição do renderer.
 RoomRenderer::~RoomRenderer() {
     UnloadTextureIfValid(forgeTexture_);
     UnloadTextureIfValid(forgeBrokenTexture_);
@@ -293,6 +314,7 @@ RoomRenderer::~RoomRenderer() {
     UnloadDoorTextures();
 }
 
+// Desenha piso, corredores e paredes de fundo da sala.
 void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive, float visibility) const {
     const RoomLayout& layout = room.Layout();
     RoomGeometry geometry = BuildRoomGeometry(layout);
@@ -315,6 +337,7 @@ void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive, float vis
     }
 }
 
+// Desenha paredes frontais e elementos principais (forja, loja, baú) conforme visibilidade.
 void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive, float visibility) const {
     const RoomLayout& layout = room.Layout();
     RoomGeometry geometry = BuildRoomGeometry(layout);
@@ -335,6 +358,7 @@ void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive, float vis
     }
 }
 
+// Desenha forja da sala caso exista.
 void RoomRenderer::DrawForgeForRoom(const Room& room, bool isActive, float visibility) const {
     const ForgeInstance* forge = room.GetForge();
     if (forge == nullptr) {
@@ -343,6 +367,7 @@ void RoomRenderer::DrawForgeForRoom(const Room& room, bool isActive, float visib
     DrawForgeSprite(*forge, isActive, visibility);
 }
 
+// Renderiza sprite específico da forja (inteira ou quebrada).
 void RoomRenderer::DrawForgeSprite(const ForgeInstance& forge, bool isActive, float visibility) const {
     const Texture2D* texture = (forge.state == ForgeState::Broken) ? &forgeBrokenTexture_ : &forgeTexture_;
     if (texture->id == 0) {
@@ -372,10 +397,12 @@ void RoomRenderer::DrawForgeSprite(const ForgeInstance& forge, bool isActive, fl
     DrawTexturePro(*texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }
 
+// Versão utilitária para desenhar forja com visibilidade total.
 void RoomRenderer::DrawForgeInstance(const ForgeInstance& forge, bool isActive) const {
     DrawForgeSprite(forge, isActive, 1.0f);
 }
 
+// Desenha loja instalada na sala, se houver.
 void RoomRenderer::DrawShopForRoom(const Room& room, bool isActive, float visibility) const {
     const ShopInstance* shop = room.GetShop();
     if (shop == nullptr) {
@@ -384,6 +411,7 @@ void RoomRenderer::DrawShopForRoom(const Room& room, bool isActive, float visibi
     DrawShopSprite(*shop, isActive, visibility);
 }
 
+// Renderiza sprite da loja aplicando variante configurada.
 void RoomRenderer::DrawShopSprite(const ShopInstance& shop, bool isActive, float visibility) const {
     int variant = std::clamp(shop.textureVariant, 0, static_cast<int>(shopTextures_.size()) - 1);
     const Texture2D& texture = shopTextures_[variant];
@@ -410,10 +438,12 @@ void RoomRenderer::DrawShopSprite(const ShopInstance& shop, bool isActive, float
     DrawTexturePro(texture, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }
 
+// Helper para desenhar loja em contexto externo (HUD/debug).
 void RoomRenderer::DrawShopInstance(const ShopInstance& shop, bool isActive) const {
     DrawShopSprite(shop, isActive, 1.0f);
 }
 
+// Desenha baú da sala respeitando visibilidade.
 void RoomRenderer::DrawChestForRoom(const Room& room, bool isActive, float visibility) const {
     const Chest* chest = room.GetChest();
     if (chest == nullptr) {
@@ -422,6 +452,7 @@ void RoomRenderer::DrawChestForRoom(const Room& room, bool isActive, float visib
     DrawChestSprite(*chest, isActive, visibility);
 }
 
+// Renderiza sprite do baú compartilhado entre cofres comuns/player.
 void RoomRenderer::DrawChestSprite(const Chest& chest, bool isActive, float visibility) const {
     if (chestTexture_.id == 0) {
         return;
@@ -446,15 +477,18 @@ void RoomRenderer::DrawChestSprite(const Chest& chest, bool isActive, float visi
     DrawTexturePro(chestTexture_, src, dest, Vector2{0.0f, 0.0f}, 0.0f, tint);
 }
 
+// Versão direta para desenhar baú sem fade de visibilidade.
 void RoomRenderer::DrawChestInstance(const Chest& chest, bool isActive) const {
     DrawChestSprite(chest, isActive, 1.0f);
 }
 
+// Pipeline completo de desenho da sala (fundo + frente).
 void RoomRenderer::DrawRoom(const Room& room, bool isActive, float visibility) const {
     DrawRoomBackground(room, isActive, visibility);
     DrawRoomForeground(room, isActive, visibility);
 }
 
+// Recupera conjunto de texturas (frontal/lateral) compatível com o bioma.
 const RoomRenderer::DoorTextureSet& RoomRenderer::DoorTexturesForBiome(BiomeType biome) const {
     std::size_t index = DoorTextureIndex(biome);
     if (index >= biomeDoorTextures_.size()) {
@@ -463,6 +497,7 @@ const RoomRenderer::DoorTextureSet& RoomRenderer::DoorTexturesForBiome(BiomeType
     return biomeDoorTextures_[index];
 }
 
+// Libera texturas específicas das portas de cada bioma.
 void RoomRenderer::UnloadDoorTextures() {
     for (DoorTextureSet& set : biomeDoorTextures_) {
         UnloadTextureIfValid(set.front);
@@ -470,6 +505,7 @@ void RoomRenderer::UnloadDoorTextures() {
     }
 }
 
+// Desenha sprite de porta orientado conforme direção e com alpha customizado.
 void RoomRenderer::DrawDoorSprite(const Rectangle& hitbox,
                                   Direction direction,
                                   BiomeType biome,

@@ -3,9 +3,12 @@
 #include <cstdint>
 #include <functional>
 
+// Tamanho de cada tile em pixels no mapa.
 constexpr int TILE_SIZE = 64;
+// Largura padrão usada ao gerar portas.
 constexpr int DOOR_WIDTH_TILES = 2;
 
+// Tipos de sala possíveis durante a run.
 enum class RoomType {
     Lobby,
     Normal,
@@ -32,6 +35,7 @@ enum class Direction {
     West
 };
 
+// Coordenadas inteiras da grade de salas.
 struct RoomCoords {
     int x{0};
     int y{0};
@@ -52,6 +56,7 @@ struct RoomCoords {
     }
 };
 
+// Hash para usar RoomCoords como chave em unordered_map/set.
 struct RoomCoordsHash {
     std::size_t operator()(const RoomCoords& coords) const noexcept {
         std::size_t h1 = std::hash<int>{}(coords.x);
@@ -60,6 +65,7 @@ struct RoomCoordsHash {
     }
 };
 
+// Retângulo em espaço de tiles, usado para bounds de salas/corredores.
 struct TileRect {
     int x{0};
     int y{0};
@@ -67,10 +73,12 @@ struct TileRect {
     int height{0};
 };
 
+// Checa se dois retângulos em tiles se sobrepõem.
 inline bool Intersects(const TileRect& a, const TileRect& b) {
     return !(a.x + a.width <= b.x || b.x + b.width <= a.x || a.y + a.height <= b.y || b.y + b.height <= a.y);
 }
 
+// Converte direção cardinal em offset de coordenadas.
 inline RoomCoords ToDirectionOffset(Direction direction) {
     switch (direction) {
         case Direction::North: return RoomCoords{0, -1};
@@ -81,6 +89,7 @@ inline RoomCoords ToDirectionOffset(Direction direction) {
     }
 }
 
+// Retorna direção oposta (usado ao conectar portas).
 inline Direction Opposite(Direction direction) {
     switch (direction) {
         case Direction::North: return Direction::South;
@@ -91,11 +100,13 @@ inline Direction Opposite(Direction direction) {
     }
 }
 
+// Combina dois valores para gerar seed pseudoaleatório.
 inline std::uint64_t HashCombine(std::uint64_t seed, std::uint64_t value) {
     value += 0x9e3779b97f4a7c15ULL + (seed << 6) + (seed >> 2);
     return seed ^ value;
 }
 
+// Deriva seed determinístico para uma sala específica.
 inline std::uint64_t MakeRoomSeed(std::uint64_t worldSeed, const RoomCoords& coords, std::uint64_t salt = 0) {
     std::uint64_t result = worldSeed;
     result = HashCombine(result, static_cast<std::uint64_t>(coords.x));

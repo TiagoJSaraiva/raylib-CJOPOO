@@ -2,6 +2,7 @@
 
 #include "weapon.h"
 
+// Ajustes reaproveitados ao posicionar sprites de armas no inventário.
 namespace Presets { // Presets para os sprites do inventário
     constexpr float toLeft = -220.0f;
     constexpr float RotationShield1 = -6.0f;
@@ -11,6 +12,7 @@ namespace Presets { // Presets para os sprites do inventário
     constexpr Vector2 SizeStaff1{16.0f, 60.0f};
 }
 
+// Retorna blueprints globais de cada arma disponível.
 const WeaponBlueprint& GetBroquelWeaponBlueprint();
 const WeaponBlueprint& GetEspadaCurtaWeaponBlueprint();
 const WeaponBlueprint& GetMachadinhaWeaponBlueprint();

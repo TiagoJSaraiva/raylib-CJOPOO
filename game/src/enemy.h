@@ -12,6 +12,7 @@ class PlayerCharacter;
 class ProjectileSystem;
 struct RoomLayout;
 
+// Configuração estática compartilhada por instâncias do mesmo inimigo.
 struct EnemyConfig {
     int id{0};
     std::string name{};
@@ -22,6 +23,7 @@ struct EnemyConfig {
     float collisionRadius{22.0f};
 };
 
+// Dados fornecidos a cada tick de atualização.
 struct EnemyUpdateContext {
     float deltaSeconds{0.0f};
     const PlayerCharacter& player;
@@ -31,11 +33,13 @@ struct EnemyUpdateContext {
     ProjectileSystem& projectileSystem;
 };
 
+// Parâmetros globais para desenhar inimigos.
 struct EnemyDrawContext {
     float roomVisibility{1.0f};
     bool isActiveRoom{false};
 };
 
+// Classe base para qualquer inimigo do jogo (vida, movimento, fade-in).
 class Enemy {
 public:
     explicit Enemy(const EnemyConfig& config);
@@ -46,6 +50,8 @@ public:
 
     void Initialize(Room& room, const Vector2& spawnPosition);
     void ResetSpawnState();
+    void BeginRoomReset();
+    void CancelReturnToOrigin();
 
     const std::string& GetName() const { return name_; }
     int GetId() const { return id_; }
@@ -78,17 +84,22 @@ public:
     void HealToFull();
 
 protected:
+    // Mantém entidade dentro do layout considerando portas/corredores.
     Vector2 ResolveRoomCollision(const RoomLayout& layout, const Vector2& desiredPosition) const;
+    // Detecta se a posição ainda está dentro da área útil da sala.
     bool IsInsideRoomBounds(const RoomLayout& layout, const Vector2& position) const;
 
+    // Controla ciclo de fade-in/fade-out e flags de ativação.
     void BeginFadeIn();
     void ForceDeactivate();
     float UpdateLifecycle(float deltaSeconds, bool playerInSameRoom);
 
+    // Gerenciamento de retorno ao ponto de spawn quando sai da sala.
     void StartReturnToOrigin();
     bool IsReturningToOrigin() const { return returningToOrigin_; }
     void MoveTowardsOriginal(float deltaSeconds, const RoomLayout& layout);
 
+    // Movimentação auxiliar em direção a um alvo.
     Vector2 MoveTowards(const Vector2& target, float deltaSeconds, float speed) const;
 
     Room* GetRoom() const { return room_; }

@@ -5,6 +5,7 @@
 
 #include <array>
 
+// Responsável por desenhar salas, props e portas usando Raylib.
 class RoomRenderer {
 public:
     RoomRenderer();
@@ -25,6 +26,7 @@ public:
                         float alpha) const;
 
 private:
+    // Helpers que carregam/desenham props individuais dentro da sala.
     void DrawForgeForRoom(const Room& room, bool isActive, float visibility) const;
     void DrawForgeSprite(const ForgeInstance& forge, bool isActive, float visibility) const;
     void DrawShopForRoom(const Room& room, bool isActive, float visibility) const;
@@ -32,11 +34,13 @@ private:
     void DrawChestForRoom(const Room& room, bool isActive, float visibility) const;
     void DrawChestSprite(const Chest& chest, bool isActive, float visibility) const;
 
+    // Texturas frontais/laterais das portas por bioma.
     struct DoorTextureSet {
         Texture2D front{};
         Texture2D side{};
     };
 
+    // Seleciona e descarrega texturas conforme o bioma atual.
     const DoorTextureSet& DoorTexturesForBiome(BiomeType biome) const;
     void UnloadDoorTextures();
 

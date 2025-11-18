@@ -19,6 +19,7 @@ struct InventoryUIState;
 class Chest;
 class CommonChest;
 
+// Define qual tela está ativa no painel (inventário, forja, loja ou baú).
 enum class InventoryViewMode {
     Inventory,
     Forge,
@@ -26,6 +27,7 @@ enum class InventoryViewMode {
     Chest
 };
 
+// Agrupa itens em categorias para filtros, regras de pilha e crafting.
 enum class ItemCategory {
     None,
     Weapon,
@@ -37,6 +39,7 @@ enum class ItemCategory {
 
 using ItemAbilityHandler = std::function<bool(InventoryUIState&, PlayerCharacter&, int)>;
 
+// Representa habilidade ativa vinculada a um item (ex.: poção ou artefato).
 struct ItemActiveAbility {
     std::string name;
     std::string description;
@@ -47,6 +50,7 @@ struct ItemActiveAbility {
     bool IsValid() const { return static_cast<bool>(handler); }
 };
 
+// Metadados de um item disponível no protótipo do inventário.
 struct ItemDefinition {
     int id{0};
     std::string name;
@@ -64,6 +68,7 @@ struct ItemDefinition {
     bool HasActiveAbility() const { return activeAbility.IsValid(); }
 };
 
+// Estado completo da interface de inventário (slots, seleção, forja, loja, baú).
 struct InventoryUIState {
     bool open{false};
     InventoryViewMode mode{InventoryViewMode::Inventory};
@@ -142,7 +147,9 @@ struct InventoryUIState {
     std::vector<ItemCategory> chestTypes;
 };
 
+// Preenche o estado com dados fictícios enquanto o conteúdo real não existe.
 void InitializeInventoryUIDummyData(InventoryUIState& state);
+// Renderiza o painel completo, incluindo informações do jogador e lojas ativas.
 void RenderInventoryUI(InventoryUIState& state,
                        const PlayerCharacter& player,
                        const WeaponState& leftWeapon,
@@ -150,19 +157,33 @@ void RenderInventoryUI(InventoryUIState& state,
                        Vector2 screenSize,
                        ShopInstance* activeShop);
 
+// Agrega bônus de equipamentos equipados para aplicar nas estatísticas.
 PlayerAttributes GatherEquipmentBonuses(const InventoryUIState& state);
+// Sincroniza atributos do jogador com o que está equipado no inventário.
 bool SyncEquipmentBonuses(const InventoryUIState& state, PlayerCharacter& player);
 
+// Recupera definição de item pelo id (retorna nullptr se inexistente).
 const ItemDefinition* GetItemDefinition(const InventoryUIState& state, int id);
+// Define item de um slot específico de equipamento.
 void SetEquipmentSlot(InventoryUIState& state, int index, int itemId);
 
+// Busca blueprint de arma associado ao item informado.
 const WeaponBlueprint* ResolveWeaponBlueprint(const InventoryUIState& state, int itemId);
+// Serializa conteúdo da forja ativa para interface.
 void LoadForgeContents(InventoryUIState& state, const ForgeInstance& forge);
+// Persiste alterações da UI de forja de volta ao mundo.
 void StoreForgeContents(InventoryUIState& state, ForgeInstance& forge);
+// Sincroniza vitrine da loja com o estado atual da sala.
 void LoadShopContents(InventoryUIState& state, ShopInstance& shop);
+// Grava mudanças feitas na UI sobre a loja em memória do jogo.
 void StoreShopContents(const InventoryUIState& state, ShopInstance& shop);
+// Sorteia novos itens e preços para a loja, opcionalmente já vinculando ShopInstance.
 void RollShopInventory(InventoryUIState& state, ShopInstance* shop = nullptr);
+// Reseta variáveis temporárias da tela de troca com NPC.
 void ResetShopTradeState(InventoryUIState& state);
+// Carrega os itens de um baú concreto para a UI de inventário.
 void LoadChestContents(InventoryUIState& state, Chest& chest);
+// Atualiza listas/textos exibidos na aba de baú.
 void RefreshChestView(InventoryUIState& state);
+// Garante que baús comuns possuam loot mínimo antes de abrir a UI.
 void EnsureCommonChestLoot(CommonChest& chest, const InventoryUIState& state);

@@ -12,6 +12,7 @@
 
 namespace {
 
+// Converte coordenadas de tiles para pixels ao calcular áreas de spawn.
 Rectangle TileRectToPixels(const TileRect& rect) {
     return Rectangle{
         static_cast<float>(rect.x * TILE_SIZE),
@@ -21,6 +22,7 @@ Rectangle TileRectToPixels(const TileRect& rect) {
     };
 }
 
+// Helper para montar EnemyConfig legível.
 EnemyConfig MakeConfig(int id,
                        const std::string& name,
                        BiomeType biome,
@@ -39,6 +41,7 @@ EnemyConfig MakeConfig(int id,
     return config;
 }
 
+// Preenche dados de spritesheet a partir da pasta base.
 EnemySpriteInfo MakeSpriteInfo(const std::string& basePath) {
     EnemySpriteInfo info{};
         info.idleSpritePath = basePath + "/idle_sprite";
@@ -56,6 +59,7 @@ EnemySpawner::EnemySpawner() {
     RegisterDefaults();
 }
 
+// Registra os tipos básicos de inimigos por bioma.
 void EnemySpawner::RegisterDefaults() {
     templates_.clear();
 
@@ -105,6 +109,7 @@ void EnemySpawner::RegisterDefaults() {
     templates_[BiomeType::Mansion].push_back(mansionMelee);
 }
 
+// Cria inimigos aleatórios baseados no bioma e área da sala.
 void EnemySpawner::SpawnEnemiesForRoom(Room& room,
                                        std::vector<std::unique_ptr<Enemy>>& storage,
                                        std::mt19937& rng) const {

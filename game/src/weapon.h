@@ -6,23 +6,27 @@
 #include "player.h"
 #include "projectile.h"
 
+// Define dano base da arma e quanto escala com o atributo principal.
 struct WeaponDamageParams {
     float baseDamage{0.0f};
     float attributeScaling{0.0f};
 };
 
+// Controla cadência: ataques por segundo base, ganho por Destreza e limite superior.
 struct WeaponCadenceParams {
     float baseAttacksPerSecond{0.0f};
     float dexterityGainPerPoint{0.0f};
     float attacksPerSecondCap{0.0f};
 };
 
+// Valores padrão de chance/ganho de crítico e multiplicador aplicado ao dano.
 struct WeaponCriticalParams {
     float baseChance{0.0f};
     float chancePerLetalidade{0.0f};
     float multiplier{1.0f};
 };
 
+// Configuração do sprite mostrado na UI de inventário para a arma.
 struct WeaponInventorySprite {
     std::string spritePath{};
     Vector2 drawSize{56.0f, 56.0f};
@@ -30,6 +34,7 @@ struct WeaponInventorySprite {
     float rotationDegrees{0.0f};
 };
 
+// Blueprint completo utilizado tanto pela UI quanto pelo sistema de tiro.
 struct WeaponBlueprint {
     std::string name{};
     ProjectileBlueprint projectile{};
@@ -44,6 +49,7 @@ struct WeaponBlueprint {
     WeaponInventorySprite inventorySprite{};
 };
 
+// Estatísticas calculadas na hora com base nos atributos do jogador.
 struct WeaponDerivedStats {
     float damagePerShot{0.0f};
     float attackIntervalSeconds{0.0f};
@@ -51,11 +57,13 @@ struct WeaponDerivedStats {
     float criticalMultiplier{1.0f};
 };
 
+// Estado runtime de uma arma empunhada (cooldown, stats aplicados, etc.).
 struct WeaponState {
     const WeaponBlueprint* blueprint{nullptr};
     float cooldownTimer{0.0f};
     WeaponDerivedStats derived{};
 
+    // Atualiza temporizador de cooldown a cada quadro.
     void Update(float deltaSeconds) {
         if (cooldownTimer > 0.0f) {
             cooldownTimer -= deltaSeconds;
@@ -65,6 +73,7 @@ struct WeaponState {
         }
     }
 
+    // Recalcula dano/cadência/crítico considerando atributos atuais do jogador.
     void RecalculateDerivedStats(const PlayerCharacter& player) {
         derived = WeaponDerivedStats{};
 
@@ -98,10 +107,12 @@ struct WeaponState {
         }
     }
 
+    // Informa se a arma pode disparar novamente (cooldown zerado).
     bool CanFire() const {
         return blueprint != nullptr && cooldownTimer <= 0.0f;
     }
 
+    // Reinicia cooldown baseado nas stats derivadas e retorna intervalo aplicado.
     float ResetCooldown() {
         if (blueprint == nullptr) {
             return 0.0f;
@@ -115,6 +126,7 @@ struct WeaponState {
         return interval;
     }
 
+    // Garante que o cooldown mínimo atual seja pelo menos o valor informado.
     void EnforceMinimumCooldown(float seconds) {
         if (blueprint == nullptr || seconds <= 0.0f) {
             return;
@@ -125,6 +137,7 @@ struct WeaponState {
         }
     }
 
+    // Propaga valores calculados (dano/crítico) para o projétil antes de spawnar.
     void ApplyDerivedToProjectile(ProjectileBlueprint& projectile) const {
         if (derived.damagePerShot > 0.0f) {
             projectile.common.damage = derived.damagePerShot;

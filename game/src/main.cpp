@@ -67,6 +67,7 @@ struct DamageNumber {
     Vector2 position{};
     float amount{0.0f};
     bool isCritical{false};
+    bool isReward{false};
     float age{0.0f};
     float lifetime{1.0f};
 };
@@ -143,13 +144,20 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
             displayValue = 0;
         }
 
-        std::string text = std::to_string(displayValue);
-        if (number.isCritical) {
-            text.push_back('!');
+        std::string text;
+        if (number.isReward) {
+            text = "+" + std::to_string(displayValue);
+        } else {
+            text = std::to_string(displayValue);
+            if (number.isCritical) {
+                text.push_back('!');
+            }
         }
 
         const float fontSize = number.isCritical ? 30.0f : 24.0f;
-        Color baseColor = number.isCritical ? Color{255, 120, 120, 255} : Color{235, 235, 240, 255};
+        Color baseColor = number.isReward
+            ? Color{255, 227, 96, 255}
+            : (number.isCritical ? Color{255, 120, 120, 255} : Color{235, 235, 240, 255});
         baseColor.a = static_cast<unsigned char>(std::clamp(alpha, 0.0f, 1.0f) * 255.0f);
 
         Vector2 measure = MeasureTextEx(font, text.c_str(), fontSize, 0.0f);
@@ -163,10 +171,12 @@ void PushDamageNumber(std::vector<DamageNumber>& numbers,
                       const Vector2& position,
                       float amount,
                       bool isCritical,
-                      float lifetime = 1.0f) {
+                      float lifetime = 1.0f,
+                      bool isReward = false) {
     DamageNumber number{};
     number.amount = amount;
     number.isCritical = isCritical;
+    number.isReward = isReward;
     number.lifetime = lifetime;
     number.position = position;
     numbers.push_back(number);
@@ -1705,9 +1715,20 @@ int main() {
             }
             bool playerInside = (enemyEntry.first == roomManager.GetCurrentCoords());
             for (auto& enemyPtr : enemyEntry.second) {
-                if (!enemyPtr || !enemyPtr->IsAlive()) {
+                if (!enemyPtr) {
                     continue;
                 }
+
+                if (!playerInside && enemyPtr->IsAlive()) {
+                    enemyPtr->BeginRoomReset();
+                } else if (playerInside) {
+                    enemyPtr->CancelReturnToOrigin();
+                }
+
+                if (!enemyPtr->IsAlive()) {
+                    continue;
+                }
+
                 EnemyUpdateContext enemyContext{
                     delta,
                     player,
@@ -1781,43 +1802,60 @@ int main() {
                 continue;
             }
             auto& enemyList = enemyEntry.second;
-            for (auto& enemyPtr : enemyList) {
-                if (!enemyPtr || !enemyPtr->IsAlive() || !enemyPtr->HasCompletedFade()) {
-                    continue;
-                }
-                auto hits = projectileSystem.CollectDamageEvents(
-                    enemyPtr->GetPosition(),
-                    enemyPtr->GetCollisionRadius(),
-                    reinterpret_cast<std::uintptr_t>(enemyPtr.get()),
-                    0.0f);
-                if (hits.empty()) {
-                    continue;
-                }
-                for (const auto& hit : hits) {
-                    float modifiedDamage = hit.amount * outgoingDamageMultiplier;
-                    if (modifiedDamage <= 0.0f) {
+            bool playerInside = (enemyEntry.first == roomManager.GetCurrentCoords());
+
+            if (playerInside) {
+                for (auto& enemyPtr : enemyList) {
+                    if (!enemyPtr || !enemyPtr->IsAlive() || !enemyPtr->HasCompletedFade()) {
                         continue;
                     }
+                    auto hits = projectileSystem.CollectDamageEvents(
+                        enemyPtr->GetPosition(),
+                        enemyPtr->GetCollisionRadius(),
+                        reinterpret_cast<std::uintptr_t>(enemyPtr.get()),
+                        0.0f);
+                    if (hits.empty()) {
+                        continue;
+                    }
+                    for (const auto& hit : hits) {
+                        float modifiedDamage = hit.amount * outgoingDamageMultiplier;
+                        if (modifiedDamage <= 0.0f) {
+                            continue;
+                        }
 
-                    float healthBefore = enemyPtr->GetCurrentHealth();
-                    bool died = enemyPtr->TakeDamage(modifiedDamage);
-                    float actualDamage = std::max(0.0f, healthBefore - enemyPtr->GetCurrentHealth());
-                    if (actualDamage > 0.0f) {
-                        PushDamageNumber(damageNumbers, enemyPtr->GetPosition(), actualDamage, hit.isCritical);
+                        float healthBefore = enemyPtr->GetCurrentHealth();
+                        bool died = enemyPtr->TakeDamage(modifiedDamage);
+                        float actualDamage = std::max(0.0f, healthBefore - enemyPtr->GetCurrentHealth());
+                        if (actualDamage > 0.0f) {
+                            PushDamageNumber(damageNumbers, enemyPtr->GetPosition(), actualDamage, hit.isCritical);
 
-                        if (lifeStealPercent > 0.0f) {
-                            float healAmount = actualDamage * lifeStealPercent;
-                            if (healAmount > 0.0f) {
-                                player.currentHealth = std::min(player.derivedStats.maxHealth, player.currentHealth + healAmount);
+                            if (lifeStealPercent > 0.0f) {
+                                float healAmount = actualDamage * lifeStealPercent;
+                                if (healAmount > 0.0f) {
+                                    player.currentHealth = std::min(player.derivedStats.maxHealth, player.currentHealth + healAmount);
+                                }
                             }
                         }
-                    }
 
-                    if (died) {
-                        break;
+                        if (died) {
+                            // Recompensa pequenas moedas ao eliminar inimigos e mostra feedback visual.
+                            int coinsEarned = GetRandomValue(1, 5);
+                            inventoryUI.coins += coinsEarned;
+                            Vector2 rewardPosition = enemyPtr->GetPosition();
+                            rewardPosition.y -= 40.0f;
+                            PushDamageNumber(
+                                damageNumbers,
+                                rewardPosition,
+                                static_cast<float>(coinsEarned),
+                                false,
+                                1.2f,
+                                true);
+                            break;
+                        }
                     }
                 }
             }
+
             enemyList.erase(
                 std::remove_if(enemyList.begin(), enemyList.end(),
                                [](const std::unique_ptr<Enemy>& enemy) {

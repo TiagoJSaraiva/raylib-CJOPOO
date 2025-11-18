@@ -12,6 +12,8 @@
 
 namespace {
 
+// Utilitários para restringir inimigos às áreas caminháveis da sala.
+
 constexpr float kReturnArrivalThreshold = 4.0f;
 constexpr float kMinSpawnRate = 0.01f;
 constexpr float kMinSpeed = 20.0f;
@@ -25,6 +27,7 @@ Rectangle TileRectToPixels(const TileRect& rect) {
     };
 }
 
+// Representa um retângulo válido (sala/porta/corredor) para movimentação.
 struct AccessibleRegion {
     Rectangle clampRect;
     Rectangle detectRect;
@@ -32,6 +35,7 @@ struct AccessibleRegion {
     bool isCorridor{false};
 };
 
+// Verifica se o retângulo do inimigo cabe dentro da região alvo.
 bool IsBoxInsideRect(const Rectangle& rect,
                      const Vector2& position,
                      float halfWidth,
@@ -47,6 +51,7 @@ bool IsBoxInsideRect(const Rectangle& rect,
     return position.x >= minX && position.x <= maxX && position.y >= minY && position.y <= maxY;
 }
 
+// Limita posição para permanecer dentro da região informada.
 Vector2 ClampBoxToRect(const Rectangle& rect,
                        const Vector2& position,
                        float halfWidth,
@@ -76,6 +81,7 @@ Vector2 ClampBoxToRect(const Rectangle& rect,
     return clamped;
 }
 
+// Garante que a entidade permaneça em tiles acessíveis, corredores e portas.
 Vector2 ClampEntityToAccessibleArea(const RoomLayout& layout,
                                     const Vector2& position,
                                     float halfWidth,
@@ -277,6 +283,7 @@ Vector2 ClampEntityToAccessibleArea(const RoomLayout& layout,
 
 } // namespace
 
+// Copia dados do blueprint e aplica limites mínimos.
 Enemy::Enemy(const EnemyConfig& config)
         : name_(config.name),
             id_(config.id),
@@ -290,6 +297,7 @@ Enemy::Enemy(const EnemyConfig& config)
         collisionHalfHeight_ = std::max(16.0f, collisionRadius_ * 0.8f);
 }
 
+// Atribui sala e reseta estado para spawn inicial.
 void Enemy::Initialize(Room& room, const Vector2& spawnPosition) {
     room_ = &room;
     roomCoords_ = room.GetCoords();
@@ -299,6 +307,7 @@ void Enemy::Initialize(Room& room, const Vector2& spawnPosition) {
     ResetSpawnState();
 }
 
+// Recomeça flags de fade/dano para reaproveitar a instância.
 void Enemy::ResetSpawnState() {
     active_ = false;
     fadeStarted_ = false;
@@ -308,6 +317,19 @@ void Enemy::ResetSpawnState() {
     hasTakenDamage_ = false;
 }
 
+void Enemy::BeginRoomReset() {
+    HealToFull();
+    hasTakenDamage_ = false;
+    if (!returningToOrigin_) {
+        StartReturnToOrigin();
+    }
+}
+
+void Enemy::CancelReturnToOrigin() {
+    returningToOrigin_ = false;
+}
+
+// Aplica dano e retorna true quando a vida chega a zero.
 bool Enemy::TakeDamage(float amount) {
     if (!fadeCompleted_ || !IsAlive()) {
         return false;
@@ -320,6 +342,7 @@ bool Enemy::TakeDamage(float amount) {
     return currentHealth_ <= 0.0f;
 }
 
+// Restaura vida ao máximo definido no config.
 void Enemy::HealToFull() {
     currentHealth_ = maxHealth_;
 }
@@ -345,6 +368,7 @@ void Enemy::ForceDeactivate() {
     active_ = false;
 }
 
+// Avança efeito de fade e flag ativa com base na presença do jogador.
 float Enemy::UpdateLifecycle(float deltaSeconds, bool playerInSameRoom) {
     if (playerInSameRoom && !fadeStarted_) {
         BeginFadeIn();
@@ -370,6 +394,7 @@ void Enemy::StartReturnToOrigin() {
     returningToOrigin_ = true;
 }
 
+// Move lentamente de volta ao ponto de origem quando saiu da área válida.
 void Enemy::MoveTowardsOriginal(float deltaSeconds, const RoomLayout& layout) {
     if (!returningToOrigin_) {
         return;
@@ -384,6 +409,7 @@ void Enemy::MoveTowardsOriginal(float deltaSeconds, const RoomLayout& layout) {
     }
 }
 
+// Movimento auxiliar com velocidade limitada.
 Vector2 Enemy::MoveTowards(const Vector2& target, float deltaSeconds, float speed) const {
     Vector2 delta = Vector2Subtract(target, position_);
     float distance = Vector2Length(delta);

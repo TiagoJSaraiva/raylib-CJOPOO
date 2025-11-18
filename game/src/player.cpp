@@ -4,6 +4,7 @@
 #include <cmath>
 
 namespace {
+// Constantes base usadas nos cálculos de atributos derivados.
 constexpr float kBaseHealth = 100.0f;
 constexpr float kHealthPerVigor = 12.0f;
 constexpr float kBaseMovementSpeed = 250.0f;
@@ -18,6 +19,7 @@ constexpr float kMaxDodgeChance = 0.6f;
 constexpr float kCursePercent = 0.01f;
 } // namespace
 
+// Recalcula atributos agregados e estatísticas derivadas considerando itens e buffs temporários.
 void PlayerCharacter::RecalculateStats() {
     totalAttributes = AddAttributes(baseAttributes, equipmentBonuses);
     totalAttributes = AddAttributes(totalAttributes, weaponBonuses);
@@ -25,6 +27,7 @@ void PlayerCharacter::RecalculateStats() {
 
     derivedStats.maxHealth = kBaseHealth + kHealthPerVigor * static_cast<float>(totalAttributes.primary.vigor);
 
+    // Velocidade de movimento cresce multiplicativamente e é limitada por um teto.
     float speedMultiplier = 1.0f + kMovementSpeedPerVelocidade * static_cast<float>(totalAttributes.primary.velocidade);
     speedMultiplier = std::clamp(speedMultiplier, 0.0f, kMovementSpeedMaxMultiplier);
     derivedStats.movementSpeed = kBaseMovementSpeed * speedMultiplier;
@@ -51,9 +54,11 @@ void PlayerCharacter::RecalculateStats() {
     float dealtDivisor = std::max(0.1f, 1.0f + curse * kCursePercent);
     derivedStats.damageDealtMultiplierFromCurse = 1.0f / dealtDivisor;
 
+    // Garante que a vida atual não passe do novo máximo após aplicar buffs.
     currentHealth = std::min(currentHealth, derivedStats.maxHealth);
 }
 
+// Retorna o valor do atributo ofensivo que corresponde ao tipo de arma informado.
 int PlayerCharacter::GetAttackAttributeValue(WeaponAttributeKey key) const {
     switch (key) {
         case WeaponAttributeKey::Constitution:
@@ -70,6 +75,7 @@ int PlayerCharacter::GetAttackAttributeValue(WeaponAttributeKey key) const {
     return 0;
 }
 
+// Cria o personagem padrão do protótipo com aparência e atributos iniciais.
 PlayerCharacter CreateKnightCharacter() {
     PlayerCharacter knight{};
     knight.id = "knight";
@@ -89,6 +95,7 @@ PlayerCharacter CreateKnightCharacter() {
     knight.equipmentBonuses.primary.vigor = 2;
     knight.equipmentBonuses.secondary.reducaoDano = 5.0f;
 
+    // Aplica bônus iniciais antes de liberar o personagem para uso.
     knight.RecalculateStats();
     knight.currentHealth = knight.derivedStats.maxHealth;
     knight.currentArmor = 0.0f;

@@ -8,6 +8,7 @@
 
 #include "room.h"
 
+// Responsável por gerar, armazenar e navegar entre salas do mapa.
 class RoomManager {
 public:
     explicit RoomManager(std::uint64_t worldSeed);
