@@ -68,6 +68,7 @@ struct DoorRenderData {
     Vector2 promptAnchor{};
     BiomeType biome{BiomeType::Unknown};
     bool drawAfterPlayer{false};
+    bool fromActiveRoom{false};
 };
 
 struct DoorMaskData {
@@ -1197,7 +1198,6 @@ int main() {
     trainingDummy.position = Vector2Add(playerPosition, trainingDummyOffset);
     trainingDummy.radius = 52.0f;
 
-    Room* previousRoomForMasks = nullptr;
 
     std::vector<DamageNumber> damageNumbers;
     std::vector<DoorRenderData> doorRenderData;
@@ -1301,6 +1301,9 @@ int main() {
             desiredPosition = ResolveCollisionWithChest(*chest, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
         for (const DoorRenderData& doorData : doorRenderData) {
+            if (!doorData.fromActiveRoom) {
+                continue;
+            }
             desiredPosition = ResolveCollisionWithRectangle(doorData.hitbox, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
 
@@ -1322,13 +1325,11 @@ int main() {
 
             if (colliding && movingToward && shouldTransition) {
                 SaveActiveStations(inventoryUI, roomManager);
-                Room* originRoomForTransition = currentRoomPtr;
                 if (roomManager.MoveToNeighbor(door.direction)) {
                     Room& newRoom = roomManager.GetCurrentRoom();
                     std::cout << "Entered room at (" << newRoom.GetCoords().x << "," << newRoom.GetCoords().y << ")" << std::endl;
                     roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
 
-                    previousRoomForMasks = originRoomForTransition;
                     currentRoomPtr = &newRoom;
                     movedRoom = true;
                 }
@@ -1421,70 +1422,102 @@ int main() {
             }
         }
 
+        auto resolveRoomVisibility = [&](const Room& room) {
+            if (room.GetCoords() == roomManager.GetCurrentCoords()) {
+                return 1.0f;
+            }
+            if (room.IsVisited()) {
+                return 1.0f;
+            }
+            auto it = roomRevealStates.find(room.GetCoords());
+            if (it != roomRevealStates.end()) {
+                return std::clamp(it->second.alpha, 0.0f, 1.0f);
+            }
+            return 0.0f;
+        };
+
         doorRenderData.clear();
-        doorRenderData.reserve(interactionRoom.Layout().doors.size());
         doorMaskData.clear();
-        doorMaskData.reserve(interactionRoom.Layout().doors.size());
-        RoomLayout& currentLayout = interactionRoom.Layout();
-        BiomeType currentBiome = interactionRoom.GetBiome();
-        for (Doorway& door : currentLayout.doors) {
-            if (door.sealed || !door.targetGenerated || !door.doorState) {
+        doorRenderData.reserve(roomManager.Rooms().size() * 4);
+        doorMaskData.reserve(roomManager.Rooms().size() * 4);
+        std::unordered_set<DoorInstance*> animatedDoorInstances;
+        animatedDoorInstances.reserve(16);
+
+        for (auto& entry : roomManager.Rooms()) {
+            Room& room = *entry.second;
+            float roomVisibility = resolveRoomVisibility(room);
+            if (roomVisibility <= 0.0f) {
                 continue;
             }
 
-            DoorInstance& doorState = *door.doorState;
-            Rectangle doorHitbox = ComputeDoorHitbox(currentLayout, door);
-            if (doorState.opening && !doorState.open) {
-                doorState.fadeProgress = std::min(DOOR_FADE_DURATION, doorState.fadeProgress + delta);
-                if (doorState.fadeProgress >= DOOR_FADE_DURATION) {
-                    doorState.fadeProgress = DOOR_FADE_DURATION;
-                    doorState.open = true;
-                    doorState.maskActive = false;
-                }
-            }
+            bool isActiveRoom = (room.GetCoords() == interactionCoords);
+            RoomLayout& layout = room.Layout();
+            BiomeType biome = room.GetBiome();
 
-            float doorAlpha = DoorVisibilityAlpha(doorState);
-            if (!doorState.open) {
-                float revealAmount = 1.0f - doorAlpha;
-                if (revealAmount > 0.0f) {
-                    RoomRevealState& revealState = roomRevealStates[door.targetCoords];
-                    revealState.alpha = std::max(revealState.alpha, revealAmount);
+            for (Doorway& door : layout.doors) {
+                if (door.sealed || !door.targetGenerated || !door.doorState) {
+                    continue;
                 }
-            }
 
-            if (!doorState.open && doorState.maskActive) {
-                DoorMaskData mask{};
-                mask.alpha = doorAlpha;
-                if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0) {
-                    Rectangle corridorMask = TileRectToPixels(door.corridorTiles);
-                    if (ClipCorridorMaskBehindDoor(door.direction, doorHitbox, corridorMask)) {
-                        if (door.direction == Direction::East || door.direction == Direction::West) {
-                            const float wallThickness = static_cast<float>(TILE_SIZE);
-                            corridorMask.y -= wallThickness;
-                            corridorMask.height += wallThickness * 2.0f;
+                DoorInstance& doorState = *door.doorState;
+                DoorInstance* instancePtr = door.doorState.get();
+                Rectangle doorHitbox = ComputeDoorHitbox(layout, door);
+
+                if (doorState.opening && !doorState.open) {
+                    if (animatedDoorInstances.insert(instancePtr).second) {
+                        doorState.fadeProgress = std::min(DOOR_FADE_DURATION, doorState.fadeProgress + delta);
+                        if (doorState.fadeProgress >= DOOR_FADE_DURATION) {
+                            doorState.fadeProgress = DOOR_FADE_DURATION;
+                            doorState.open = true;
+                            doorState.maskActive = false;
                         }
-                        mask.hasCorridorMask = true;
-                        mask.corridorMask = corridorMask;
                     }
                 }
-                if (mask.hasCorridorMask) {
-                    doorMaskData.push_back(mask);
+
+                float doorAlpha = DoorVisibilityAlpha(doorState);
+                if (!doorState.open) {
+                    float revealAmount = 1.0f - doorAlpha;
+                    if (revealAmount > 0.0f) {
+                        RoomRevealState& revealState = roomRevealStates[door.targetCoords];
+                        revealState.alpha = std::max(revealState.alpha, revealAmount);
+                    }
                 }
-            }
 
-            if (doorState.open) {
-                continue;
-            }
+                if (!doorState.open && doorState.maskActive) {
+                    DoorMaskData mask{};
+                    mask.alpha = doorAlpha * roomVisibility;
+                    if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0) {
+                        Rectangle corridorMask = TileRectToPixels(door.corridorTiles);
+                        if (ClipCorridorMaskBehindDoor(door.direction, doorHitbox, corridorMask)) {
+                            if (door.direction == Direction::East || door.direction == Direction::West) {
+                                const float wallThickness = static_cast<float>(TILE_SIZE);
+                                corridorMask.y -= wallThickness;
+                                corridorMask.height += wallThickness * 2.0f;
+                            }
+                            mask.hasCorridorMask = true;
+                            mask.corridorMask = corridorMask;
+                        }
+                    }
+                    if (mask.hasCorridorMask) {
+                        doorMaskData.push_back(mask);
+                    }
+                }
 
-            DoorRenderData data{};
-            data.doorway = &door;
-            data.instance = &doorState;
-            data.biome = currentBiome;
-            data.frontView = (door.direction == Direction::North || door.direction == Direction::South);
-            data.hitbox = doorHitbox;
-            data.alpha = doorAlpha;
-            data.drawAfterPlayer = (data.hitbox.y > playerPosition.y);
-            doorRenderData.push_back(data);
+                if (doorState.open) {
+                    continue;
+                }
+
+                DoorRenderData data{};
+                data.doorway = &door;
+                data.instance = &doorState;
+                data.biome = biome;
+                data.frontView = (door.direction == Direction::North || door.direction == Direction::South);
+                data.hitbox = doorHitbox;
+                data.alpha = doorAlpha * roomVisibility;
+                data.drawAfterPlayer = (data.hitbox.y > playerPosition.y);
+                data.fromActiveRoom = isActiveRoom;
+                doorRenderData.push_back(data);
+            }
         }
 
         bool debugForgeActive = debugConsole.inventoryContext == DebugConsoleState::InventoryContext::Forge;
@@ -1691,6 +1724,9 @@ int main() {
         for (DoorRenderData& doorData : doorRenderData) {
             doorData.showPrompt = false;
             doorData.isLocked = false;
+            if (!doorData.fromActiveRoom) {
+                continue;
+            }
             if (doorData.instance == nullptr) {
                 continue;
             }
@@ -1727,20 +1763,6 @@ int main() {
 
         BeginDrawing();
         ClearBackground(Color{24, 26, 33, 255});
-
-        auto resolveRoomVisibility = [&](const Room& room) {
-            if (room.GetCoords() == roomManager.GetCurrentCoords()) {
-                return 1.0f;
-            }
-            if (room.IsVisited()) {
-                return 1.0f;
-            }
-            auto it = roomRevealStates.find(room.GetCoords());
-            if (it != roomRevealStates.end()) {
-                return std::clamp(it->second.alpha, 0.0f, 1.0f);
-            }
-            return 0.0f;
-        };
 
         BeginMode2D(camera);
         for (const auto& entry : roomManager.Rooms()) {
