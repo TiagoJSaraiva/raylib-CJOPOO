@@ -21,16 +21,29 @@
 #
 #**************************************************************************************************
 
-.PHONY: all clean
+.PHONY: all clean raylib_build test
 
 # Define required raylib variables
 PROJECT_NAME       ?= game
-RAYLIB_VERSION     ?= 3.0.0
-RAYLIB_API_VERSION ?= 300
-RAYLIB_PATH        ?= C:/raylib/raylib
+TEST_BIN           = tests/inventory_rules_tests$(EXT)
+RAYLIB_VERSION     := 5.5.0
+RAYLIB_API_VERSION := 550
+RAYLIB_PATH        := vendor/raylib
+RAYLIB_SRC_PATH    := $(RAYLIB_PATH)/src
+RAYLIB_RELEASE_PATH := $(RAYLIB_SRC_PATH)
+RAYLIB_CC          ?= gcc
+RAYLIB_AR          ?= ar
 
-# Define compiler path on Windows
-COMPILER_PATH      ?= C:/raylib/w64devkit/bin
+# Optional directory added to PATH for the external MinGW toolchain.
+COMPILER_PATH      ?=
+
+ifneq ($(strip $(COMPILER_PATH)),)
+    ifeq ($(OS),Windows_NT)
+        export PATH := $(COMPILER_PATH);$(PATH)
+    else
+        export PATH := $(COMPILER_PATH):$(PATH)
+    endif
+endif
 
 # Define default options
 # One of PLATFORM_DESKTOP, PLATFORM_RPI, PLATFORM_ANDROID, PLATFORM_WEB
@@ -70,7 +83,7 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     # ifeq ($(UNAME),Msys) -> Windows
     ifeq ($(OS),Windows_NT)
         PLATFORM_OS=WINDOWS
-        export PATH := $(COMPILER_PATH):$(PATH)
+        EXT = .exe
     else
         UNAMEOS=$(shell uname)
         ifeq ($(UNAMEOS),Linux)
@@ -100,22 +113,6 @@ ifeq ($(PLATFORM),PLATFORM_RPI)
     endif
 endif
 
-# RAYLIB_PATH adjustment for different platforms.
-# If using GNU make, we can get the full path to the top of the tree. Windows? BSD?
-# Required for ldconfig or other tools that do not perform path expansion.
-ifeq ($(PLATFORM),PLATFORM_DESKTOP)
-    ifeq ($(PLATFORM_OS),LINUX)
-        RAYLIB_PREFIX ?= ..
-        RAYLIB_PATH    = $(realpath $(RAYLIB_PREFIX))
-    endif
-endif
-# Default path for raylib on Raspberry Pi, if installed in different path, update it!
-# This is not currently used by src/Makefile. Not sure of its origin or usage. Refer to wiki.
-# TODO: update install: target in src/Makefile for RPI, consider relation to LINUX.
-ifeq ($(PLATFORM),PLATFORM_RPI)
-    RAYLIB_PATH       ?= /home/pi/raylib
-endif
-
 ifeq ($(PLATFORM),PLATFORM_WEB)
     # Emscripten required variables
     EMSDK_PATH          ?= C:/emsdk
@@ -123,14 +120,12 @@ ifeq ($(PLATFORM),PLATFORM_WEB)
     CLANG_VERSION       = e$(EMSCRIPTEN_VERSION)_64bit
     PYTHON_VERSION      = 2.7.13.1_64bit\python-2.7.13.amd64
     NODE_VERSION        = 8.9.1_64bit
-    export PATH         = $(EMSDK_PATH);$(EMSDK_PATH)\clang\$(CLANG_VERSION);$(EMSDK_PATH)\node\$(NODE_VERSION)\bin;$(EMSDK_PATH)\python\$(PYTHON_VERSION);$(EMSDK_PATH)\emscripten\$(EMSCRIPTEN_VERSION);C:\raylib\MinGW\bin:$$(PATH)
+    export PATH         := $(EMSDK_PATH);$(EMSDK_PATH)\clang\$(CLANG_VERSION);$(EMSDK_PATH)\node\$(NODE_VERSION)\bin;$(EMSDK_PATH)\python\$(PYTHON_VERSION);$(EMSDK_PATH)\emscripten\$(EMSCRIPTEN_VERSION);$(PATH)
     EMSCRIPTEN          = $(EMSDK_PATH)\emscripten\$(EMSCRIPTEN_VERSION)
 endif
 
 # Define raylib release directory for compiled library.
 # RAYLIB_RELEASE_PATH points to provided binaries or your freshly built version
-RAYLIB_RELEASE_PATH 	?= $(RAYLIB_PATH)/src
-
 # EXAMPLE_RUNTIME_PATH embeds a custom runtime location of libraylib.so or other desired libraries
 # into each example binary compiled with RAYLIB_LIBTYPE=SHARED. It defaults to RAYLIB_RELEASE_PATH
 # so that these examples link at runtime with your version of libraylib.so in ../release/libs/linux
@@ -196,6 +191,7 @@ endif
 #  -Wno-missing-braces  ignore invalid warning (GCC bug 53119)
 #  -D_DEFAULT_SOURCE    use with -std=c99 on Linux and PLATFORM_WEB, required for timespec
 CFLAGS += -Wall -std=c++17 -D_DEFAULT_SOURCE -Wno-missing-braces
+WINDOWS_RESOURCE =
 
 ifeq ($(BUILD_MODE),DEBUG)
     CFLAGS += -g -O0
@@ -209,7 +205,7 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     ifeq ($(PLATFORM_OS),WINDOWS)
         # resource file contains windows executable icon and properties
         # -Wl,--subsystem,windows hides the console window
-        CFLAGS += $(RAYLIB_PATH)/src/raylib.rc.data
+        WINDOWS_RESOURCE = $(RAYLIB_PATH)/src/raylib.rc.data
     endif
     ifeq ($(PLATFORM_OS),LINUX)
         ifeq ($(RAYLIB_LIBTYPE),STATIC)
@@ -268,11 +264,6 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
         # Consider -L$(RAYLIB_H_INSTALL_PATH)
         INCLUDE_PATHS += -I/usr/local/include
     endif
-    ifeq ($(PLATFORM_OS),LINUX)
-        # Reset everything.
-        # Precedence: immediately local, installed version, raysan5 provided libs -I$(RAYLIB_H_INSTALL_PATH) -I$(RAYLIB_PATH)/release/include
-        INCLUDE_PATHS = -I$(RAYLIB_H_INSTALL_PATH) -isystem. -isystem$(RAYLIB_PATH)/src -isystem$(RAYLIB_PATH)/release/include -isystem$(RAYLIB_PATH)/src/external
-    endif
 endif
 
 # Define library paths containing required libs.
@@ -292,11 +283,6 @@ ifeq ($(PLATFORM),PLATFORM_DESKTOP)
     ifeq ($(PLATFORM_OS),BSD)
         # Consider -L$(RAYLIB_INSTALL_PATH)
         LDFLAGS += -L. -Lsrc -L/usr/local/lib
-    endif
-    ifeq ($(PLATFORM_OS),LINUX)
-        # Reset everything.
-        # Precedence: immediately local, installed version, raysan5 provided libs
-        LDFLAGS = -L. -L$(RAYLIB_INSTALL_PATH) -L$(RAYLIB_RELEASE_PATH)
     endif
 endif
 
@@ -372,51 +358,55 @@ OBJ_DIR = obj
 SRC = $(wildcard $(SRC_DIR)/*.cpp)
 OBJS = $(SRC:$(SRC_DIR)/%.cpp=$(OBJ_DIR)/%.o)
 
-# For Android platform we call a custom Makefile.Android
-ifeq ($(PLATFORM),PLATFORM_ANDROID)
-    MAKEFILE_PARAMS = -f Makefile.Android 
-    export PROJECT_NAME
-    export SRC_DIR
-else
-    MAKEFILE_PARAMS = $(PROJECT_NAME)
-endif
+# Build the pinned Raylib source copy before linking the game.
+raylib_build:
+	$(MAKE) -C $(RAYLIB_SRC_PATH) PLATFORM=$(PLATFORM) CC=$(RAYLIB_CC) AR=$(RAYLIB_AR) RAYLIB_BUILD_MODE=$(BUILD_MODE)
 
 # Default target entry
-# NOTE: We call this Makefile target or Makefile.Android target
-all:
-	$(MAKE) $(MAKEFILE_PARAMS)
+all: $(PROJECT_NAME)
+
+test: $(TEST_BIN)
+	$(TEST_BIN)
+
+$(TEST_BIN): tests/inventory_rules_tests.cpp src/inventory_rules.cpp src/inventory_rules.h src/ui_inventory.h
+	$(CC) -o $@ tests/inventory_rules_tests.cpp src/inventory_rules.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
 
 # Project target defined by PROJECT_NAME
-$(PROJECT_NAME): $(OBJS)
-	$(CC) -o $(PROJECT_NAME)$(EXT) $(OBJS) $(CFLAGS) $(INCLUDE_PATHS) $(LDFLAGS) $(LDLIBS) -D$(PLATFORM)
+$(PROJECT_NAME): $(OBJS) raylib_build
+	$(CC) -o $(PROJECT_NAME)$(EXT) $(OBJS) $(WINDOWS_RESOURCE) $(CFLAGS) $(INCLUDE_PATHS) $(LDFLAGS) $(LDLIBS) -D$(PLATFORM)
 
 # Compile source files
 # NOTE: This pattern will compile every module defined on $(OBJS)
 #%.o: %.c
-$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp
+ifeq ($(OS),Windows_NT)
+$(OBJ_DIR):
 	@cmd /C "if not exist $(OBJ_DIR) mkdir $(OBJ_DIR)"
+else
+$(OBJ_DIR):
+	@mkdir -p "$(OBJ_DIR)"
+endif
+
+$(OBJS): $(wildcard $(RAYLIB_SRC_PATH)/*.h) $(wildcard $(SRC_DIR)/*.h) $(wildcard ./inc/*.h) $(wildcard ./inc/rlcpp/*.h)
+
+$(OBJ_DIR)/%.o: $(SRC_DIR)/%.cpp | $(OBJ_DIR)
 	$(CC) -c $< -o $@ $(CFLAGS) $(INCLUDE_PATHS) -D$(PLATFORM)
 
 # Clean everything
+ifeq ($(OS),Windows_NT)
 clean:
-ifeq ($(PLATFORM),PLATFORM_DESKTOP)
-    ifeq ($(PLATFORM_OS),WINDOWS)
-		del *.o *.exe /s
-    endif
-    ifeq ($(PLATFORM_OS),LINUX)
-	find -type f -executable | xargs file -i | grep -E 'x-object|x-archive|x-sharedlib|x-executable' | rev | cut -d ':' -f 2- | rev | xargs rm -fv
-    endif
-    ifeq ($(PLATFORM_OS),OSX)
-		find . -type f -perm +ugo+x -delete
-		rm -f *.o
-    endif
+	@cmd /C "if exist $(OBJ_DIR)\*.o del /Q $(OBJ_DIR)\*.o"
+	@cmd /C "if exist $(PROJECT_NAME)$(EXT) del /Q $(PROJECT_NAME)$(EXT)"
+	@cmd /C "if exist tests\inventory_rules_tests$(EXT) del /Q tests\inventory_rules_tests$(EXT)"
+	@cmd /C "if exist vendor\raylib\src\*.o del /Q vendor\raylib\src\*.o"
+	@cmd /C "if exist vendor\raylib\src\libraylib.a del /Q vendor\raylib\src\libraylib.a"
+	@cmd /C "if exist vendor\raylib\src\libraylib.web.a del /Q vendor\raylib\src\libraylib.web.a"
+	@cmd /C "if exist vendor\raylib\src\raygui.c del /Q vendor\raylib\src\raygui.c"
+	@cmd /C "if exist vendor\raylib\src\*-protocol.h del /Q vendor\raylib\src\*-protocol.h"
+	@cmd /C "if exist vendor\raylib\src\*-protocol-code.h del /Q vendor\raylib\src\*-protocol-code.h"
+	@echo Cleaning project build outputs
+else
+clean:
+	$(RM) -f $(OBJ_DIR)/*.o $(PROJECT_NAME)$(EXT) $(TEST_BIN) $(RAYLIB_SRC_PATH)/*.o $(RAYLIB_SRC_PATH)/libraylib.a $(RAYLIB_SRC_PATH)/libraylib.web.a $(RAYLIB_SRC_PATH)/raygui.c $(RAYLIB_SRC_PATH)/*-protocol.h $(RAYLIB_SRC_PATH)/*-protocol-code.h
+	@echo Cleaning project build outputs
 endif
-ifeq ($(PLATFORM),PLATFORM_RPI)
-	find . -type f -executable -delete
-	rm -fv *.o
-endif
-ifeq ($(PLATFORM),PLATFORM_WEB)
-	del *.o *.html *.js
-endif
-	@echo Cleaning done
 

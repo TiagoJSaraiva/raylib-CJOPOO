@@ -1,2 +1,11 @@
 *.exe
 *.dsym
+/obj*/
+/tests/inventory_rules_tests
+/vendor/raylib/src/*.o
+/vendor/raylib/src/*.a
+/vendor/raylib/src/*.dll
+/vendor/raylib/src/*.dll.a
+/vendor/raylib/src/raygui.c
+/vendor/raylib/src/*-protocol.h
+/vendor/raylib/src/*-protocol-code.h

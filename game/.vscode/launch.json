@@ -8,7 +8,7 @@
           "name": "Debug",
           "type": "cppdbg",
           "request": "launch",
-          "program": "${workspaceFolder}/${workspaceFolderBasename}",
+          "program": "${workspaceFolder}/${workspaceFolderBasename}.exe",
           "args": [],
           "stopAtEntry": false,
           "cwd": "${workspaceFolder}",
@@ -23,7 +23,7 @@
             }
           ],
           "windows": {
-            "miDebuggerPath": "C:/raylib/w64devkit/bin/gdb.exe",
+            "miDebuggerPath": "gdb.exe",
           },
           "preLaunchTask": "build debug"
         },
@@ -36,11 +36,11 @@
           "cwd": "${workspaceFolder}",
           "environment": [],
           "externalConsole": false,
-          "program": "${workspaceFolder}/${workspaceFolderBasename}",
+          "program": "${workspaceFolder}/${workspaceFolderBasename}.exe",
           "MIMode": "gdb",
           "windows": {
             "program": "${workspaceFolder}/${workspaceFolderBasename}.exe",
-            "miDebuggerPath": "C:/raylib/w64devkit/bin/gdb.exe"
+            "miDebuggerPath": "gdb.exe"
           },
           "preLaunchTask": "build release",
         }

@@ -259,7 +259,7 @@ WeaponBlueprint MakeArcoSimplesWeaponBlueprint() {
     blueprint.name = "Arco Simples"; // UI label for the bow
     blueprint.projectile = MakeArcoSimplesProjectileBlueprint(); // Uses the arrow projectile above
     blueprint.cooldownSeconds = 0.35f; // Base delay between shots before cadence adjustments
-    blueprint.holdToFire = false; // Player taps for each shot (no auto-fire)
+    blueprint.holdToFire = true; // Player taps for each shot (no auto-fire)
     blueprint.attributeKey = WeaponAttributeKey::Focus; // Bow damage scales with Focus
     blueprint.damage.baseDamage = 8.5f; // Base arrow damage without Focus contributions
     blueprint.damage.attributeScaling = 1.2f; // Extra damage per point of Focus

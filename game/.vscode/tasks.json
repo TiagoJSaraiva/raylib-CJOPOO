@@ -8,15 +8,14 @@
         "type": "process",
         "command": "make",
         "args": [
+          "game",
           "PLATFORM=PLATFORM_DESKTOP",
           "BUILD_MODE=DEBUG"
         ],
         "windows": {
-          "command": "C:/raylib/w64devkit/bin/mingw32-make.exe",
+          "command": "mingw32-make",
           "args": [
-            "RAYLIB_PATH=C:/raylib/raylib",
-            "PROJECT_NAME=${workspaceFolderBasename}.exe",
-            "OBJS=src/*.cpp",
+            "game",
             "BUILD_MODE=DEBUG"
           ]
         },
@@ -30,14 +29,13 @@
         "type": "process",
         "command": "make",
         "args": [
+          "game",
           "PLATFORM=PLATFORM_DESKTOP"
         ],
         "windows": {
-          "command": "C:/raylib/w64devkit/bin/mingw32-make.exe",
+          "command": "mingw32-make",
           "args": [
-            "RAYLIB_PATH=C:/raylib/raylib",
-            "PROJECT_NAME=${workspaceFolderBasename}.exe",
-            "OBJS=src/*.cpp"
+            "game"
           ]
         },
         "problemMatcher": [
@@ -47,7 +45,7 @@
           "kind": "build",
           "isDefault": true
         },
-        "detail": "compiler: C:\\raylib\\w64devkit\\bin\\g++.exe"
+        "detail": "compiler: MinGW-w64 from PATH"
       }
     ]
 }

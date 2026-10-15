@@ -6,6 +6,8 @@
 #include "weapon_blueprints.h"
 #include "font_manager.h"
 #include "chest.h"
+#include "inventory_rules.h"
+#include "inventory_operations.h"
 
 #include <algorithm>
 #include <cmath>
@@ -21,7 +23,6 @@ namespace {
 
 // Funções auxiliares locais para localizar itens/derivar categoria.
 const ItemDefinition* FindItemDefinition(const InventoryUIState& state, int id);
-ItemCategory ItemCategoryFromId(const InventoryUIState& state, int id);
 
 } // namespace
 
@@ -42,8 +43,6 @@ constexpr float kBodyTextSpacing = 2.0f;
 constexpr int kDefaultShopStock = 1; // Non-consumables default to a single copy
 constexpr int kConsumableShopMinStock = 2;
 constexpr int kConsumableShopMaxStock = 7;
-constexpr int kConsumableMaxStack = 10;
-constexpr int kMaterialMaxStack = 99;
 constexpr int kShopSlotCount = 4;
 constexpr float kInventorySpritePadding = 0.0f;
 
@@ -238,138 +237,6 @@ std::string ItemCategoryLabel(ItemCategory category) {
         default:
             return "Item";
     }
-}
-
-// Define se o item pode empilhar no inventário/baú.
-bool IsStackableCategory(ItemCategory category) {
-    return category == ItemCategory::Consumable || category == ItemCategory::Material;
-}
-
-// Quantidade máxima por pilha em função da categoria.
-int MaxStackForCategory(ItemCategory category) {
-    if (category == ItemCategory::Consumable) {
-        return kConsumableMaxStack;
-    }
-    if (category == ItemCategory::Material) {
-        return kMaterialMaxStack;
-    }
-    return 1;
-}
-
-// Busca primeiro slot vazio dentro do baú informado.
-int FindEmptyChestSlot(const Chest& chest) {
-    const auto& slots = chest.GetSlots();
-    for (int i = 0; i < static_cast<int>(slots.size()); ++i) {
-        if (slots[static_cast<size_t>(i)].itemId == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-// Verifica se o baú suporta receber determinada quantidade do item.
-bool ChestCanAccept(const Chest& chest,
-                    const InventoryUIState& state,
-                    int itemId,
-                    int quantity) {
-    if (itemId <= 0 || quantity <= 0) {
-        return false;
-    }
-
-    ItemCategory category = ItemCategoryFromId(state, itemId);
-    bool stackable = IsStackableCategory(category);
-    const auto& slots = chest.GetSlots();
-
-    if (stackable) {
-        int maxStack = MaxStackForCategory(category);
-        int remaining = quantity;
-        int availableStackSpace = 0;
-        int emptySlots = 0;
-        for (const Chest::Slot& slot : slots) {
-            if (slot.itemId == itemId) {
-                availableStackSpace += std::max(0, maxStack - slot.quantity);
-            } else if (slot.itemId == 0) {
-                ++emptySlots;
-            }
-        }
-        return availableStackSpace + emptySlots * maxStack >= remaining;
-    }
-
-    int emptySlots = 0;
-    for (const Chest::Slot& slot : slots) {
-        if (slot.itemId == 0) {
-            ++emptySlots;
-        }
-    }
-    return emptySlots >= quantity;
-}
-
-// Deposita itens no baú lidando com pilhas/slots livres. Retorna primeiro slot usado.
-int AddItemToChest(Chest& chest,
-                   const InventoryUIState& state,
-                   int itemId,
-                   int quantity) {
-    if (!ChestCanAccept(chest, state, itemId, quantity)) {
-        return -1;
-    }
-
-    ItemCategory category = ItemCategoryFromId(state, itemId);
-    bool stackable = IsStackableCategory(category);
-    int remaining = quantity;
-    int firstSlotUsed = -1;
-    int maxStack = MaxStackForCategory(category);
-
-    auto& slots = chest.GetSlots();
-
-    if (stackable) {
-        for (int i = 0; i < static_cast<int>(slots.size()) && remaining > 0; ++i) {
-            Chest::Slot& slot = slots[static_cast<size_t>(i)];
-            if (slot.itemId != itemId) {
-                continue;
-            }
-            int addable = std::min(maxStack - slot.quantity, remaining);
-            if (addable <= 0) {
-                continue;
-            }
-            slot.quantity += addable;
-            remaining -= addable;
-            if (firstSlotUsed < 0) {
-                firstSlotUsed = i;
-            }
-        }
-
-        while (remaining > 0) {
-            int slotIndex = FindEmptyChestSlot(chest);
-            if (slotIndex < 0) {
-                break;
-            }
-            Chest::Slot& slot = slots[static_cast<size_t>(slotIndex)];
-            slot.itemId = itemId;
-            slot.quantity = std::min(maxStack, remaining);
-            remaining -= slot.quantity;
-            if (firstSlotUsed < 0) {
-                firstSlotUsed = slotIndex;
-            }
-        }
-
-        return (remaining == 0) ? firstSlotUsed : -1;
-    }
-
-    while (remaining > 0) {
-        int slotIndex = FindEmptyChestSlot(chest);
-        if (slotIndex < 0) {
-            break;
-        }
-        Chest::Slot& slot = slots[static_cast<size_t>(slotIndex)];
-        slot.itemId = itemId;
-        slot.quantity = 1;
-        --remaining;
-        if (firstSlotUsed < 0) {
-            firstSlotUsed = slotIndex;
-        }
-    }
-
-    return (remaining == 0) ? firstSlotUsed : -1;
 }
 
 // Quebra texto longo em múltiplas linhas baseando-se na largura disponível.
@@ -799,13 +666,6 @@ void DrawItemDetailPanel(InventoryUIState& state,
     EndScissorMode();
 }
 
-int CalculateItemPrice(int rarity, int baseValue) {
-    // Ajuste a formula de precos aqui: currently 20 * raridade + valor base individual.
-    int safeRarity = std::max(1, rarity);
-    int safeBase = std::max(0, baseValue);
-    return 20 * safeRarity + safeBase;
-}
-
 int GetItemValue(const InventoryUIState& state, int itemId) {
     if (itemId <= 0) {
         return 0;
@@ -878,11 +738,6 @@ std::string ItemNameFromId(const InventoryUIState& state, int id) {
     return def ? def->name : std::string();
 }
 
-ItemCategory ItemCategoryFromId(const InventoryUIState& state, int id) {
-    const ItemDefinition* def = FindItemDefinition(state, id);
-    return def ? def->category : ItemCategory::None;
-}
-
 uint64_t MakeForgeKey(int idA, int idB) {
     if (idA > idB) {
         std::swap(idA, idB);
@@ -894,7 +749,7 @@ void AppendForgeCombos(const InventoryUIState& state, int itemId, std::string& t
     if (itemId <= 0) {
         return;
     }
-    if (ItemCategoryFromId(state, itemId) == ItemCategory::Material) {
+    if (InventoryRules::ItemCategoryFromId(state, itemId) == ItemCategory::Material) {
         return;
     }
     std::string combos;
@@ -913,20 +768,6 @@ void AppendForgeCombos(const InventoryUIState& state, int itemId, std::string& t
     if (!combos.empty()) {
         text += "\nCombina com:\n" + combos;
     }
-}
-
-void EnsureInventoryMeta(InventoryUIState& state) {
-    size_t targetSize = state.inventoryItemIds.size();
-    targetSize = std::max(targetSize, state.inventoryItems.size());
-    targetSize = std::max(targetSize, state.inventoryQuantities.size());
-    targetSize = std::max(targetSize, state.inventoryTypes.size());
-    if (targetSize < 24) {
-        targetSize = 24;
-    }
-    state.inventoryItemIds.resize(targetSize, 0);
-    state.inventoryItems.resize(targetSize);
-    state.inventoryQuantities.resize(targetSize, 0);
-    state.inventoryTypes.resize(targetSize, ItemCategory::None);
 }
 
 void EnsureWeaponCapacity(InventoryUIState& state, size_t size) {
@@ -968,24 +809,6 @@ void EnsureShopCapacity(InventoryUIState& state, size_t size) {
         }
 }
 
-void SetInventorySlot(InventoryUIState& state, int index, int itemId, int quantity) {
-    EnsureInventoryMeta(state);
-    if (index < 0 || index >= static_cast<int>(state.inventoryItemIds.size())) {
-        return;
-    }
-    state.inventoryItemIds[index] = itemId;
-    if (itemId <= 0) {
-        state.inventoryItems[index].clear();
-        state.inventoryQuantities[index] = 0;
-        state.inventoryTypes[index] = ItemCategory::None;
-    } else {
-        const ItemDefinition* def = FindItemDefinition(state, itemId);
-        state.inventoryItems[index] = def ? def->name : "?";
-        state.inventoryQuantities[index] = std::max(1, quantity);
-        state.inventoryTypes[index] = def ? def->category : ItemCategory::None;
-    }
-}
-
 void SetWeaponSlot(InventoryUIState& state, int index, int itemId) {
     if (index < 0) {
         return;
@@ -1003,7 +826,7 @@ void SetShopSlot(InventoryUIState& state, int index, int itemId, int price, int 
     state.shopItemIds[index] = itemId;
     state.shopItems[index] = ItemNameFromId(state, itemId);
     state.shopPrices[index] = price;
-    state.shopTypes[index] = ItemCategoryFromId(state, itemId);
+    state.shopTypes[index] = InventoryRules::ItemCategoryFromId(state, itemId);
     state.shopStock[index] = std::max(0, stock);
 }
 
@@ -1075,146 +898,6 @@ void RollShopInventoryInternal(InventoryUIState& state, ShopInstance* shop = nul
     }
 
     state.selectedShopIndex = -1;
-}
-
-void ClearInventorySlot(InventoryUIState& state, int index) {
-    SetInventorySlot(state, index, 0, 0);
-}
-
-bool ReduceStackableSlot(InventoryUIState& state, int index, int amount) {
-    if (amount <= 0 || index < 0 || index >= static_cast<int>(state.inventoryItemIds.size())) {
-        return false;
-    }
-    int itemId = state.inventoryItemIds[index];
-    if (itemId == 0) {
-        return false;
-    }
-    ItemCategory category = ItemCategoryFromId(state, itemId);
-    if (category != ItemCategory::Consumable && category != ItemCategory::Material) {
-        return false;
-    }
-    int current = (index < static_cast<int>(state.inventoryQuantities.size())) ? state.inventoryQuantities[index] : 0;
-    if (current < amount || current <= 0) {
-        return false;
-    }
-
-    int remaining = current - amount;
-    if (remaining > 0) {
-        SetInventorySlot(state, index, itemId, remaining);
-    } else {
-        ClearInventorySlot(state, index);
-    }
-    return true;
-}
-
-bool ReduceConsumableStack(InventoryUIState& state, int index, int amount) {
-    if (amount <= 0 || index < 0 || index >= static_cast<int>(state.inventoryItemIds.size())) {
-        return false;
-    }
-    if (state.inventoryItemIds[index] == 0) {
-        return false;
-    }
-    if (ItemCategoryFromId(state, state.inventoryItemIds[index]) != ItemCategory::Consumable) {
-        return false;
-    }
-    bool reduced = ReduceStackableSlot(state, index, amount);
-    // NOTE: Reuse this helper when implementing consumable usage to decrement stacks after activating the item ability.
-    return reduced;
-}
-
-int FindEmptyInventorySlot(const InventoryUIState& state) {
-    for (int i = 0; i < static_cast<int>(state.inventoryItemIds.size()); ++i) {
-        if (state.inventoryItemIds[i] == 0) {
-            return i;
-        }
-    }
-    return -1;
-}
-
-int AddItemToInventory(InventoryUIState& state, int itemId, int quantity) {
-    if (itemId <= 0 || quantity <= 0) {
-        return -1;
-    }
-
-    EnsureInventoryMeta(state);
-    ItemCategory category = ItemCategoryFromId(state, itemId);
-    int remaining = quantity;
-    int firstSlotUsed = -1;
-
-    bool isStackable = (category == ItemCategory::Consumable || category == ItemCategory::Material);
-    int maxStack = (category == ItemCategory::Consumable) ? kConsumableMaxStack : kMaterialMaxStack;
-
-    if (isStackable) {
-        int availableStackSpace = 0;
-        int emptySlots = 0;
-        for (int i = 0; i < static_cast<int>(state.inventoryItemIds.size()); ++i) {
-            if (state.inventoryItemIds[i] == itemId) {
-                int currentQty = std::max(0, state.inventoryQuantities[i]);
-                availableStackSpace += std::max(0, maxStack - currentQty);
-            } else if (state.inventoryItemIds[i] == 0) {
-                ++emptySlots;
-            }
-        }
-
-        if (availableStackSpace + emptySlots * maxStack < remaining) {
-            return -1;
-        }
-
-        for (int i = 0; i < static_cast<int>(state.inventoryItemIds.size()) && remaining > 0; ++i) {
-            if (state.inventoryItemIds[i] != itemId) {
-                continue;
-            }
-            int currentQty = std::max(0, state.inventoryQuantities[i]);
-            int addable = std::min(maxStack - currentQty, remaining);
-            if (addable <= 0) {
-                continue;
-            }
-            SetInventorySlot(state, i, itemId, currentQty + addable);
-            remaining -= addable;
-            if (firstSlotUsed < 0) {
-                firstSlotUsed = i;
-            }
-        }
-
-        while (remaining > 0) {
-            int slot = FindEmptyInventorySlot(state);
-            if (slot < 0) {
-                break;
-            }
-            int toAssign = std::min(maxStack, remaining);
-            SetInventorySlot(state, slot, itemId, toAssign);
-            remaining -= toAssign;
-            if (firstSlotUsed < 0) {
-                firstSlotUsed = slot;
-            }
-        }
-
-        return (remaining == 0) ? firstSlotUsed : -1;
-    }
-
-    int emptySlots = 0;
-    for (int id : state.inventoryItemIds) {
-        if (id == 0) {
-            ++emptySlots;
-        }
-    }
-    if (emptySlots < remaining) {
-        return -1;
-    }
-
-    while (remaining > 0) {
-        int slot = FindEmptyInventorySlot(state);
-        if (slot < 0) {
-            break;
-        }
-        SetInventorySlot(state, slot, itemId, 1);
-        --remaining;
-        if (firstSlotUsed < 0) {
-            firstSlotUsed = slot;
-        }
-    }
-
-    return (remaining == 0) ? firstSlotUsed : -1;
 }
 
 int FindEmptyForgeSlot(const InventoryUIState& state) {
@@ -1363,7 +1046,7 @@ void HandleShopTradeInventoryCandidate(InventoryUIState& state, int inventoryInd
         return;
     }
 
-    ItemCategory category = ItemCategoryFromId(state, itemId);
+    ItemCategory category = InventoryRules::ItemCategoryFromId(state, itemId);
     if (category == ItemCategory::Consumable || category == ItemCategory::Material) {
         InvalidateTradeCandidate(state);
         const char* typeLabel = (category == ItemCategory::Consumable) ? "consumivel" : "recurso";
@@ -1412,7 +1095,7 @@ void HandleDesequiparWeapon(InventoryUIState& state, int index) {
         ShowMessage(state, "Nenhuma arma equipada.");
         return;
     }
-    int slot = AddItemToInventory(state, itemId, 1);
+    int slot = InventoryOperations::AddItemToInventory(state, itemId, 1);
     if (slot < 0) {
         ShowMessage(state, "Sem espaco no inventario.");
         return;
@@ -1431,7 +1114,7 @@ void HandleDesequiparArmor(InventoryUIState& state, int index) {
         ShowMessage(state, "Nenhum equipamento equipado.");
         return;
     }
-    int slot = AddItemToInventory(state, itemId, 1);
+    int slot = InventoryOperations::AddItemToInventory(state, itemId, 1);
     if (slot < 0) {
         ShowMessage(state, "Sem espaco no inventario.");
         return;
@@ -1464,9 +1147,9 @@ void HandleDiscardInventory(InventoryUIState& state, int index) {
     if (state.inventoryItemIds[index] == 0) {
         return;
     }
-    ItemCategory type = ItemCategoryFromId(state, state.inventoryItemIds[index]);
+    ItemCategory type = InventoryRules::ItemCategoryFromId(state, state.inventoryItemIds[index]);
     if (type == ItemCategory::Consumable) {
-        if (!ReduceConsumableStack(state, index, 1)) {
+        if (!InventoryOperations::ReduceConsumableStack(state, index, 1)) {
             ShowMessage(state, "Falha ao descartar o consumivel.");
             return;
         }
@@ -1476,7 +1159,7 @@ void HandleDiscardInventory(InventoryUIState& state, int index) {
         return;
     }
 
-    ClearInventorySlot(state, index);
+    InventoryOperations::ClearInventorySlot(state, index);
     state.selectedInventoryIndex = -1;
 }
 
@@ -1529,14 +1212,14 @@ void HandleSellInventory(InventoryUIState& state, int index) {
         return;
     }
     int itemId = state.inventoryItemIds[index];
-    ItemCategory type = ItemCategoryFromId(state, itemId);
+    ItemCategory type = InventoryRules::ItemCategoryFromId(state, itemId);
     if (type == ItemCategory::Consumable || type == ItemCategory::Material) {
         int saleValue = CalculateSaleValue(state, itemId, 1);
         if (saleValue <= 0) {
             ShowMessage(state, "Item sem valor de venda.");
             return;
         }
-        if (!ReduceStackableSlot(state, index, 1)) {
+        if (!InventoryOperations::ReduceStackableSlot(state, index, 1)) {
             ShowMessage(state, "Falha ao atualizar o estoque do item.");
             return;
         }
@@ -1556,7 +1239,7 @@ void HandleSellInventory(InventoryUIState& state, int index) {
         ShowMessage(state, "Item sem valor de venda.");
         return;
     }
-    ClearInventorySlot(state, index);
+    InventoryOperations::ClearInventorySlot(state, index);
     state.coins += saleValue;
     ShowMessage(state, TextFormat("Vendeu por %d moedas.", saleValue));
     state.selectedInventoryIndex = -1;
@@ -1572,7 +1255,7 @@ void HandleEquipInventory(InventoryUIState& state, int index) {
         return;
     }
 
-    ItemCategory type = ItemCategoryFromId(state, itemId);
+    ItemCategory type = InventoryRules::ItemCategoryFromId(state, itemId);
     const ItemDefinition* def = FindItemDefinition(state, itemId);
     bool canEquipAbilityItem = (def != nullptr) && def->HasActiveAbility();
 
@@ -1585,7 +1268,7 @@ void HandleEquipInventory(InventoryUIState& state, int index) {
         for (int slot = 0; slot < static_cast<int>(state.weaponSlotIds.size()); ++slot) {
             if (state.weaponSlotIds[slot] == 0) {
                 SetWeaponSlot(state, slot, itemId);
-                ClearInventorySlot(state, index);
+                InventoryOperations::ClearInventorySlot(state, index);
                 state.selectedInventoryIndex = -1;
                 state.selectedWeaponIndex = slot;
                 return;
@@ -1597,7 +1280,7 @@ void HandleEquipInventory(InventoryUIState& state, int index) {
 
     if (type == ItemCategory::Armor || canEquipAbilityItem) {
         EnsureEquipmentCapacity(state, std::max<size_t>(5, state.equipmentSlotIds.size()));
-        bool stackable = IsStackableCategory(type);
+        bool stackable = InventoryRules::IsStackableCategory(type);
         bool consumeSingleUnit = canEquipAbilityItem && stackable;
         for (int slot = 0; slot < static_cast<int>(state.equipmentSlotIds.size()); ++slot) {
             if (state.equipmentSlotIds[slot] == 0) {
@@ -1607,14 +1290,14 @@ void HandleEquipInventory(InventoryUIState& state, int index) {
                         ? state.inventoryQuantities[index]
                         : 1;
                     if (availableQuantity > 1) {
-                        SetInventorySlot(state, index, itemId, availableQuantity - 1);
+                        InventoryOperations::SetInventorySlot(state, index, itemId, availableQuantity - 1);
                         state.selectedInventoryIndex = index;
                     } else {
-                        ClearInventorySlot(state, index);
+                        InventoryOperations::ClearInventorySlot(state, index);
                         state.selectedInventoryIndex = -1;
                     }
                 } else {
-                    ClearInventorySlot(state, index);
+                    InventoryOperations::ClearInventorySlot(state, index);
                     state.selectedInventoryIndex = -1;
                 }
                 state.selectedEquipmentIndex = slot;
@@ -1637,7 +1320,7 @@ void HandleSendInventoryToForge(InventoryUIState& state, int index) {
         ShowMessage(state, "Nenhum item selecionado.");
         return;
     }
-    ItemCategory type = ItemCategoryFromId(state, itemId);
+    ItemCategory type = InventoryRules::ItemCategoryFromId(state, itemId);
     if (type == ItemCategory::Consumable) {
         ShowMessage(state, "Consumiveis nao podem ser forjados.");
         return;
@@ -1658,10 +1341,10 @@ void HandleSendInventoryToForge(InventoryUIState& state, int index) {
 
     int availableQuantity = (index < static_cast<int>(state.inventoryQuantities.size())) ? state.inventoryQuantities[index] : 1;
     if (availableQuantity > 1) {
-        SetInventorySlot(state, index, itemId, availableQuantity - 1);
+        InventoryOperations::SetInventorySlot(state, index, itemId, availableQuantity - 1);
         state.selectedInventoryIndex = index;
     } else {
-        ClearInventorySlot(state, index);
+        InventoryOperations::ClearInventorySlot(state, index);
         state.selectedInventoryIndex = -1;
     }
     state.selectedForgeSlot = slot;
@@ -1730,7 +1413,7 @@ void HandleRemoveFromForge(InventoryUIState& state, int slot) {
         if (itemId == 0) {
             return;
         }
-        int target = AddItemToInventory(state, itemId, std::max(1, state.forgeInputQuantities[slot]));
+        int target = InventoryOperations::AddItemToInventory(state, itemId, std::max(1, state.forgeInputQuantities[slot]));
         if (target < 0) {
             ShowMessage(state, "Sem espaco no inventario.");
             return;
@@ -1746,7 +1429,7 @@ void HandleRemoveFromForge(InventoryUIState& state, int slot) {
         if (state.forgeResultId == 0) {
             return;
         }
-        int target = AddItemToInventory(state, state.forgeResultId, state.forgeResultQuantity);
+        int target = InventoryOperations::AddItemToInventory(state, state.forgeResultId, state.forgeResultQuantity);
         if (target < 0) {
             ShowMessage(state, "Sem espaco no inventario.");
             return;
@@ -1779,13 +1462,13 @@ void HandleChestWithdraw(InventoryUIState& state, int index) {
     const std::vector<int> prevQuantities = state.inventoryQuantities;
     const std::vector<ItemCategory> prevTypes = state.inventoryTypes;
 
-    int addedSlot = AddItemToInventory(state, slot.itemId, std::max(1, slot.quantity));
+    int addedSlot = InventoryOperations::AddItemToInventory(state, slot.itemId, std::max(1, slot.quantity));
     if (addedSlot < 0) {
         state.inventoryItemIds = prevIds;
         state.inventoryItems = prevNames;
         state.inventoryQuantities = prevQuantities;
         state.inventoryTypes = prevTypes;
-        EnsureInventoryMeta(state);
+        InventoryOperations::EnsureInventoryMeta(state);
         ShowMessage(state, "Sem espaco no inventario.");
         return;
     }
@@ -1831,18 +1514,18 @@ void HandleChestDeposit(InventoryUIState& state, int inventoryIndex) {
     }
 
     int quantity = std::max(1, state.inventoryQuantities[inventoryIndex]);
-    if (!ChestCanAccept(*state.activeChest, state, itemId, quantity)) {
+    if (!InventoryOperations::ChestCanAccept(*state.activeChest, state, itemId, quantity)) {
         ShowMessage(state, "O bau nao tem espaco suficiente.");
         return;
     }
 
-    int slotUsed = AddItemToChest(*state.activeChest, state, itemId, quantity);
+    int slotUsed = InventoryOperations::AddItemToChest(*state.activeChest, state, itemId, quantity);
     if (slotUsed < 0) {
         ShowMessage(state, "Falha ao guardar o item.");
         return;
     }
 
-    ClearInventorySlot(state, inventoryIndex);
+    InventoryOperations::ClearInventorySlot(state, inventoryIndex);
     state.selectedInventoryIndex = -1;
     state.selectedChestIndex = slotUsed;
     RefreshChestView(state);
@@ -1882,13 +1565,13 @@ void HandleChestTakeAll(InventoryUIState& state) {
     for (const auto& entry : toTransfer) {
         int slotIndex = entry.first;
         const Chest::Slot& slot = slots[static_cast<size_t>(slotIndex)];
-        int addedSlot = AddItemToInventory(state, slot.itemId, entry.second);
+        int addedSlot = InventoryOperations::AddItemToInventory(state, slot.itemId, entry.second);
         if (addedSlot < 0) {
             state.inventoryItemIds = prevIds;
             state.inventoryItems = prevNames;
             state.inventoryQuantities = prevQuantities;
             state.inventoryTypes = prevTypes;
-            EnsureInventoryMeta(state);
+            InventoryOperations::EnsureInventoryMeta(state);
             state.selectedInventoryIndex = previousSelectedInventory;
             ShowMessage(state, "Sem espaco para pegar tudo.");
             return;
@@ -1926,7 +1609,7 @@ void HandleBuyFromShop(InventoryUIState& state, int index) {
         ShowMessage(state, "Item indisponivel.");
         return;
     }
-    int slot = AddItemToInventory(state, itemId, 1);
+    int slot = InventoryOperations::AddItemToInventory(state, itemId, 1);
     if (slot < 0) {
         ShowMessage(state, "Sem espaco no inventario.");
         return;
@@ -2130,10 +1813,10 @@ void EnsureCommonChestLoot(CommonChest& chest, const InventoryUIState& state) {
 
         int quantity = 1;
         if (def->category == ItemCategory::Consumable) {
-            std::uniform_int_distribution<int> qtyDist(1, std::min(3, MaxStackForCategory(def->category)));
+            std::uniform_int_distribution<int> qtyDist(1, std::min(3, InventoryRules::MaxStackForCategory(def->category)));
             quantity = qtyDist(rng);
         } else if (def->category == ItemCategory::Material) {
-            std::uniform_int_distribution<int> qtyDist(2, std::min(6, MaxStackForCategory(def->category)));
+            std::uniform_int_distribution<int> qtyDist(2, std::min(6, InventoryRules::MaxStackForCategory(def->category)));
             quantity = qtyDist(rng);
         }
 
@@ -2166,7 +1849,7 @@ void RefreshChestView(InventoryUIState& state) {
         if (slot.itemId > 0) {
             const ItemDefinition* def = FindItemDefinition(state, slot.itemId);
             state.chestItems[i] = def ? def->name : ItemNameFromId(state, slot.itemId);
-            ItemCategory category = def ? def->category : ItemCategoryFromId(state, slot.itemId);
+            ItemCategory category = def ? def->category : InventoryRules::ItemCategoryFromId(state, slot.itemId);
             state.chestTypes[i] = category;
             state.chestQuantities[i] = slot.quantity;
         } else {
@@ -2354,7 +2037,7 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
         def.description = description;
         def.rarity = std::max(1, rarity);
         def.baseValue = std::max(0, baseValue);
-        def.value = CalculateItemPrice(def.rarity, def.baseValue);
+        def.value = InventoryRules::CalculateItemPrice(def.rarity, def.baseValue);
         def.weaponBlueprint = blueprint;
         def.attributeBonuses = bonuses;
         if (spritePath != nullptr) {
@@ -2484,6 +2167,12 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     elmoBonus,
     "assets/img/itens/Elmo_de_bronze.png",
     Vector2{56.0f, 56.0f});
+
+    PlayerAttributes pirocao_de_fogo{};
+    pirocao_de_fogo.primary.poder = 4;
+    pirocao_de_fogo.attack.misticismo = 3;
+    pirocao_de_fogo.secondary.reducaoDano = 3;
+
 
     PlayerAttributes coleteBonus{};
     coleteBonus.primary.defesa = 2;
@@ -2620,7 +2309,7 @@ void RenderInventoryUI(InventoryUIState& state,
     GuiSetStyle(DEFAULT, TEXT_COLOR_NORMAL, 0x3A445CFF);
     GuiSetStyle(DEFAULT, TEXT_COLOR_FOCUSED, 0x243149FF);
     GuiSetStyle(DEFAULT, TEXT_COLOR_PRESSED, 0x1B2538FF);
-    EnsureInventoryMeta(state);
+    InventoryOperations::EnsureInventoryMeta(state);
     EnsureWeaponCapacity(state, std::max<size_t>(2, state.weaponSlotIds.size()));
     EnsureEquipmentCapacity(state, std::max<size_t>(5, state.equipmentSlotIds.size()));
     EnsureShopCapacity(state, state.shopItemIds.size());
@@ -3288,7 +2977,7 @@ void RenderInventoryUI(InventoryUIState& state,
             bool selected = (state.selectedChestIndex == i);
             int itemId = (i < static_cast<int>(state.chestItemIds.size())) ? state.chestItemIds[i] : 0;
             ItemCategory itemType = (i < static_cast<int>(state.chestTypes.size())) ? state.chestTypes[i] : ItemCategory::None;
-            bool showQuantity = IsStackableCategory(itemType);
+            bool showQuantity = InventoryRules::IsStackableCategory(itemType);
             int quantity = (i < static_cast<int>(state.chestQuantities.size()) && showQuantity) ? state.chestQuantities[i] : -1;
             std::string label = (i < static_cast<int>(state.chestItems.size())) ? state.chestItems[i] : std::string();
             DrawSlot(state, slotRect, label, selected, itemId, quantity, showQuantity);
@@ -3532,10 +3221,10 @@ void RenderInventoryUI(InventoryUIState& state,
                                     state.feedbackTimer = 0.0f;
                                     ResetShopTradeState(state);
                                 } else {
-                                    ClearInventorySlot(state, inventoryIndex);
-                                    int addedSlot = AddItemToInventory(state, targetItemId, 1);
+                                    InventoryOperations::ClearInventorySlot(state, inventoryIndex);
+                                    int addedSlot = InventoryOperations::AddItemToInventory(state, targetItemId, 1);
                                     if (addedSlot < 0) {
-                                        SetInventorySlot(state, inventoryIndex, targetItemId, 1);
+                                        InventoryOperations::SetInventorySlot(state, inventoryIndex, targetItemId, 1);
                                         addedSlot = inventoryIndex;
                                     }
                                     state.shopStock[activeShopIndex] = std::max(0, state.shopStock[activeShopIndex] - 1);
