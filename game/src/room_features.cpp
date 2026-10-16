@@ -128,7 +128,7 @@ void RoomManager::InitializeChestFeatures(Room& room, bool persistentPlayerChest
 
     Rectangle hitbox{};
     hitbox.width = kFootprintWidthTiles * tileSize;
-    hitbox.height = kFootprintDepthTiles * tileSize * 0.9f;
+    hitbox.height = kFootprintDepthTiles * tileSize * 0.7f;
     hitbox.x = anchorX - hitbox.width * 0.5f;
     hitbox.y = anchorY - hitbox.height;
 
