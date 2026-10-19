@@ -33,3 +33,5 @@ Endless Rooms é um jogo 2D em C++17 com raylib 5.5. O código e os assets de ru
 - Ao mudar regra de gameplay, acrescente validação reproduzível quando a regra puder ser isolada; documente os fluxos que dependem de verificação manual.
 - Não adicione objetos, executáveis ou bibliotecas geradas ao Git. `game/obj/` e as saídas de build de `game/vendor/raylib/src/` são artefatos locais.
 - `anotacoes/` é pessoal e ignorada pelo Git; não a publique nem altere sem pedido explícito.
+
+- Toda resposta do agente a prompts neste projeto deve incluir uma sugestão de mensagem de commit.
