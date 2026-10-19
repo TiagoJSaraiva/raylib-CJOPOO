@@ -732,16 +732,16 @@ RoomType RoomManager::PickRoomType(const RoomCoords& coords) {
     std::mt19937_64 rng(MakeRoomSeed(worldSeed_, coords, static_cast<std::uint64_t>(roomsDiscovered_)));
 
     double bossChance = 0.0;
-    double normalChance = 80.0;
+    double normalChance = 5.0;
 
     if (!bossSpawned_) {
         normalChance = std::max(0.0, 79.0 - 0.5 * roomsSinceBoss_);
         bossChance = 1.0 + 0.5 * roomsSinceBoss_;
     }
 
-    const double forgeChance = 20.0; // ALTERAR NO FUTURO PARA AJUSTAR A FREQUENCIA DE FORGE
-    const double shopChance = 20.0;
-    const double chestChance = 20.0;
+    const double forgeChance = 5.0; // ALTERAR NO FUTURO PARA AJUSTAR A FREQUENCIA DE FORGE
+    const double shopChance = 5.0;
+    const double chestChance = 5.0;
 
     double total = normalChance + forgeChance + shopChance + chestChance + bossChance;
     double pick = RandomDouble(rng, 0.0, total);

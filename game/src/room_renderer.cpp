@@ -23,11 +23,6 @@ float TileToPixel(int tile) {
     return static_cast<float>(tile * TILE_SIZE);
 }
 
-// Traduz TileRect para Rectangle já em pixels, compatível com Raylib.
-Rectangle TileRectToPixels(const TileRect& rect) {
-    return Rectangle{TileToPixel(rect.x), TileToPixel(rect.y), static_cast<float>(rect.width * TILE_SIZE), static_cast<float>(rect.height * TILE_SIZE)};
-}
-
 // Tenta carregar textura de mobiliário aplicando filtro adequado, logando falhas.
 Texture2D LoadFurnitureTexture(const char* path) {
     Texture2D texture{};
@@ -80,11 +75,9 @@ struct DoorSpan {
 
 // Geometria derivada da sala usada para desenhar piso, paredes e corredores.
 struct RoomGeometry {
-    Rectangle floorRect;
     std::unordered_set<TilePos, TilePosHash> walkableTiles;
     std::vector<DoorSpan> northDoorSpans;
     std::vector<DoorSpan> southDoorSpans;
-    std::vector<TileRect> corridorRects;
 };
 
 // Adiciona todos os tiles contidos em um TileRect ao conjunto informado.
@@ -204,22 +197,6 @@ void DrawSouthWallColumn(int tileX, int floorTileY, const Color& baseColor) {
     }
 }
 
-// Cor base do piso por bioma.
-Color FloorColorForBiome(BiomeType biome) {
-    switch (biome) {
-        case BiomeType::Cave:
-            return Color{58, 62, 70, 255};
-        case BiomeType::Mansion:
-            return Color{72, 54, 42, 255};
-        case BiomeType::Dungeon:
-            return Color{46, 66, 56, 255};
-        case BiomeType::Lobby:
-            return Color{50, 52, 63, 255};
-        default:
-            return Color{50, 52, 63, 255};
-    }
-}
-
 // Define cor padrão das paredes dependendo do ambiente.
 Color WallBaseColorForBiome(BiomeType biome) {
     switch (biome) {
@@ -239,13 +216,11 @@ Color WallBaseColorForBiome(BiomeType biome) {
 // Constrói dados auxiliares para desenhar piso, paredes e corredores da sala.
 RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
     RoomGeometry geometry{};
-    geometry.floorRect = TileRectToPixels(layout.tileBounds);
 
     AddTilesForRect(layout.tileBounds, geometry.walkableTiles);
 
     for (const auto& door : layout.doors) {
         if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0 && !door.sealed) {
-            geometry.corridorRects.push_back(door.corridorTiles);
             AddTilesForRect(door.corridorTiles, geometry.walkableTiles);
         }
 
@@ -305,6 +280,11 @@ RoomRenderer::RoomRenderer() {
 
 // Libera texturas carregadas na destruição do renderer.
 RoomRenderer::~RoomRenderer() {
+    UnloadTextures();
+}
+
+void RoomRenderer::UnloadTextures() {
+    floorTiles_.Unload();
     UnloadTextureIfValid(forgeTexture_);
     UnloadTextureIfValid(forgeBrokenTexture_);
     for (Texture2D& texture : shopTextures_) {
@@ -316,16 +296,21 @@ RoomRenderer::~RoomRenderer() {
 
 // Desenha piso, corredores e paredes de fundo da sala.
 void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive, float visibility) const {
+    DrawFloors({FloorRoomView{&room, visibility}});
+    DrawRoomBackgroundWalls(room, isActive, visibility);
+}
+
+void RoomRenderer::BeginFloorRun(std::uint64_t seed) {
+    floorTiles_.BeginRun(seed);
+}
+
+void RoomRenderer::DrawFloors(const std::vector<FloorRoomView>& rooms) const {
+    floorTiles_.Draw(rooms);
+}
+
+void RoomRenderer::DrawRoomBackgroundWalls(const Room& room, bool isActive, float visibility) const {
     const RoomLayout& layout = room.Layout();
     RoomGeometry geometry = BuildRoomGeometry(layout);
-
-    Color floorColor = ColorAlpha(FloorColorForBiome(room.GetBiome()), visibility);
-    DrawRectangleRec(geometry.floorRect, floorColor);
-
-    Color corridorColor = ColorAlpha(OffsetRgb(FloorColorForBiome(room.GetBiome()), 14), visibility);
-    for (const TileRect& corridor : geometry.corridorRects) {
-        DrawRectangleRec(TileRectToPixels(corridor), corridorColor);
-    }
 
     Color wallBase = ColorAlpha(WallBaseColorForBiome(room.GetBiome()), visibility);
     for (const TilePos& tile : geometry.walkableTiles) {

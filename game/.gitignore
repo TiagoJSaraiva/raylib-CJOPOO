@@ -2,6 +2,8 @@
 *.dsym
 /obj*/
 /tests/inventory_rules_tests
+/tests/floor_rules_tests
+/tests/floor_render_tests
 /vendor/raylib/src/*.o
 /vendor/raylib/src/*.a
 /vendor/raylib/src/*.dll

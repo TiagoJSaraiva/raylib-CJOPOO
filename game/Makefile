@@ -21,11 +21,13 @@
 #
 #**************************************************************************************************
 
-.PHONY: all clean raylib_build test
+.PHONY: all clean raylib_build test test-floor-render
 
 # Define required raylib variables
 PROJECT_NAME       ?= game
 TEST_BIN           = tests/inventory_rules_tests$(EXT)
+FLOOR_TEST_BIN     = tests/floor_rules_tests$(EXT)
+FLOOR_RENDER_TEST_BIN = tests/floor_render_tests$(EXT)
 RAYLIB_VERSION     := 5.5.0
 RAYLIB_API_VERSION := 550
 RAYLIB_PATH        := vendor/raylib
@@ -365,8 +367,19 @@ raylib_build:
 # Default target entry
 all: $(PROJECT_NAME)
 
-test: $(TEST_BIN)
+test: $(TEST_BIN) $(FLOOR_TEST_BIN)
 	$(TEST_BIN)
+	$(FLOOR_TEST_BIN)
+
+$(FLOOR_TEST_BIN): tests/floor_rules_tests.cpp src/floor_rules.cpp src/floor_rules.h src/room_types.h
+	$(CC) -o $@ tests/floor_rules_tests.cpp src/floor_rules.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
+
+# Optional integration test: requires a working graphics context (hidden window).
+test-floor-render: $(FLOOR_RENDER_TEST_BIN)
+	$(FLOOR_RENDER_TEST_BIN)
+
+$(FLOOR_RENDER_TEST_BIN): tests/floor_render_tests.cpp src/floor_tiles.cpp src/floor_rules.cpp src/room.cpp $(wildcard src/*.h) raylib_build
+	$(CC) -o $@ tests/floor_render_tests.cpp src/floor_tiles.cpp src/floor_rules.cpp src/room.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) $(LDFLAGS) $(LDLIBS) -D$(PLATFORM)
 
 $(TEST_BIN): tests/inventory_rules_tests.cpp src/inventory_rules.cpp src/inventory_rules.h src/ui_inventory.h
 	$(CC) -o $@ tests/inventory_rules_tests.cpp src/inventory_rules.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
@@ -397,6 +410,8 @@ clean:
 	@cmd /C "if exist $(OBJ_DIR)\*.o del /Q $(OBJ_DIR)\*.o"
 	@cmd /C "if exist $(PROJECT_NAME)$(EXT) del /Q $(PROJECT_NAME)$(EXT)"
 	@cmd /C "if exist tests\inventory_rules_tests$(EXT) del /Q tests\inventory_rules_tests$(EXT)"
+	@cmd /C "if exist tests\floor_rules_tests$(EXT) del /Q tests\floor_rules_tests$(EXT)"
+	@cmd /C "if exist tests\floor_render_tests$(EXT) del /Q tests\floor_render_tests$(EXT)"
 	@cmd /C "if exist vendor\raylib\src\*.o del /Q vendor\raylib\src\*.o"
 	@cmd /C "if exist vendor\raylib\src\libraylib.a del /Q vendor\raylib\src\libraylib.a"
 	@cmd /C "if exist vendor\raylib\src\libraylib.web.a del /Q vendor\raylib\src\libraylib.web.a"
@@ -406,7 +421,7 @@ clean:
 	@echo Cleaning project build outputs
 else
 clean:
-	$(RM) -f $(OBJ_DIR)/*.o $(PROJECT_NAME)$(EXT) $(TEST_BIN) $(RAYLIB_SRC_PATH)/*.o $(RAYLIB_SRC_PATH)/libraylib.a $(RAYLIB_SRC_PATH)/libraylib.web.a $(RAYLIB_SRC_PATH)/raygui.c $(RAYLIB_SRC_PATH)/*-protocol.h $(RAYLIB_SRC_PATH)/*-protocol-code.h
+	$(RM) -f $(OBJ_DIR)/*.o $(PROJECT_NAME)$(EXT) $(TEST_BIN) $(FLOOR_TEST_BIN) $(FLOOR_RENDER_TEST_BIN) $(RAYLIB_SRC_PATH)/*.o $(RAYLIB_SRC_PATH)/libraylib.a $(RAYLIB_SRC_PATH)/libraylib.web.a $(RAYLIB_SRC_PATH)/raygui.c $(RAYLIB_SRC_PATH)/*-protocol.h $(RAYLIB_SRC_PATH)/*-protocol-code.h
 	@echo Cleaning project build outputs
 endif
 

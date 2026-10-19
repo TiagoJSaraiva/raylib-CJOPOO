@@ -1117,6 +1117,7 @@ int main() {
     std::uint64_t worldSeed = GenerateWorldSeed();
     RoomManager roomManager{worldSeed};
     RoomRenderer roomRenderer;
+    roomRenderer.BeginFloorRun(worldSeed);
     ProjectileSystem projectileSystem;
     ProjectileSystem enemyProjectileSystem;
     EnemySpawner enemySpawner;
@@ -1171,6 +1172,7 @@ int main() {
         }
 
         roomManager = RoomManager{worldSeed};
+        roomRenderer.BeginFloorRun(worldSeed);
         enemyRng.seed(static_cast<std::mt19937::result_type>(worldSeed));
         roomEnemies.clear();
         roomsWithSpawnedEnemies.clear();
@@ -2020,6 +2022,13 @@ int main() {
         ClearBackground(Color{24, 26, 33, 255});
 
         BeginMode2D(renderCamera);
+        std::vector<FloorRoomView> floorRooms;
+        floorRooms.reserve(roomManager.Rooms().size());
+        for (const auto& entry : roomManager.Rooms()) {
+            const Room& room = *entry.second;
+            floorRooms.push_back(FloorRoomView{&room, resolveRoomVisibility(room)});
+        }
+        roomRenderer.DrawFloors(floorRooms);
         // Renderiza pisos/paredes primeiro para todas as salas com visibilidade > 0.
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
@@ -2028,7 +2037,7 @@ int main() {
             if (roomVisibility <= 0.0f) {
                 continue;
             }
-            roomRenderer.DrawRoomBackground(room, isActive, roomVisibility);
+            roomRenderer.DrawRoomBackgroundWalls(room, isActive, roomVisibility);
         }
 
         if (dummyActive) {
@@ -2289,6 +2298,7 @@ int main() {
     EnemyCommon::ShutdownSpriteCache();
     UnloadCharacterSprites(playerSprites);
     UnloadGameFont();
+    roomRenderer.UnloadTextures();
     CloseWindow();
     return 0;
 }

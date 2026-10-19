@@ -2,6 +2,7 @@
 
 #include "raylib.h"
 #include "room.h"
+#include "floor_tiles.h"
 
 #include <array>
 
@@ -13,6 +14,13 @@ public:
 
     RoomRenderer(const RoomRenderer&) = delete;
     RoomRenderer& operator=(const RoomRenderer&) = delete;
+
+    void BeginFloorRun(std::uint64_t seed);
+    void DrawFloors(const std::vector<FloorRoomView>& rooms) const;
+    // Used after the shared floor pass; standalone background drawing still includes its floor.
+    void DrawRoomBackgroundWalls(const Room& room, bool isActive, float visibility) const;
+    // Idempotent; call before closing the graphics context.
+    void UnloadTextures();
 
     void DrawRoom(const Room& room, bool isActive, float visibility) const;
     void DrawRoomBackground(const Room& room, bool isActive, float visibility) const;
@@ -49,4 +57,5 @@ private:
     std::array<Texture2D, 3> shopTextures_{};
     Texture2D chestTexture_{};
     std::array<DoorTextureSet, 3> biomeDoorTextures_{};
+    FloorTiles floorTiles_;
 };
