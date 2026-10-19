@@ -13,3 +13,4 @@ Consulte [INSTRUCTION.md](INSTRUCTION.md) para instalar as ferramentas necessár
 - Código do jogo e assets: `game/`
 - Organização dos módulos: [docs/architecture.md](docs/architecture.md)
 - Orientações para agentes de desenvolvimento: [AGENTS.md](AGENTS.md)
+- Convenção dos sprites de chão: [game/assets/floor/README.md](game/assets/floor/README.md)
