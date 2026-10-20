@@ -2029,16 +2029,8 @@ int main() {
             floorRooms.push_back(FloorRoomView{&room, resolveRoomVisibility(room)});
         }
         roomRenderer.DrawFloors(floorRooms);
-        // Renderiza pisos/paredes primeiro para todas as salas com visibilidade > 0.
-        for (const auto& entry : roomManager.Rooms()) {
-            const Room& room = *entry.second;
-            bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());
-            float roomVisibility = resolveRoomVisibility(room);
-            if (roomVisibility <= 0.0f) {
-                continue;
-            }
-            roomRenderer.DrawRoomBackgroundWalls(room, isActive, roomVisibility);
-        }
+        // Une salas e corredores antes de desenhar as paredes de fundo.
+        roomRenderer.DrawWallBackground(floorRooms);
 
         if (dummyActive) {
             DrawCircleV(trainingDummy.position, trainingDummy.radius, Color{96, 128, 196, 80});
@@ -2161,6 +2153,7 @@ int main() {
             DrawDamageNumbers(damageNumbers);
         }
 
+        roomRenderer.DrawWallForeground(floorRooms);
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
             bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());
@@ -2168,7 +2161,7 @@ int main() {
             if (roomVisibility <= 0.0f) {
                 continue;
             }
-            roomRenderer.DrawRoomForeground(room, isActive, roomVisibility);
+            roomRenderer.DrawRoomPropsForeground(room, isActive, roomVisibility);
         }
 
         // Aplica máscaras escuras aos corredores conectados a portas ainda fechadas.

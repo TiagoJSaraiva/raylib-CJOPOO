@@ -1,11 +1,7 @@
 #include "room_renderer.h"
 
 #include <algorithm>
-#include <cstdint>
-#include <functional>
 #include <iostream>
-#include <random>
-#include <unordered_set>
 #include <vector>
 
 #include "room_types.h"
@@ -17,11 +13,6 @@ constexpr float VERTICAL_DOOR_SPRITE_ROOM_OFFSET_NORTH = 15.0f; // Offset exclus
 constexpr float VERTICAL_DOOR_SPRITE_ROOM_OFFSET_SOUTH = 42.0f; // Offset exclusivo para portas Sul
 constexpr float HORIZONTAL_DOOR_SPRITE_ROOM_OFFSET = 1.0f; // Ajusta distancia para portas Leste/Oeste
 constexpr float HORIZONTAL_DOOR_SPRITE_HEIGHT_OFFSET = -30.0f; // Ajusta offset vertical adicional para portas Leste/Oeste
-
-// Converte coordenadas em tiles para pixels (facilita cálculos retangulares).
-float TileToPixel(int tile) {
-    return static_cast<float>(tile * TILE_SIZE);
-}
 
 // Tenta carregar textura de mobiliário aplicando filtro adequado, logando falhas.
 Texture2D LoadFurnitureTexture(const char* path) {
@@ -48,96 +39,6 @@ void UnloadTextureIfValid(Texture2D& texture) {
     }
 }
 
-// Coordenada discreta de tile que pode ser armazenada em hash set.
-struct TilePos {
-    int x;
-    int y;
-
-    bool operator==(const TilePos& other) const noexcept {
-        return x == other.x && y == other.y;
-    }
-};
-
-struct TilePosHash {
-    std::size_t operator()(const TilePos& pos) const noexcept {
-        std::size_t h1 = std::hash<int>{}(pos.x);
-        std::size_t h2 = std::hash<int>{}(pos.y);
-        return h1 ^ (h2 << 1);
-    }
-};
-
-// Representa faixa contínua de tiles ocupada por uma porta na parede.
-struct DoorSpan {
-    int rowY;
-    int startX;
-    int endX; // Exclusive
-};
-
-// Geometria derivada da sala usada para desenhar piso, paredes e corredores.
-struct RoomGeometry {
-    std::unordered_set<TilePos, TilePosHash> walkableTiles;
-    std::vector<DoorSpan> northDoorSpans;
-    std::vector<DoorSpan> southDoorSpans;
-};
-
-// Adiciona todos os tiles contidos em um TileRect ao conjunto informado.
-void AddTilesForRect(const TileRect& rect, std::unordered_set<TilePos, TilePosHash>& tiles) {
-    if (rect.width <= 0 || rect.height <= 0) {
-        return;
-    }
-
-    for (int y = rect.y; y < rect.y + rect.height; ++y) {
-        for (int x = rect.x; x < rect.x + rect.width; ++x) {
-            tiles.insert(TilePos{x, y});
-        }
-    }
-}
-
-unsigned char ClampToByte(int value);
-
-// Gera variação leve na cor da parede para evitar aparência chapada.
-Color RandomWallColorForTile(int tileX, int tileY, Color baseColor) {
-    std::uint64_t seedX = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileX));
-    std::uint64_t seedY = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileY));
-    std::uint64_t seed = seedX * 0x9e3779b97f4a7c15ULL ^ seedY;
-    seed ^= (seed >> 23);
-    std::mt19937_64 rng(seed);
-    std::uniform_int_distribution<int> delta(-12, 12);
-    baseColor.r = ClampToByte(static_cast<int>(baseColor.r) + delta(rng));
-    baseColor.g = ClampToByte(static_cast<int>(baseColor.g) + delta(rng));
-    baseColor.b = ClampToByte(static_cast<int>(baseColor.b) + delta(rng));
-    return baseColor;
-}
-
-// Limita componente RGB para faixa [0,255].
-unsigned char ClampToByte(int value) {
-    if (value < 0) {
-        return 0;
-    }
-    if (value > 255) {
-        return 255;
-    }
-    return static_cast<unsigned char>(value);
-}
-
-// Ajusta todos os canais RGB aplicando delta positivo/negativo.
-Color OffsetRgb(Color color, int delta) {
-    color.r = ClampToByte(static_cast<int>(color.r) + delta);
-    color.g = ClampToByte(static_cast<int>(color.g) + delta);
-    color.b = ClampToByte(static_cast<int>(color.b) + delta);
-    return color;
-}
-
-// Determina se um tile pertence à faixa de porta (evita desenhar parede ali).
-bool TileInDoorSpan(const TilePos& tile, const std::vector<DoorSpan>& spans) {
-    for (const DoorSpan& span : spans) {
-        if (tile.y == span.rowY && tile.x >= span.startX && tile.x < span.endX) {
-            return true;
-        }
-    }
-    return false;
-}
-
 // Seleciona índice da textura de porta baseado no bioma.
 std::size_t DoorTextureIndex(BiomeType biome) {
     switch (biome) {
@@ -150,114 +51,6 @@ std::size_t DoorTextureIndex(BiomeType biome) {
         default:
             return 0;
     }
-}
-
-// Desenha coluna da parede norte com leve acabamento superior.
-void DrawNorthWallColumn(int tileX, int topTileY, const Color& baseColor) {
-    constexpr float kWallHeightTiles = 1.0f;
-    float x = TileToPixel(tileX);
-    float bottom = TileToPixel(topTileY);
-    float height = static_cast<float>(TILE_SIZE) * kWallHeightTiles;
-
-    Rectangle wallRect{x, bottom - height, static_cast<float>(TILE_SIZE), height};
-    DrawRectangleRec(wallRect, baseColor);
-
-    const float trimHeight = height * 0.2f;
-    if (trimHeight > 0.0f) {
-        Rectangle trimRect{x, bottom - height, static_cast<float>(TILE_SIZE), trimHeight};
-        DrawRectangleRec(trimRect, OffsetRgb(baseColor, 25));
-    }
-}
-
-// Desenha coluna da parede sul adicionando degradê de luz/sombra.
-void DrawSouthWallColumn(int tileX, int floorTileY, const Color& baseColor) {
-    const float tileSize = static_cast<float>(TILE_SIZE);
-    float x = TileToPixel(tileX);
-    float tileTop = TileToPixel(floorTileY);
-
-    Rectangle baseRect{x, tileTop, tileSize, tileSize};
-    DrawRectangleRec(baseRect, baseColor);
-
-    const float highlightHeight = tileSize * 0.18f;
-    if (highlightHeight > 0.0f) {
-        Rectangle highlightRect{x, tileTop, tileSize, highlightHeight};
-        DrawRectangleRec(highlightRect, OffsetRgb(baseColor, 24));
-    }
-
-    const float midShadeHeight = tileSize * 0.32f;
-    if (midShadeHeight > 0.0f) {
-        Rectangle midShadeRect{x, tileTop + highlightHeight, tileSize, midShadeHeight};
-        DrawRectangleRec(midShadeRect, OffsetRgb(baseColor, 8));
-    }
-
-    const float shadowHeight = tileSize * 0.24f;
-    if (shadowHeight > 0.0f) {
-        Rectangle shadowRect{x, tileTop + tileSize - shadowHeight, tileSize, shadowHeight};
-        DrawRectangleRec(shadowRect, OffsetRgb(baseColor, -34));
-    }
-}
-
-// Define cor padrão das paredes dependendo do ambiente.
-Color WallBaseColorForBiome(BiomeType biome) {
-    switch (biome) {
-        case BiomeType::Cave:
-            return Color{108, 108, 116, 255};
-        case BiomeType::Mansion:
-            return Color{128, 88, 56, 255};
-        case BiomeType::Dungeon:
-            return Color{76, 126, 86, 255};
-        case BiomeType::Lobby:
-            return Color{90, 92, 110, 255};
-        default:
-            return Color{90, 92, 110, 255};
-    }
-}
-
-// Constrói dados auxiliares para desenhar piso, paredes e corredores da sala.
-RoomGeometry BuildRoomGeometry(const RoomLayout& layout) {
-    RoomGeometry geometry{};
-
-    AddTilesForRect(layout.tileBounds, geometry.walkableTiles);
-
-    for (const auto& door : layout.doors) {
-        if (door.corridorTiles.width > 0 && door.corridorTiles.height > 0 && !door.sealed) {
-            AddTilesForRect(door.corridorTiles, geometry.walkableTiles);
-        }
-
-        if (door.sealed) {
-            continue;
-        }
-
-        if (door.direction == Direction::North) {
-            DoorSpan span{};
-            span.rowY = layout.tileBounds.y;
-            span.startX = layout.tileBounds.x + door.offset;
-            span.endX = span.startX + door.width;
-            geometry.northDoorSpans.push_back(span);
-
-            if (door.corridorTiles.height > 0) {
-                for (int y = door.corridorTiles.y; y < door.corridorTiles.y + door.corridorTiles.height; ++y) {
-                    DoorSpan corridorSpan{y, door.corridorTiles.x, door.corridorTiles.x + door.corridorTiles.width};
-                    geometry.northDoorSpans.push_back(corridorSpan);
-                }
-            }
-        } else if (door.direction == Direction::South) {
-            DoorSpan span{};
-            span.rowY = layout.tileBounds.y + layout.heightTiles - 1;
-            span.startX = layout.tileBounds.x + door.offset;
-            span.endX = span.startX + door.width;
-            geometry.southDoorSpans.push_back(span);
-
-            if (door.corridorTiles.height > 0) {
-                for (int y = door.corridorTiles.y; y < door.corridorTiles.y + door.corridorTiles.height; ++y) {
-                    DoorSpan corridorSpan{y, door.corridorTiles.x, door.corridorTiles.x + door.corridorTiles.width};
-                    geometry.southDoorSpans.push_back(corridorSpan);
-                }
-            }
-        }
-    }
-
-    return geometry;
 }
 
 } // namespace
@@ -285,6 +78,7 @@ RoomRenderer::~RoomRenderer() {
 
 void RoomRenderer::UnloadTextures() {
     floorTiles_.Unload();
+    wallTiles_.Unload();
     UnloadTextureIfValid(forgeTexture_);
     UnloadTextureIfValid(forgeBrokenTexture_);
     for (Texture2D& texture : shopTextures_) {
@@ -302,40 +96,38 @@ void RoomRenderer::DrawRoomBackground(const Room& room, bool isActive, float vis
 
 void RoomRenderer::BeginFloorRun(std::uint64_t seed) {
     floorTiles_.BeginRun(seed);
+    wallTiles_.BeginRun(seed);
 }
 
 void RoomRenderer::DrawFloors(const std::vector<FloorRoomView>& rooms) const {
     floorTiles_.Draw(rooms);
 }
 
-void RoomRenderer::DrawRoomBackgroundWalls(const Room& room, bool isActive, float visibility) const {
-    const RoomLayout& layout = room.Layout();
-    RoomGeometry geometry = BuildRoomGeometry(layout);
-
-    Color wallBase = ColorAlpha(WallBaseColorForBiome(room.GetBiome()), visibility);
-    for (const TilePos& tile : geometry.walkableTiles) {
-        TilePos northNeighbor{tile.x, tile.y - 1};
-        if (geometry.walkableTiles.find(northNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.northDoorSpans)) {
-            Color wallColor = RandomWallColorForTile(tile.x, tile.y - 1, wallBase);
-            DrawNorthWallColumn(tile.x, tile.y, wallColor);
-        }
-    }
+void RoomRenderer::DrawWallBackground(const std::vector<FloorRoomView>& rooms) const {
+    std::vector<WallRules::RoomView> wallRooms;
+    wallRooms.reserve(rooms.size());
+    for (const auto& view : rooms) wallRooms.push_back(WallRules::RoomView{view.room, view.visibility});
+    wallTiles_.DrawBackground(wallRooms);
 }
 
-// Desenha paredes frontais e elementos principais (forja, loja, baú) conforme visibilidade.
+void RoomRenderer::DrawWallForeground(const std::vector<FloorRoomView>& rooms) const {
+    std::vector<WallRules::RoomView> wallRooms;
+    wallRooms.reserve(rooms.size());
+    for (const auto& view : rooms) wallRooms.push_back(WallRules::RoomView{view.room, view.visibility});
+    wallTiles_.DrawForeground(wallRooms);
+}
+
+void RoomRenderer::DrawRoomBackgroundWalls(const Room& room, bool isActive, float visibility) const {
+    (void)isActive;
+    DrawWallBackground({FloorRoomView{&room, visibility}});
+}
+
 void RoomRenderer::DrawRoomForeground(const Room& room, bool isActive, float visibility) const {
-    const RoomLayout& layout = room.Layout();
-    RoomGeometry geometry = BuildRoomGeometry(layout);
+    wallTiles_.DrawForeground({WallRules::RoomView{&room, visibility}});
+    DrawRoomPropsForeground(room, isActive, visibility);
+}
 
-    Color wallBase = ColorAlpha(WallBaseColorForBiome(room.GetBiome()), visibility);
-    for (const TilePos& tile : geometry.walkableTiles) {
-        TilePos southNeighbor{tile.x, tile.y + 1};
-        if (geometry.walkableTiles.find(southNeighbor) == geometry.walkableTiles.end() && !TileInDoorSpan(tile, geometry.southDoorSpans)) {
-            Color wallColor = RandomWallColorForTile(tile.x, tile.y + 1, wallBase);
-            DrawSouthWallColumn(tile.x, tile.y, wallColor);
-        }
-    }
-
+void RoomRenderer::DrawRoomPropsForeground(const Room& room, bool isActive, float visibility) const {
     if (!isActive) {
         DrawForgeForRoom(room, isActive, visibility);
         DrawShopForRoom(room, isActive, visibility);

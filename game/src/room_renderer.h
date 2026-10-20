@@ -3,8 +3,10 @@
 #include "raylib.h"
 #include "room.h"
 #include "floor_tiles.h"
+#include "wall_tiles.h"
 
 #include <array>
+#include <vector>
 
 // Responsável por desenhar salas, props e portas usando Raylib.
 class RoomRenderer {
@@ -17,6 +19,8 @@ public:
 
     void BeginFloorRun(std::uint64_t seed);
     void DrawFloors(const std::vector<FloorRoomView>& rooms) const;
+    void DrawWallBackground(const std::vector<FloorRoomView>& rooms) const;
+    void DrawWallForeground(const std::vector<FloorRoomView>& rooms) const;
     // Used after the shared floor pass; standalone background drawing still includes its floor.
     void DrawRoomBackgroundWalls(const Room& room, bool isActive, float visibility) const;
     // Idempotent; call before closing the graphics context.
@@ -25,6 +29,7 @@ public:
     void DrawRoom(const Room& room, bool isActive, float visibility) const;
     void DrawRoomBackground(const Room& room, bool isActive, float visibility) const;
     void DrawRoomForeground(const Room& room, bool isActive, float visibility) const;
+    void DrawRoomPropsForeground(const Room& room, bool isActive, float visibility) const;
     void DrawForgeInstance(const ForgeInstance& forge, bool isActive) const;
     void DrawShopInstance(const ShopInstance& shop, bool isActive) const;
     void DrawChestInstance(const Chest& chest, bool isActive) const;
@@ -58,4 +63,5 @@ private:
     Texture2D chestTexture_{};
     std::array<DoorTextureSet, 3> biomeDoorTextures_{};
     FloorTiles floorTiles_;
+    WallTiles wallTiles_;
 };
