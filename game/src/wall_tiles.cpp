@@ -8,6 +8,7 @@
 #include <iostream>
 #include <random>
 #include <tuple>
+#include <unordered_set>
 
 namespace {
 
@@ -200,11 +201,13 @@ void WallTiles::Unload() {
     }
     memory_.Reset(0);
     bottomWallTweens_.clear();
+    bottomWallRowsBySegment_.clear();
 }
 
 void WallTiles::BeginRun(std::uint64_t seed) {
     memory_.Reset(seed);
     bottomWallTweens_.clear();
+    bottomWallRowsBySegment_.clear();
 }
 
 void WallTiles::DrawBackground(const std::vector<WallRules::RoomView>& rooms) const {
@@ -224,23 +227,25 @@ void WallTiles::DrawForeground(const std::vector<WallRules::RoomView>& rooms,
 
 void WallTiles::UpdateBottomWallTweens(const WallRules::Frame& frame,
                                        Rectangle playerBounds, float deltaSeconds) const {
-    std::unordered_map<WallRules::Key, bool, WallRules::KeyHash> activeBottomWalls;
+    std::unordered_set<WallRules::BottomWallRowId, WallRules::BottomWallRowIdHash> activeRows;
+    std::unordered_set<WallRules::BottomWallRowId, WallRules::BottomWallRowIdHash> occludedRows;
+    bottomWallRowsBySegment_.clear();
     const float safeDelta = std::clamp(deltaSeconds, 0.0f, 1.0f);
     const float tileSize = static_cast<float>(TILE_SIZE);
 
     for (const auto& module : WallRules::BuildModules(frame)) {
         const auto& segment = module.segment;
         if (segment.section != WallRules::Section::Bottom) continue;
+        if (segment.bottomWallRow.kind == WallRules::BottomWallRowKind::None) continue;
 
-        const WallRules::Key key{segment.position, WallRules::Section::Bottom,
-                                 WallRules::SidePlacement::Edge};
-        activeBottomWalls.emplace(key, true);
-        auto [stateIt, inserted] = bottomWallTweens_.try_emplace(key);
-        auto& tween = stateIt->second;
+        const WallRules::Key moduleKey{segment.position, WallRules::Section::Bottom,
+                                       segment.sidePlacement};
+        bottomWallRowsBySegment_.emplace(moduleKey, segment.bottomWallRow);
+        activeRows.insert(segment.bottomWallRow);
 
         const Rectangle wallBounds{
             static_cast<float>(segment.position.x) * tileSize,
-            static_cast<float>(segment.position.y) * tileSize,
+            static_cast<float>(segment.position.y - 1) * tileSize,
             static_cast<float>(module.widthTiles) * tileSize,
             static_cast<float>(module.heightTiles) * tileSize
         };
@@ -248,13 +253,18 @@ void WallTiles::UpdateBottomWallTweens(const WallRules::Frame& frame,
             playerBounds.x + playerBounds.width > wallBounds.x &&
             playerBounds.y < wallBounds.y + wallBounds.height &&
             playerBounds.y + playerBounds.height > wallBounds.y;
-        const float targetVisibility = overlapsPlayer
-            ? kOccludedBottomWallVisibility
-            : 1.0f;
+        if (overlapsPlayer) occludedRows.insert(segment.bottomWallRow);
+    }
 
+    for (const auto& row : activeRows) {
+        auto [stateIt, inserted] = bottomWallTweens_.try_emplace(row);
+        auto& tween = stateIt->second;
         if (inserted) {
             tween.elapsed = kBottomWallTweenDuration;
         }
+        const float targetVisibility = occludedRows.find(row) != occludedRows.end()
+            ? kOccludedBottomWallVisibility
+            : 1.0f;
         if (tween.targetVisibility != targetVisibility) {
             tween.startVisibility = tween.visibility;
             tween.targetVisibility = targetVisibility;
@@ -273,7 +283,7 @@ void WallTiles::UpdateBottomWallTweens(const WallRules::Frame& frame,
     }
 
     for (auto it = bottomWallTweens_.begin(); it != bottomWallTweens_.end();) {
-        if (activeBottomWalls.find(it->first) == activeBottomWalls.end()) {
+        if (activeRows.find(it->first) == activeRows.end()) {
             it = bottomWallTweens_.erase(it);
         } else {
             ++it;
@@ -311,9 +321,12 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground,
         auto drawModule = module;
         auto& segment = drawModule.segment;
         if (useBottomWallTweens && segment.section == WallRules::Section::Bottom) {
-            const WallRules::Key key{segment.position, WallRules::Section::Bottom,
-                                     WallRules::SidePlacement::Edge};
-            const auto tween = bottomWallTweens_.find(key);
+            const WallRules::Key moduleKey{segment.position, WallRules::Section::Bottom,
+                                           segment.sidePlacement};
+            const auto row = bottomWallRowsBySegment_.find(moduleKey);
+            const auto tween = row == bottomWallRowsBySegment_.end()
+                ? bottomWallTweens_.end()
+                : bottomWallTweens_.find(row->second);
             if (tween != bottomWallTweens_.end()) {
                 segment.visibility *= tween->second.visibility;
             }
@@ -336,9 +349,13 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground,
         const float width = static_cast<float>(module.widthTiles) * tileSize;
         const float height = static_cast<float>(module.heightTiles) * tileSize;
         const float x = static_cast<float>(segment.position.x) * tileSize;
-        const float y = static_cast<float>(segment.section == WallRules::Section::Upper
-            ? segment.position.y + 1 - module.heightTiles
-            : segment.position.y) * tileSize;
+        int topTileY = segment.position.y;
+        if (segment.section == WallRules::Section::Upper) {
+            topTileY += 1 - module.heightTiles;
+        } else if (segment.section == WallRules::Section::Bottom) {
+            --topTileY;
+        }
+        const float y = static_cast<float>(topTileY) * tileSize;
         Rectangle destination{x, y, width, height};
         if (segment.section == WallRules::Section::Side) {
             destination = SideWallRect(segment, module.heightTiles);
@@ -361,7 +378,7 @@ void WallTiles::DrawFallback(const WallRules::Module& module) const {
         DrawNorthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color,
                             module.widthTiles, module.heightTiles);
     } else if (segment.section == WallRules::Section::Bottom) {
-        DrawSouthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color,
+        DrawSouthWallColumn(segment.edgeTile.x, segment.edgeTile.y - 1, color,
                             module.widthTiles, module.heightTiles);
     } else {
         DrawSideWallTile(segment, color, module.heightTiles);

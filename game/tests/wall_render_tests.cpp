@@ -221,16 +221,18 @@ void TestTwoTileWallRendering(RenderTexture2D target) {
 
     Image full = Render(walls, {{&room, 1.0f}}, target, true);
     for (const int tileX : {2, 3, 4, 5}) {
-        for (const int tileY : {5, 6}) {
+        for (const int tileY : {4, 5}) {
             ExpectPixelColor(full, tileX * TILE_SIZE + TILE_SIZE / 2,
                              tileY * TILE_SIZE + TILE_SIZE / 2, bottom);
         }
     }
+    ExpectPixelColor(full, 3 * TILE_SIZE + 32, 6 * TILE_SIZE + 32, BLACK);
     ExpectPixelColor(full, 6 * TILE_SIZE + 32,
                      6 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     UnloadImage(full);
 
-    const std::vector<WallRules::RoomView> views{{&room, 1.0f}};
+    Room alignedRoom = MakeRoom({1, 0}, BiomeType::Cave, 12, 2, 4, 4);
+    const std::vector<WallRules::RoomView> views{{&room, 1.0f}, {&alignedRoom, 1.0f}};
     const int sampleX = 3 * TILE_SIZE + TILE_SIZE / 2;
     const int sampleY = 5 * TILE_SIZE + TILE_SIZE / 2;
     const Rectangle playerBehindWall{
@@ -252,17 +254,50 @@ void TestTwoTileWallRendering(RenderTexture2D target) {
 
     Image entering = RenderWithPlayer(walls, views, target, playerBehindWall, 0.1f);
     ExpectColor(entering, 3, 5, bottom, 0.8f);
+    ExpectColor(entering, 4, 5, bottom, 0.8f); // The entire room row tweens together.
+    ExpectPixelColor(entering, 13 * TILE_SIZE + 32, sampleY, bottom);
     UnloadImage(entering);
     Image faded = RenderWithPlayer(walls, views, target, playerBehindWall, 0.1f);
     ExpectColor(faded, 3, 5, bottom, 0.6f);
+    ExpectColor(faded, 4, 5, bottom, 0.6f);
+    ExpectPixelColor(faded, 13 * TILE_SIZE + 32, sampleY, bottom);
     UnloadImage(faded);
 
     Image leaving = RenderWithPlayer(walls, views, target, playerAwayFromWall, 0.1f);
     ExpectColor(leaving, 3, 5, bottom, 0.8f);
+    ExpectColor(leaving, 4, 5, bottom, 0.8f);
     UnloadImage(leaving);
     Image restored = RenderWithPlayer(walls, views, target, playerAwayFromWall, 0.1f);
     ExpectPixelColor(restored, sampleX, sampleY, bottom);
+    ExpectPixelColor(restored, 13 * TILE_SIZE + 32, sampleY, bottom);
     UnloadImage(restored);
+
+    Room corridorRoom = MakeRoom({2, 0}, BiomeType::Cave, 10, 1, 3, 4);
+    auto eastDoorState = std::make_shared<DoorInstance>();
+    Doorway eastDoor;
+    eastDoor.direction = Direction::East;
+    eastDoor.offset = 1;
+    eastDoor.width = 2;
+    eastDoor.corridorTiles = TileRect{13, 2, 4, 2};
+    eastDoor.doorState = eastDoorState;
+    eastDoorState->open = true;
+    corridorRoom.Layout().doors.push_back(eastDoor);
+
+    const std::vector<WallRules::RoomView> corridorViews{{&corridorRoom, 1.0f}};
+    const Rectangle playerInCorridor{
+        13.0f * TILE_SIZE + 12.0f,
+        3.0f * TILE_SIZE + 16.0f,
+        40.0f,
+        32.0f
+    };
+    Image corridorEntering = RenderWithPlayer(walls, corridorViews, target, playerInCorridor, 0.1f);
+    ExpectColor(corridorEntering, 15, 3, bottom, 0.8f);
+    ExpectPixelColor(corridorEntering, 13 * TILE_SIZE + 8,
+                     3 * TILE_SIZE + 32, SpriteColor(1, WallRules::Section::Side));
+    UnloadImage(corridorEntering);
+    Image corridorFaded = RenderWithPlayer(walls, corridorViews, target, playerInCorridor, 0.1f);
+    ExpectColor(corridorFaded, 15, 3, bottom, 0.6f);
+    UnloadImage(corridorFaded);
 }
 
 void TestWallCatalogsAndLayers(RenderTexture2D target) {
@@ -318,12 +353,20 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     Image full = Render(walls, views, target, true);
     for (std::size_t biome = 0; biome < 4; ++biome) {
         const int x = 2 + static_cast<int>(biome) * 6;
-        ExpectColor(full, x, 3, SpriteColor(biome, WallRules::Section::Bottom));
         const int leftEdgeX = x * TILE_SIZE;
         const int rightEdgeX = (x + 3) * TILE_SIZE;
+        const int bottomAnchorY = 2 * TILE_SIZE + TILE_SIZE / 2;
         const int bottomMiddleY = 3 * TILE_SIZE + TILE_SIZE / 2;
         const Color side = SpriteColor(biome, WallRules::Section::Side);
         const Color bottom = SpriteColor(biome, WallRules::Section::Bottom);
+        for (const int tileX : {x, x + 1}) {
+            ExpectColor(full, tileX, 2, bottom);
+            ExpectColor(full, tileX, 3, bottom);
+        }
+        ExpectPixelColor(full, (x + 2) * TILE_SIZE + TILE_SIZE / 2,
+                         bottomAnchorY, bottom);
+        ExpectPixelColor(full, (x + 2) * TILE_SIZE + TILE_SIZE / 2,
+                         bottomMiddleY, BLACK);
         if (biome == 0) {
             ExpectTranslucentPixel(full, leftEdgeX - 8, bottomMiddleY, side);
             ExpectTranslucentPixel(full, rightEdgeX + 8, bottomMiddleY, side);
@@ -332,7 +375,7 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
             ExpectPixelColor(full, rightEdgeX + 8, bottomMiddleY, side);
         }
         ExpectPixelColor(full, leftEdgeX + TILE_SIZE / 8, bottomMiddleY, bottom);
-        ExpectPixelColor(full, rightEdgeX - TILE_SIZE / 8, bottomMiddleY, bottom);
+        ExpectPixelColor(full, rightEdgeX - TILE_SIZE / 8, bottomAnchorY, bottom);
         ExpectPixelColor(full, leftEdgeX - 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
         ExpectPixelColor(full, rightEdgeX + 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     }
@@ -367,34 +410,40 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     const Color lobbyBottom = SpriteColor(0, WallRules::Section::Bottom);
 
     Image closedSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
-    ExpectPixelColor(closedSouth, leftInnerX, bottomWallY, lobbyBottom);
-    ExpectPixelColor(closedSouth, rightInnerX, bottomWallY, lobbyBottom);
-    ExpectPixelColor(closedSouth, leftOuterX, bottomWallY, lobbyBottom);
-    ExpectPixelColor(closedSouth, rightOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(closedSouth, leftInnerX, bottomWallY, BLACK);
+    ExpectPixelColor(closedSouth, rightInnerX, bottomWallY, BLACK);
+    ExpectPixelColor(closedSouth, leftOuterX, bottomWallY, BLACK);
+    ExpectPixelColor(closedSouth, rightOuterX, bottomWallY, BLACK);
+    const int bottomAnchorY = 2 * TILE_SIZE + TILE_SIZE / 2;
+    ExpectPixelColor(closedSouth, leftOuterX, bottomAnchorY, lobbyBottom);
+    ExpectPixelColor(closedSouth, rightOuterX, bottomAnchorY, lobbyBottom);
     ExpectPixelColor(closedSouth, leftInnerX, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     UnloadImage(closedSouth);
 
     southDoorState->opening = true;
     southDoorState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
     Image openingSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
-    const Color halfVisibilityCorner = BlendOver(lobbySide, lobbyBottom, 0.5f);
+    const Color halfVisibilityCorner = BlendOver(lobbySide, BLACK, 0.5f);
     ExpectPixelColor(openingSouth, leftInnerX, bottomWallY, halfVisibilityCorner);
     ExpectPixelColor(openingSouth, rightInnerX, bottomWallY, halfVisibilityCorner);
-    ExpectPixelColor(openingSouth, leftOuterX, bottomWallY, lobbyBottom);
-    ExpectPixelColor(openingSouth, rightOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(openingSouth, leftOuterX, bottomWallY, BLACK);
+    ExpectPixelColor(openingSouth, rightOuterX, bottomWallY, BLACK);
     UnloadImage(openingSouth);
 
     southDoorState->open = true;
     Image openSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
-    const Color fullVisibilityCorner = BlendOver(lobbySide, lobbyBottom);
+    const Color fullVisibilityCorner = BlendOver(lobbySide, BLACK);
     ExpectPixelColor(openSouth, leftInnerX, bottomWallY, fullVisibilityCorner);
     ExpectPixelColor(openSouth, rightInnerX, bottomWallY, fullVisibilityCorner);
-    ExpectPixelColor(openSouth, leftOuterX, bottomWallY, lobbyBottom);
-    ExpectPixelColor(openSouth, rightOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(openSouth, leftOuterX, bottomWallY, BLACK);
+    ExpectPixelColor(openSouth, rightOuterX, bottomWallY, BLACK);
+    ExpectPixelColor(openSouth, leftOuterX, bottomAnchorY, lobbyBottom);
+    ExpectPixelColor(openSouth, rightOuterX, bottomAnchorY, lobbyBottom);
     ExpectTranslucentPixel(openSouth, leftInnerX, 4 * TILE_SIZE + TILE_SIZE / 2, lobbySide);
     // The 16px overlays remain inside the terminal bottom-wall tiles.
     ExpectPixelColor(openSouth, 6 * TILE_SIZE, bottomWallY, BLACK);
-    ExpectPixelColor(openSouth, 7 * TILE_SIZE + TILE_SIZE / 4, bottomWallY, lobbyBottom);
+    ExpectPixelColor(openSouth, 7 * TILE_SIZE + TILE_SIZE / 4, bottomWallY, BLACK);
+    ExpectPixelColor(openSouth, 7 * TILE_SIZE + TILE_SIZE / 4, bottomAnchorY, lobbyBottom);
     UnloadImage(openSouth);
 
     Room horizontalEast = MakeRoom({5, 0}, BiomeType::Lobby, 10, 1, 3, 4);
@@ -530,6 +579,7 @@ void TestFallback(RenderTexture2D target) {
     Room lobby = MakeRoom({0, 0}, BiomeType::Lobby, 5, 2);
     Image image = Render(walls, {{&lobby, 1.0f}}, target, true);
     ExpectFallbackColor(image, 5, 1, Color{90, 92, 110, 255}); // upper
+    ExpectFallbackColor(image, 5, 2, Color{90, 92, 110, 255}); // bottom, anchored one tile up
     ExpectFallbackColor(image, 5, 3, Color{90, 92, 110, 255}); // bottom
     const int leftEdgeX = 5 * TILE_SIZE;
     const int rightEdgeX = 8 * TILE_SIZE;
@@ -670,8 +720,10 @@ void TestFallback(RenderTexture2D target) {
     for (const int tileX : {2, 3, 4, 5}) {
         ExpectFallbackColor(moduleFallback, tileX, 0, fallbackBase);
         ExpectFallbackColor(moduleFallback, tileX, 1, fallbackBase);
+        ExpectFallbackColor(moduleFallback, tileX, 4, fallbackBase);
         ExpectFallbackColor(moduleFallback, tileX, 5, fallbackBase);
-        ExpectFallbackColor(moduleFallback, tileX, 6, fallbackBase);
+        ExpectPixelColor(moduleFallback, tileX * TILE_SIZE + TILE_SIZE / 2,
+                         6 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     }
     for (const int tileY : {2, 3, 4, 5}) {
         ExpectFallbackPixelColor(moduleFallback, 2 * TILE_SIZE - 8,

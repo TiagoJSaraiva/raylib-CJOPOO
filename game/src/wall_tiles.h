@@ -42,6 +42,10 @@ private:
 
     std::array<Catalog, 12> catalogs_{};
     mutable WallRules::TileMemory memory_;
-    mutable std::unordered_map<WallRules::Key, BottomWallTween, WallRules::KeyHash>
+    mutable std::unordered_map<WallRules::BottomWallRowId, BottomWallTween,
+                               WallRules::BottomWallRowIdHash>
         bottomWallTweens_;
+    mutable std::unordered_map<WallRules::Key, WallRules::BottomWallRowId,
+                               WallRules::KeyHash>
+        bottomWallRowsBySegment_;
 };

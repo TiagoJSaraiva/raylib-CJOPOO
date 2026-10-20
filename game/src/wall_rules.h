@@ -22,6 +22,27 @@ enum class SidePlacement : std::uint8_t {
     InsetRight
 };
 
+enum class BottomWallRowKind : std::uint8_t {
+    None,
+    Room,
+    Corridor
+};
+
+struct BottomWallRowId {
+    BottomWallRowKind kind{BottomWallRowKind::None};
+    int ownerX{0};
+    int ownerY{0};
+    int ownerWidth{0};
+    int ownerHeight{0};
+    int edgeY{0};
+
+    bool operator==(const BottomWallRowId& other) const noexcept {
+        return kind == other.kind && ownerX == other.ownerX && ownerY == other.ownerY &&
+               ownerWidth == other.ownerWidth && ownerHeight == other.ownerHeight &&
+               edgeY == other.edgeY;
+    }
+};
+
 struct Position {
     int x;
     int y;
@@ -37,12 +58,13 @@ struct RoomView {
 };
 
 struct Segment {
-    Position position;       // Destination tile for the wall sprite.
+    Position position;       // Wall anchor tile; bottom sprites draw one tile above it.
     Position edgeTile;       // Walkable tile that produced this edge.
     Section section;
     BiomeType biome;
     float visibility;
     SidePlacement sidePlacement{SidePlacement::Edge};
+    BottomWallRowId bottomWallRow{};
 };
 
 struct Module {
@@ -64,6 +86,10 @@ struct Key {
 
 struct KeyHash {
     std::size_t operator()(const Key& key) const noexcept;
+};
+
+struct BottomWallRowIdHash {
+    std::size_t operator()(const BottomWallRowId& id) const noexcept;
 };
 
 using Frame = std::unordered_map<Key, Segment, KeyHash>;

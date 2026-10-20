@@ -41,3 +41,5 @@ exige contexto gráfico.
 - Conferir escala, transparência, variação determinística e fallback sem PNGs.
 - Confirmar que paredes de fundo ficam atrás das entidades e paredes
   inferiores ficam na camada frontal.
+- Confirmar que bottom walls são ancoradas um tile acima e que toda a fileira
+  da mesma sala ou corredor reduz e restaura o alpha em conjunto ao cruzar o player.
