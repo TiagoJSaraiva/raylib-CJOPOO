@@ -2147,7 +2147,13 @@ int main() {
             DrawDamageNumbers(damageNumbers);
         }
 
-        roomRenderer.DrawWallForeground(floorRooms);
+        const Rectangle playerBounds{
+            playerPosition.x - PLAYER_HALF_WIDTH,
+            playerPosition.y - PLAYER_HALF_HEIGHT,
+            PLAYER_HALF_WIDTH * 2.0f,
+            PLAYER_HALF_HEIGHT * 2.0f
+        };
+        roomRenderer.DrawWallForeground(floorRooms, playerBounds, delta);
         for (const auto& entry : roomManager.Rooms()) {
             const Room& room = *entry.second;
             bool isActive = (room.GetCoords() == roomManager.GetCurrentCoords());

@@ -14,6 +14,8 @@ namespace {
 constexpr const char* kBiomeDirectories[] = {"lobby", "cave", "mansion", "dungeon"};
 constexpr const char* kSectionDirectories[] = {"side", "upper", "bottom"};
 constexpr float kSideWallWidth = static_cast<float>(TILE_SIZE) / 4.0f;
+constexpr float kOccludedBottomWallVisibility = 0.6f;
+constexpr float kBottomWallTweenDuration = 0.2f;
 
 std::size_t BiomeIndex(BiomeType biome) {
     switch (biome) {
@@ -197,9 +199,13 @@ void WallTiles::Unload() {
         catalog.cumulative.clear();
     }
     memory_.Reset(0);
+    bottomWallTweens_.clear();
 }
 
-void WallTiles::BeginRun(std::uint64_t seed) { memory_.Reset(seed); }
+void WallTiles::BeginRun(std::uint64_t seed) {
+    memory_.Reset(seed);
+    bottomWallTweens_.clear();
+}
 
 void WallTiles::DrawBackground(const std::vector<WallRules::RoomView>& rooms) const {
     Draw(WallRules::BuildFrame(rooms), false);
@@ -209,7 +215,74 @@ void WallTiles::DrawForeground(const std::vector<WallRules::RoomView>& rooms) co
     Draw(WallRules::BuildFrame(rooms), true);
 }
 
-void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
+void WallTiles::DrawForeground(const std::vector<WallRules::RoomView>& rooms,
+                               Rectangle playerBounds, float deltaSeconds) const {
+    const auto frame = WallRules::BuildFrame(rooms);
+    UpdateBottomWallTweens(frame, playerBounds, deltaSeconds);
+    Draw(frame, true, true);
+}
+
+void WallTiles::UpdateBottomWallTweens(const WallRules::Frame& frame,
+                                       Rectangle playerBounds, float deltaSeconds) const {
+    std::unordered_map<WallRules::Key, bool, WallRules::KeyHash> activeBottomWalls;
+    const float safeDelta = std::clamp(deltaSeconds, 0.0f, 1.0f);
+    const float tileSize = static_cast<float>(TILE_SIZE);
+
+    for (const auto& module : WallRules::BuildModules(frame)) {
+        const auto& segment = module.segment;
+        if (segment.section != WallRules::Section::Bottom) continue;
+
+        const WallRules::Key key{segment.position, WallRules::Section::Bottom,
+                                 WallRules::SidePlacement::Edge};
+        activeBottomWalls.emplace(key, true);
+        auto [stateIt, inserted] = bottomWallTweens_.try_emplace(key);
+        auto& tween = stateIt->second;
+
+        const Rectangle wallBounds{
+            static_cast<float>(segment.position.x) * tileSize,
+            static_cast<float>(segment.position.y) * tileSize,
+            static_cast<float>(module.widthTiles) * tileSize,
+            static_cast<float>(module.heightTiles) * tileSize
+        };
+        const bool overlapsPlayer = playerBounds.x < wallBounds.x + wallBounds.width &&
+            playerBounds.x + playerBounds.width > wallBounds.x &&
+            playerBounds.y < wallBounds.y + wallBounds.height &&
+            playerBounds.y + playerBounds.height > wallBounds.y;
+        const float targetVisibility = overlapsPlayer
+            ? kOccludedBottomWallVisibility
+            : 1.0f;
+
+        if (inserted) {
+            tween.elapsed = kBottomWallTweenDuration;
+        }
+        if (tween.targetVisibility != targetVisibility) {
+            tween.startVisibility = tween.visibility;
+            tween.targetVisibility = targetVisibility;
+            tween.elapsed = 0.0f;
+        }
+
+        if (tween.elapsed < kBottomWallTweenDuration) {
+            tween.elapsed = std::min(tween.elapsed + safeDelta, kBottomWallTweenDuration);
+            const float progress = tween.elapsed / kBottomWallTweenDuration;
+            const float easedProgress = progress * progress * (3.0f - 2.0f * progress);
+            tween.visibility = tween.startVisibility +
+                (tween.targetVisibility - tween.startVisibility) * easedProgress;
+        } else {
+            tween.visibility = tween.targetVisibility;
+        }
+    }
+
+    for (auto it = bottomWallTweens_.begin(); it != bottomWallTweens_.end();) {
+        if (activeBottomWalls.find(it->first) == activeBottomWalls.end()) {
+            it = bottomWallTweens_.erase(it);
+        } else {
+            ++it;
+        }
+    }
+}
+
+void WallTiles::Draw(const WallRules::Frame& frame, bool foreground,
+                     bool useBottomWallTweens) const {
     std::vector<WallRules::Module> modules;
     for (const auto& module : WallRules::BuildModules(frame)) {
         const auto& segment = module.segment;
@@ -235,7 +308,16 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
     });
 
     for (const auto& module : modules) {
-        const auto& segment = module.segment;
+        auto drawModule = module;
+        auto& segment = drawModule.segment;
+        if (useBottomWallTweens && segment.section == WallRules::Section::Bottom) {
+            const WallRules::Key key{segment.position, WallRules::Section::Bottom,
+                                     WallRules::SidePlacement::Edge};
+            const auto tween = bottomWallTweens_.find(key);
+            if (tween != bottomWallTweens_.end()) {
+                segment.visibility *= tween->second.visibility;
+            }
+        }
 
         const auto catalogIndex = BiomeIndex(segment.biome) * 3 + SectionIndex(segment.section);
         const auto& catalog = catalogs_[catalogIndex];
@@ -243,7 +325,7 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
                                                   segment.biome, catalog.cumulative,
                                                   segment.sidePlacement);
         if (choice.sprite == WallRules::NoSprite) {
-            DrawFallback(module);
+            DrawFallback(drawModule);
             continue;
         }
 

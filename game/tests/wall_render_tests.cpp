@@ -63,6 +63,18 @@ Image Render(WallTiles& walls, const std::vector<WallRules::RoomView>& views,
     return result;
 }
 
+Image RenderWithPlayer(WallTiles& walls, const std::vector<WallRules::RoomView>& views,
+                       RenderTexture2D target, Rectangle playerBounds, float deltaSeconds) {
+    BeginTextureMode(target);
+    ClearBackground(BLACK);
+    walls.DrawBackground(views);
+    walls.DrawForeground(views, playerBounds, deltaSeconds);
+    EndTextureMode();
+    Image result = LoadImageFromTexture(target.texture);
+    ImageFlipVertical(&result);
+    return result;
+}
+
 void ExpectColor(Image image, int tileX, int tileY, Color expected, float visibility = 1.0f) {
     const auto actual = GetImageColor(image, tileX * TILE_SIZE + 32, tileY * TILE_SIZE + 32);
     const auto expectedR = static_cast<int>(expected.r * visibility);
@@ -217,6 +229,40 @@ void TestTwoTileWallRendering(RenderTexture2D target) {
     ExpectPixelColor(full, 6 * TILE_SIZE + 32,
                      6 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     UnloadImage(full);
+
+    const std::vector<WallRules::RoomView> views{{&room, 1.0f}};
+    const int sampleX = 3 * TILE_SIZE + TILE_SIZE / 2;
+    const int sampleY = 5 * TILE_SIZE + TILE_SIZE / 2;
+    const Rectangle playerBehindWall{
+        3.0f * TILE_SIZE + 12.0f,
+        5.0f * TILE_SIZE + 16.0f,
+        40.0f,
+        32.0f
+    };
+    const Rectangle playerAwayFromWall{
+        8.0f * TILE_SIZE,
+        playerBehindWall.y,
+        playerBehindWall.width,
+        playerBehindWall.height
+    };
+
+    Image outside = RenderWithPlayer(walls, views, target, playerAwayFromWall, 0.2f);
+    ExpectPixelColor(outside, sampleX, sampleY, bottom);
+    UnloadImage(outside);
+
+    Image entering = RenderWithPlayer(walls, views, target, playerBehindWall, 0.1f);
+    ExpectColor(entering, 3, 5, bottom, 0.8f);
+    UnloadImage(entering);
+    Image faded = RenderWithPlayer(walls, views, target, playerBehindWall, 0.1f);
+    ExpectColor(faded, 3, 5, bottom, 0.6f);
+    UnloadImage(faded);
+
+    Image leaving = RenderWithPlayer(walls, views, target, playerAwayFromWall, 0.1f);
+    ExpectColor(leaving, 3, 5, bottom, 0.8f);
+    UnloadImage(leaving);
+    Image restored = RenderWithPlayer(walls, views, target, playerAwayFromWall, 0.1f);
+    ExpectPixelColor(restored, sampleX, sampleY, bottom);
+    UnloadImage(restored);
 }
 
 void TestWallCatalogsAndLayers(RenderTexture2D target) {

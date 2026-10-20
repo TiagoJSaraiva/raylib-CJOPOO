@@ -117,6 +117,14 @@ void RoomRenderer::DrawWallForeground(const std::vector<FloorRoomView>& rooms) c
     wallTiles_.DrawForeground(wallRooms);
 }
 
+void RoomRenderer::DrawWallForeground(const std::vector<FloorRoomView>& rooms,
+                                      Rectangle playerBounds, float deltaSeconds) const {
+    std::vector<WallRules::RoomView> wallRooms;
+    wallRooms.reserve(rooms.size());
+    for (const auto& view : rooms) wallRooms.push_back(WallRules::RoomView{view.room, view.visibility});
+    wallTiles_.DrawForeground(wallRooms, playerBounds, deltaSeconds);
+}
+
 void RoomRenderer::DrawRoomBackgroundWalls(const Room& room, bool isActive, float visibility) const {
     (void)isActive;
     DrawWallBackground({FloorRoomView{&room, visibility}});
