@@ -139,8 +139,8 @@ void TestTwoTileWallModules() {
         assert(left != nullptr && left->widthTiles == 1 && left->heightTiles == 2);
         assert(right != nullptr && right->widthTiles == 1 && right->heightTiles == 2);
     }
-    const auto* leftCorner = FindModule(modules, WallRules::Section::Side, 9, 19);
-    const auto* rightCorner = FindModule(modules, WallRules::Section::Side, 14, 19);
+    const auto* leftCorner = FindModule(modules, WallRules::Section::Side, 9, 18);
+    const auto* rightCorner = FindModule(modules, WallRules::Section::Side, 14, 18);
     assert(leftCorner != nullptr && leftCorner->heightTiles == 2);
     assert(rightCorner != nullptr && rightCorner->heightTiles == 2);
 
@@ -186,6 +186,30 @@ void TestTwoTileWallModules() {
         } else {
             assert(module.heightTiles == 2); // Upper corner caps match the full upper-wall height.
         }
+    }
+}
+
+void TestVerticalPassageTerminalSideModules() {
+    Room room = MakeRoom({2, 0}, BiomeType::Cave, TileRect{10, 4, 5, 4});
+    auto doorState = std::make_shared<DoorInstance>();
+    doorState->open = true;
+
+    Doorway northDoor;
+    northDoor.direction = Direction::North;
+    northDoor.offset = 1;
+    northDoor.width = 2;
+    northDoor.corridorTiles = TileRect{11, 1, 2, 3};
+    northDoor.doorState = doorState;
+    room.Layout().doors.push_back(northDoor);
+
+    const auto frame = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
+    const auto modules = WallRules::BuildModules(frame);
+    for (const int x : {10, 13}) {
+        const auto* upperTerminal = FindModule(modules, WallRules::Section::Side, x, 0);
+        const auto* lowerPair = FindModule(modules, WallRules::Section::Side, x, 2);
+        assert(upperTerminal != nullptr && upperTerminal->heightTiles == 2);
+        assert(lowerPair != nullptr && lowerPair->heightTiles == 2);
+        assert(FindModule(modules, WallRules::Section::Side, x, 1) == nullptr);
     }
 }
 
@@ -294,10 +318,11 @@ void TestHorizontalCorridorMouthCapsAndFade() {
     eastState->fadeProgress = DoorVisualRules::FadeDuration * 0.35f;
     const auto openingEast = WallRules::BuildFrame({WallRules::RoomView{&eastRoom, 1.0f}});
     assert(HasSidePlacement(openingEast, 15, 20, WallRules::SidePlacement::InsetLeft));
-    assert(HasSidePlacement(openingEast, 15, 22, WallRules::SidePlacement::InsetLeft));
+    assert(!HasSidePlacement(openingEast, 15, 22, WallRules::SidePlacement::InsetLeft));
+    assert(HasSidePlacement(openingEast, 15, 23, WallRules::SidePlacement::InsetLeft));
     assert(std::abs(SidePlacementVisibility(openingEast, 15, 20,
                                             WallRules::SidePlacement::InsetLeft) - 0.35f) < 0.001f);
-    assert(std::abs(SidePlacementVisibility(openingEast, 15, 22,
+    assert(std::abs(SidePlacementVisibility(openingEast, 15, 23,
                                             WallRules::SidePlacement::InsetLeft) - 0.35f) < 0.001f);
     assert(!HasSidePlacement(openingEast, 16, 20, WallRules::SidePlacement::InsetLeft));
     assert(!HasSidePlacement(openingEast, 15, 20, WallRules::SidePlacement::InsetRight));
@@ -307,12 +332,11 @@ void TestHorizontalCorridorMouthCapsAndFade() {
     const auto openEast = WallRules::BuildFrame({WallRules::RoomView{&eastRoom, 1.0f}});
     assert(std::abs(SidePlacementVisibility(openEast, 15, 20,
                                             WallRules::SidePlacement::InsetLeft) - 1.0f) < 0.001f);
-    assert(std::abs(SidePlacementVisibility(openEast, 15, 22,
+    assert(std::abs(SidePlacementVisibility(openEast, 15, 23,
                                             WallRules::SidePlacement::InsetLeft) - 1.0f) < 0.001f);
 
     Room westRoom = MakeRoom({1, 0}, BiomeType::Cave, TileRect{10, 20, 5, 4});
     auto westState = std::make_shared<DoorInstance>();
-    westState->open = true;
     Doorway westDoor;
     westDoor.direction = Direction::West;
     westDoor.offset = 1;
@@ -320,9 +344,23 @@ void TestHorizontalCorridorMouthCapsAndFade() {
     westDoor.corridorTiles = TileRect{8, 21, 2, 2};
     westDoor.doorState = westState;
     westRoom.Layout().doors.push_back(westDoor);
+
+    westState->opening = true;
+    westState->fadeProgress = DoorVisualRules::FadeDuration * 0.35f;
+    const auto openingWest = WallRules::BuildFrame({WallRules::RoomView{&westRoom, 1.0f}});
+    assert(HasSidePlacement(openingWest, 9, 20, WallRules::SidePlacement::InsetRight));
+    assert(!HasSidePlacement(openingWest, 9, 22, WallRules::SidePlacement::InsetRight));
+    assert(HasSidePlacement(openingWest, 9, 23, WallRules::SidePlacement::InsetRight));
+    assert(std::abs(SidePlacementVisibility(openingWest, 9, 20,
+                                            WallRules::SidePlacement::InsetRight) - 0.35f) < 0.001f);
+    assert(std::abs(SidePlacementVisibility(openingWest, 9, 23,
+                                            WallRules::SidePlacement::InsetRight) - 0.35f) < 0.001f);
+
+    westState->open = true;
     const auto openWest = WallRules::BuildFrame({WallRules::RoomView{&westRoom, 1.0f}});
     assert(HasSidePlacement(openWest, 9, 20, WallRules::SidePlacement::InsetRight));
-    assert(HasSidePlacement(openWest, 9, 22, WallRules::SidePlacement::InsetRight));
+    assert(!HasSidePlacement(openWest, 9, 22, WallRules::SidePlacement::InsetRight));
+    assert(HasSidePlacement(openWest, 9, 23, WallRules::SidePlacement::InsetRight));
     assert(CountSidePlacement(openWest, WallRules::SidePlacement::InsetRight) == 2);
     assert(!HasSidePlacement(openWest, 8, 20, WallRules::SidePlacement::InsetRight));
 
@@ -356,9 +394,9 @@ void TestHorizontalCorridorMouthCapsAndFade() {
         const auto placement = x == 15 ? WallRules::SidePlacement::InsetLeft
                                         : WallRules::SidePlacement::InsetRight;
         assert(HasSidePlacement(sharedFrame, x, 20, placement));
-        assert(HasSidePlacement(sharedFrame, x, 22, placement));
+        assert(HasSidePlacement(sharedFrame, x, 23, placement));
         assert(std::abs(SidePlacementVisibility(sharedFrame, x, 20, placement) - 0.6f) < 0.001f);
-        assert(std::abs(SidePlacementVisibility(sharedFrame, x, 22, placement) - 0.6f) < 0.001f);
+        assert(std::abs(SidePlacementVisibility(sharedFrame, x, 23, placement) - 0.6f) < 0.001f);
     }
 
     sharedState->open = true;
@@ -531,6 +569,7 @@ int main() {
     TestSpriteNamingAndWeights();
     TestRoomPerimeterAndCorners();
     TestTwoTileWallModules();
+    TestVerticalPassageTerminalSideModules();
     TestBottomCornersInCorridorUnionAndFade();
     TestSharedSouthCorridorDoesNotDuplicateCaps();
     TestHorizontalCorridorMouthCapsAndFade();

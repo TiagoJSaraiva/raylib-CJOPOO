@@ -349,7 +349,8 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
         }
         if (frame.find(Key{mouth.bottomWall, Section::Bottom}) != frame.end() &&
             frame.find(Key{mouth.bottomRoomSide, Section::Side}) != frame.end()) {
-            AddSegment(frame, mouth.bottomWall, mouth.bottomEdgeTile, Section::Side,
+            // Bottom sprites are anchored one tile above their segment, so cap below the opening.
+            AddSegment(frame, mouth.bottomRoomSide, mouth.bottomEdgeTile, Section::Side,
                        capTile, mouth.visibility, mouth.sidePlacement);
         }
     }
@@ -366,26 +367,77 @@ std::vector<Module> BuildModules(const Frame& frame) {
                std::tie(b->position.y, b->position.x, b->section, b->sidePlacement);
     });
 
+    std::vector<const Segment*> sideSegments;
+    sideSegments.reserve(frame.size());
+    for (const auto& entry : frame) {
+        if (entry.second.section == Section::Side) sideSegments.push_back(&entry.second);
+    }
+    std::sort(sideSegments.begin(), sideSegments.end(), [](const Segment* a, const Segment* b) {
+        if (a->position.y != b->position.y) return a->position.y > b->position.y;
+        return std::tie(a->position.x, a->sidePlacement) <
+               std::tie(b->position.x, b->sidePlacement);
+    });
+
     std::unordered_set<Key, KeyHash> consumed;
     consumed.reserve(frame.size());
     std::vector<Module> modules;
     modules.reserve(frame.size());
 
-    for (const Segment* segment : ordered) {
+    // Build side strips from the bottom upward so an odd vertical run leaves its
+    // terminal segment at the open upper end, where it can be extended upward.
+    for (const Segment* segment : sideSegments) {
         const Key key{segment->position, segment->section, segment->sidePlacement};
         if (!consumed.insert(key).second) continue;
 
         Module module{*segment, 1, 1};
-        if (IsUpperSideCornerCap(*segment)) module.heightTiles = 2;
+        if (IsUpperSideCornerCap(*segment)) {
+            module.heightTiles = 2;
+            --module.segment.position.y;
+        } else if (IsRegularSideSegment(*segment)) {
+            const Position upperPosition{segment->position.x, segment->position.y - 1};
+            const Key upperKey{upperPosition, Section::Side, SidePlacement::Edge};
+            const auto upper = frame.find(upperKey);
+            if (upper != frame.end() && IsRegularSideSegment(upper->second) &&
+                SameModuleStyle(*segment, upper->second) &&
+                upper->second.edgeTile.x == segment->edgeTile.x &&
+                upper->second.edgeTile.y + 1 == segment->edgeTile.y) {
+                module.segment = upper->second;
+                module.heightTiles = 2;
+                module.segment.visibility = std::min(segment->visibility,
+                                                     upper->second.visibility);
+                consumed.insert(upperKey);
+            } else {
+                const Position lowerPosition{segment->position.x, segment->position.y + 1};
+                const auto lower = frame.find(Key{lowerPosition, Section::Side,
+                                                   SidePlacement::Edge});
+                const bool continuesBelow = lower != frame.end() &&
+                    IsRegularSideSegment(lower->second) &&
+                    SameModuleStyle(*segment, lower->second) &&
+                    lower->second.edgeTile.x == segment->edgeTile.x &&
+                    lower->second.edgeTile.y == segment->edgeTile.y + 1;
+                const bool hasUpperSegment = upper != frame.end();
+                if (!hasUpperSegment && continuesBelow) {
+                    module.heightTiles = 2;
+                    --module.segment.position.y;
+                }
+            }
+        }
+
+        modules.push_back(module);
+    }
+
+    for (const Segment* segment : ordered) {
+        if (segment->section == Section::Side) continue;
+
+        const Key key{segment->position, segment->section, segment->sidePlacement};
+        if (!consumed.insert(key).second) continue;
+
+        Module module{*segment, 1, 1};
         Position partnerPosition = segment->position;
         bool canPair = false;
 
-        if ((segment->section == Section::Upper || segment->section == Section::Bottom) &&
-            segment->sidePlacement == SidePlacement::Edge) {
+        if (segment->section == Section::Upper || segment->section == Section::Bottom) {
             ++partnerPosition.x;
-            canPair = true;
-        } else if (IsRegularSideSegment(*segment)) {
-            ++partnerPosition.y;
             canPair = true;
         }
 
@@ -393,16 +445,8 @@ std::vector<Module> BuildModules(const Frame& frame) {
             const Key partnerKey{partnerPosition, segment->section, segment->sidePlacement};
             const auto partner = frame.find(partnerKey);
             if (partner != frame.end() && SameModuleStyle(*segment, partner->second)) {
-                if (segment->section == Section::Side) {
-                    if (partner->second.edgeTile.x == segment->edgeTile.x &&
-                        partner->second.edgeTile.y == segment->edgeTile.y + 1) {
-                        module.heightTiles = 2;
-                        module.segment.visibility = std::min(segment->visibility,
-                                                             partner->second.visibility);
-                        consumed.insert(partnerKey);
-                    }
-                } else if (partner->second.edgeTile.x == segment->edgeTile.x + 1 &&
-                           partner->second.edgeTile.y == segment->edgeTile.y) {
+                if (partner->second.edgeTile.x == segment->edgeTile.x + 1 &&
+                    partner->second.edgeTile.y == segment->edgeTile.y) {
                     module.widthTiles = 2;
                     module.heightTiles = 2;
                     module.segment.visibility = std::min(segment->visibility,

@@ -98,7 +98,7 @@ using Frame = std::unordered_map<Key, Segment, KeyHash>;
 Frame BuildFrame(const std::vector<RoomView>& rooms);
 
 // Groups compatible horizontal edges into 2x2 walls and regular side runs into 1x2 strips.
-// Upper corner caps also span two tiles; inset caps and incomplete runs stay one tile tall.
+// Upper corner caps and open upper terminals span two tiles; inset caps stay one tile tall.
 std::vector<Module> BuildModules(const Frame& frame);
 
 constexpr std::size_t NoSprite = std::numeric_limits<std::size_t>::max();

@@ -293,10 +293,12 @@ void TestTwoTileWallRendering(RenderTexture2D target) {
     Image corridorEntering = RenderWithPlayer(walls, corridorViews, target, playerInCorridor, 0.1f);
     ExpectColor(corridorEntering, 15, 3, bottom, 0.8f);
     ExpectPixelColor(corridorEntering, 13 * TILE_SIZE + 8,
-                     3 * TILE_SIZE + 32, SpriteColor(1, WallRules::Section::Side));
+                     3 * TILE_SIZE + 32, BlendOver(bottom, BLACK, 0.8f));
     UnloadImage(corridorEntering);
     Image corridorFaded = RenderWithPlayer(walls, corridorViews, target, playerInCorridor, 0.1f);
     ExpectColor(corridorFaded, 15, 3, bottom, 0.6f);
+    ExpectPixelColor(corridorFaded, 13 * TILE_SIZE + 8,
+                     3 * TILE_SIZE + 32, BlendOver(bottom, BLACK, 0.6f));
     UnloadImage(corridorFaded);
 }
 
@@ -473,17 +475,15 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     Image openingEast = Render(walls, {{&horizontalEast, 1.0f}}, target, true);
     ExpectPixelColor(openingEast, eastUpperX, eastWallMiddleY,
                      BlendOver(lobbySide, closedEastUpper, 0.5f));
-    ExpectPixelColor(openingEast, eastUpperX, eastLowerY,
-                     BlendOver(lobbySide, closedEastLower, 0.5f));
+    ExpectPixelColor(openingEast, eastUpperX, eastLowerY, closedEastLower);
     UnloadImage(openingEast);
 
     horizontalEastState->open = true;
     Image openEast = Render(walls, {{&horizontalEast, 1.0f}}, target, true);
     ExpectPixelColor(openEast, eastUpperX, eastWallMiddleY,
                      BlendOver(lobbySide, closedEastUpper));
-    ExpectPixelColor(openEast, eastUpperX, eastLowerY,
-                     BlendOver(lobbySide, closedEastLower));
-    // The insets occupy only the 16px corridor-facing edge of each wall tile.
+    ExpectPixelColor(openEast, eastUpperX, eastLowerY, closedEastLower);
+    // The lower mouth cap starts below the traversable corridor opening.
     ExpectPixelColor(openEast, 13 * TILE_SIZE + TILE_SIZE / 2, eastWallMiddleY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(openEast, 13 * TILE_SIZE + TILE_SIZE / 2, eastLowerY,
@@ -507,9 +507,7 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
                                GetImageColor(openWest, 17 * TILE_SIZE + TILE_SIZE / 2,
                                              eastWallMiddleY)));
     ExpectPixelColor(openWest, westCapX, eastLowerY,
-                     BlendOver(lobbySide,
-                               GetImageColor(openWest, 17 * TILE_SIZE + TILE_SIZE / 2,
-                                             eastLowerY)));
+                     SpriteColor(0, WallRules::Section::Bottom));
     ExpectPixelColor(openWest, 17 * TILE_SIZE + TILE_SIZE / 2, eastWallMiddleY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(openWest, 17 * TILE_SIZE + TILE_SIZE / 2, eastLowerY,
@@ -564,6 +562,33 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
                      SpriteColor(1, WallRules::Section::Side));
     UnloadImage(retained);
     walls.Unload();
+    walls.Unload();
+}
+
+void TestVerticalPassageTerminalSideRendering(RenderTexture2D target) {
+    WallTiles walls;
+    walls.BeginRun(7002);
+    Room room = MakeRoom({2, 0}, BiomeType::Cave, 10, 4, 5, 4);
+    auto doorState = std::make_shared<DoorInstance>();
+    doorState->open = true;
+
+    Doorway northDoor;
+    northDoor.direction = Direction::North;
+    northDoor.offset = 1;
+    northDoor.width = 2;
+    northDoor.corridorTiles = TileRect{11, 1, 2, 3};
+    northDoor.doorState = doorState;
+    room.Layout().doors.push_back(northDoor);
+
+    const Color side = SpriteColor(1, WallRules::Section::Side);
+    Image image = Render(walls, {{&room, 1.0f}}, target, false);
+    for (const int x : {10 * TILE_SIZE + TILE_SIZE - 8, 13 * TILE_SIZE + 8}) {
+        ExpectPixelColor(image, x, TILE_SIZE / 2, side);
+        ExpectPixelColor(image, x, TILE_SIZE + TILE_SIZE / 2, side);
+    }
+    ExpectPixelColor(image, 11 * TILE_SIZE - 17, TILE_SIZE / 2, BLACK);
+    ExpectPixelColor(image, 13 * TILE_SIZE + 16, TILE_SIZE / 2, BLACK);
+    UnloadImage(image);
     walls.Unload();
 }
 
@@ -691,28 +716,32 @@ void TestFallback(RenderTexture2D target) {
     const int eastUpperX = 13 * TILE_SIZE + TILE_SIZE / 8;
     const int eastUpperY = TILE_SIZE + TILE_SIZE / 2;
     const int eastBottomY = 3 * TILE_SIZE + TILE_SIZE / 2;
+    const int eastLowerCapY = 4 * TILE_SIZE + TILE_SIZE / 2;
     Image closedEast = Render(walls, {{&horizontalEast, 1.0f}}, target, true);
     const Color closedUpper = GetImageColor(closedEast, eastUpperX, eastUpperY);
     const Color closedBottom = GetImageColor(closedEast, eastUpperX, eastBottomY);
+    const Color closedLowerCap = GetImageColor(closedEast, eastUpperX, eastLowerCapY);
     UnloadImage(closedEast);
 
     horizontalEastState->opening = true;
     horizontalEastState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
     Image openingEast = Render(walls, {{&horizontalEast, 1.0f}}, target, true);
     const Color sideFallbackUpper = ProceduralSideColor(13, 1, fallbackBase);
-    const Color sideFallbackBottom = ProceduralSideColor(13, 3, fallbackBase);
+    const Color sideFallbackBottom = ProceduralSideColor(13, 4, fallbackBase);
     ExpectPixelColor(openingEast, eastUpperX, eastUpperY,
                      BlendOver(sideFallbackUpper, closedUpper, 0.5f));
-    ExpectPixelColor(openingEast, eastUpperX, eastBottomY,
-                     BlendOver(sideFallbackBottom, closedBottom, 0.5f));
+    ExpectPixelColor(openingEast, eastUpperX, eastBottomY, closedBottom);
+    ExpectPixelColor(openingEast, eastUpperX, eastLowerCapY,
+                     BlendOver(sideFallbackBottom, closedLowerCap, 0.5f));
     UnloadImage(openingEast);
 
     horizontalEastState->open = true;
     Image openEast = Render(walls, {{&horizontalEast, 1.0f}}, target, true);
     ExpectPixelColor(openEast, eastUpperX, eastUpperY,
                      BlendOver(sideFallbackUpper, closedUpper));
-    ExpectPixelColor(openEast, eastUpperX, eastBottomY,
-                     BlendOver(sideFallbackBottom, closedBottom));
+    ExpectPixelColor(openEast, eastUpperX, eastBottomY, closedBottom);
+    ExpectPixelColor(openEast, eastUpperX, eastLowerCapY,
+                     BlendOver(sideFallbackBottom, closedLowerCap));
     UnloadImage(openEast);
 
     Room moduleRoom = MakeRoom({8, 0}, BiomeType::Lobby, 2, 2, 4, 4);
@@ -748,6 +777,7 @@ int main() {
     auto target = LoadRenderTexture(26 * TILE_SIZE, 10 * TILE_SIZE);
     assert(target.id != 0);
     TestTwoTileWallRendering(target);
+    TestVerticalPassageTerminalSideRendering(target);
     TestWallCatalogsAndLayers(target);
     TestFallback(target);
     UnloadRenderTexture(target);
