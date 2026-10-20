@@ -1,4 +1,5 @@
 #include "wall_tiles.h"
+#include "door_visual_rules.h"
 
 #include <algorithm>
 #include <cassert>
@@ -7,6 +8,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <memory>
 
 namespace {
 namespace fs = std::filesystem;
@@ -229,6 +231,40 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     assert(lobbySideFaded.b > 0 && lobbySideFaded.b < lobbySideAtFullVisibility.b);
     UnloadImage(faded);
 
+    Room corridorRoom = MakeRoom({4, 0}, BiomeType::Cave, 5, 2);
+    auto corridorDoorState = std::make_shared<DoorInstance>();
+    Doorway northDoor;
+    northDoor.direction = Direction::North;
+    northDoor.offset = 1;
+    northDoor.width = 1;
+    northDoor.corridorTiles = TileRect{6, 0, 1, 2};
+    northDoor.doorState = corridorDoorState;
+    corridorRoom.Layout().doors.push_back(northDoor);
+
+    const int corridorLeftStripX = 6 * TILE_SIZE - TILE_SIZE / 8;
+    const int corridorRightStripX = 7 * TILE_SIZE + TILE_SIZE / 8;
+    const int corridorWallSampleY = TILE_SIZE / 2;
+    const Color corridorSide = SpriteColor(1, WallRules::Section::Side);
+    Image hiddenCorridor = Render(walls, {{&corridorRoom, 1.0f}}, target, false);
+    ExpectPixelColor(hiddenCorridor, corridorLeftStripX, corridorWallSampleY, BLACK);
+    ExpectPixelColor(hiddenCorridor, corridorRightStripX, corridorWallSampleY, BLACK);
+    const int roomSideSampleX = 5 * TILE_SIZE - TILE_SIZE / 8;
+    ExpectPixelColor(hiddenCorridor, roomSideSampleX, 2 * TILE_SIZE + TILE_SIZE / 2, corridorSide);
+    UnloadImage(hiddenCorridor);
+
+    corridorDoorState->opening = true;
+    corridorDoorState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
+    Image openingCorridor = Render(walls, {{&corridorRoom, 1.0f}}, target, false);
+    ExpectTranslucentPixel(openingCorridor, corridorLeftStripX, corridorWallSampleY, corridorSide);
+    ExpectTranslucentPixel(openingCorridor, corridorRightStripX, corridorWallSampleY, corridorSide);
+    UnloadImage(openingCorridor);
+
+    corridorDoorState->open = true;
+    Image openCorridor = Render(walls, {{&corridorRoom, 1.0f}}, target, false);
+    ExpectPixelColor(openCorridor, corridorLeftStripX, corridorWallSampleY, corridorSide);
+    ExpectPixelColor(openCorridor, corridorRightStripX, corridorWallSampleY, corridorSide);
+    UnloadImage(openCorridor);
+
     // Catalogs stay resident after the asset files change.
     fs::remove_all("assets/wall");
     Image retained = Render(walls, {{&cave, 1.0f}}, target, true);
@@ -263,6 +299,41 @@ void TestFallback(RenderTexture2D target) {
     ExpectFallbackPixelColor(image, leftEdgeX - 8, sideMiddleY, fallbackBase);
     ExpectFallbackPixelColor(image, rightEdgeX + 8, sideMiddleY, fallbackBase);
     UnloadImage(image);
+
+    Room corridorRoom = MakeRoom({1, 0}, BiomeType::Lobby, 5, 2);
+    auto corridorDoorState = std::make_shared<DoorInstance>();
+    Doorway northDoor;
+    northDoor.direction = Direction::North;
+    northDoor.offset = 1;
+    northDoor.width = 1;
+    northDoor.corridorTiles = TileRect{6, 0, 1, 2};
+    northDoor.doorState = corridorDoorState;
+    corridorRoom.Layout().doors.push_back(northDoor);
+
+    const int corridorLeftStripX = 6 * TILE_SIZE - TILE_SIZE / 8;
+    const int corridorRightStripX = 7 * TILE_SIZE + TILE_SIZE / 8;
+    const int corridorWallSampleY = TILE_SIZE / 2;
+    Image hiddenCorridor = Render(walls, {{&corridorRoom, 1.0f}}, target, false);
+    ExpectPixelColor(hiddenCorridor, corridorLeftStripX, corridorWallSampleY, BLACK);
+    ExpectPixelColor(hiddenCorridor, corridorRightStripX, corridorWallSampleY, BLACK);
+    UnloadImage(hiddenCorridor);
+
+    corridorDoorState->opening = true;
+    corridorDoorState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
+    Image openingCorridor = Render(walls, {{&corridorRoom, 1.0f}}, target, false);
+    const Color openingLeft = GetImageColor(openingCorridor, corridorLeftStripX, corridorWallSampleY);
+    const Color openingRight = GetImageColor(openingCorridor, corridorRightStripX, corridorWallSampleY);
+    assert(openingLeft.r > 0 && openingLeft.g > 0 && openingLeft.b > 0);
+    assert(openingRight.r > 0 && openingRight.g > 0 && openingRight.b > 0);
+    UnloadImage(openingCorridor);
+
+    corridorDoorState->open = true;
+    Image openCorridor = Render(walls, {{&corridorRoom, 1.0f}}, target, false);
+    const Color openLeft = GetImageColor(openCorridor, corridorLeftStripX, corridorWallSampleY);
+    const Color openRight = GetImageColor(openCorridor, corridorRightStripX, corridorWallSampleY);
+    assert(openLeft.r > openingLeft.r && openLeft.g > openingLeft.g && openLeft.b > openingLeft.b);
+    assert(openRight.r > openingRight.r && openRight.g > openingRight.g && openRight.b > openingRight.b);
+    UnloadImage(openCorridor);
 }
 
 } // namespace

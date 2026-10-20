@@ -21,6 +21,7 @@
 #include "room_manager.h"
 #include "room_renderer.h"
 #include "room_types.h"
+#include "door_visual_rules.h"
 #include "projectile.h"
 #include "player.h"
 #include "weapon.h"
@@ -105,7 +106,6 @@ struct RoomRevealState {
 constexpr float DOOR_COLLIDER_THICKNESS = 24.0f;
 constexpr float DOOR_OFFSET_FROM_ROOM = 15.0f;
 constexpr float DOOR_INTERACTION_DISTANCE = 150.0f;
-constexpr float DOOR_FADE_DURATION = 1.0f;
 constexpr float DOOR_MASK_CLEARANCE = 1.0f;
 constexpr float HORIZONTAL_CORRIDOR_MASK_EXTRA_HEIGHT = static_cast<float>(TILE_SIZE);
 constexpr float HORIZONTAL_CORRIDOR_MASK_VERTICAL_OFFSET = static_cast<float>(TILE_SIZE) * 0.5f;
@@ -278,14 +278,7 @@ bool DrawDeathOverlay() {
 
 // Calcula o alfa de visibilidade de uma porta conforme estado de abertura/fechamento.
 float DoorVisibilityAlpha(const DoorInstance& state) {
-    if (state.open) {
-        return 0.0f;
-    }
-    if (!state.opening) {
-        return 1.0f;
-    }
-    float t = std::clamp(state.fadeProgress / DOOR_FADE_DURATION, 0.0f, 1.0f);
-    return 1.0f - t;
+    return DoorVisualRules::MaskAlpha(state);
 }
 
 float TileToPixel(int tile);
@@ -1703,9 +1696,10 @@ int main() {
 
                 if (doorState.opening && !doorState.open) {
                     if (animatedDoorInstances.insert(instancePtr).second) {
-                        doorState.fadeProgress = std::min(DOOR_FADE_DURATION, doorState.fadeProgress + delta);
-                        if (doorState.fadeProgress >= DOOR_FADE_DURATION) {
-                            doorState.fadeProgress = DOOR_FADE_DURATION;
+                        doorState.fadeProgress = std::min(DoorVisualRules::FadeDuration,
+                                                          doorState.fadeProgress + delta);
+                        if (doorState.fadeProgress >= DoorVisualRules::FadeDuration) {
+                            doorState.fadeProgress = DoorVisualRules::FadeDuration;
                             doorState.open = true;
                             doorState.maskActive = false;
                         }

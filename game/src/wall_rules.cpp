@@ -1,5 +1,6 @@
 #include "wall_rules.h"
 
+#include "door_visual_rules.h"
 #include "floor_rules.h"
 
 #include <algorithm>
@@ -13,6 +14,7 @@ namespace {
 struct TileInfo {
     BiomeType biome;
     float visibility;
+    float sideVisibility;
 };
 
 struct PositionHash {
@@ -42,14 +44,19 @@ struct EdgeKeyHash {
 
 using WalkableTiles = std::unordered_map<Position, TileInfo, PositionHash>;
 
-void AddRect(WalkableTiles& tiles, const TileRect& rect, BiomeType biome, float visibility) {
+void AddRect(WalkableTiles& tiles, const TileRect& rect, BiomeType biome, float visibility,
+             float sideVisibility = 1.0f) {
     if (!(visibility > 0.0f) || rect.width <= 0 || rect.height <= 0) return;
     visibility = std::min(visibility, 1.0f);
+    sideVisibility = visibility * std::clamp(sideVisibility, 0.0f, 1.0f);
     for (int y = rect.y; y < rect.y + rect.height; ++y) {
         for (int x = rect.x; x < rect.x + rect.width; ++x) {
             const Position position{x, y};
-            auto [it, inserted] = tiles.emplace(position, TileInfo{biome, visibility});
-            if (!inserted) it->second.visibility = std::max(it->second.visibility, visibility);
+            auto [it, inserted] = tiles.emplace(position, TileInfo{biome, visibility, sideVisibility});
+            if (!inserted) {
+                it->second.visibility = std::max(it->second.visibility, visibility);
+                it->second.sideVisibility = std::max(it->second.sideVisibility, sideVisibility);
+            }
         }
     }
 }
@@ -105,11 +112,11 @@ bool IsOpen(const std::unordered_set<EdgeKey, EdgeKeyHash>& openEdges,
 }
 
 void AddSegment(Frame& frame, Position position, Position edgeTile, Section section,
-                const TileInfo& tile) {
+                const TileInfo& tile, float visibility) {
     const Key key{position, section};
-    auto [it, inserted] = frame.emplace(key, Segment{position, edgeTile, section, tile.biome, tile.visibility});
+    auto [it, inserted] = frame.emplace(key, Segment{position, edgeTile, section, tile.biome, visibility});
     if (!inserted) {
-        it->second.visibility = std::max(it->second.visibility, tile.visibility);
+        it->second.visibility = std::max(it->second.visibility, visibility);
         const bool lowerBiome = static_cast<int>(tile.biome) < static_cast<int>(it->second.biome);
         const bool stableEdge = tile.biome == it->second.biome &&
             (edgeTile.x < it->second.edgeTile.x ||
@@ -171,7 +178,8 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
                 corridorBiome = FloorRules::CorridorBiome(room.GetCoords(), room.GetBiome(),
                                                            target->first, target->second->GetBiome());
             }
-            AddRect(walkable, door.corridorTiles, corridorBiome, view.visibility);
+            const float sideProgress = DoorVisualRules::OpenProgress(door.doorState.get());
+            AddRect(walkable, door.corridorTiles, corridorBiome, view.visibility, sideProgress);
         }
     }
 
@@ -186,14 +194,27 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
         const bool east = !HasWalkableNeighbor(walkable, position, Direction::East) &&
                           !IsOpen(openEdges, position, Direction::East);
 
-        if (north) AddSegment(frame, Position{position.x, position.y - 1}, position, Section::Upper, tile);
-        if (south) AddSegment(frame, position, position, Section::Bottom, tile);
-        if (west) AddSegment(frame, Position{position.x - 1, position.y}, position, Section::Side, tile);
-        if (east) AddSegment(frame, Position{position.x + 1, position.y}, position, Section::Side, tile);
+        if (north) AddSegment(frame, Position{position.x, position.y - 1}, position,
+                              Section::Upper, tile, tile.visibility);
+        if (south) AddSegment(frame, position, position, Section::Bottom, tile, tile.visibility);
+        if (west && tile.sideVisibility > 0.0f) {
+            AddSegment(frame, Position{position.x - 1, position.y}, position,
+                       Section::Side, tile, tile.sideVisibility);
+        }
+        if (east && tile.sideVisibility > 0.0f) {
+            AddSegment(frame, Position{position.x + 1, position.y}, position,
+                       Section::Side, tile, tile.sideVisibility);
+        }
 
         // Upper corner caps connect the side run to the upper wall without a gap.
-        if (north && west) AddSegment(frame, Position{position.x - 1, position.y - 1}, position, Section::Side, tile);
-        if (north && east) AddSegment(frame, Position{position.x + 1, position.y - 1}, position, Section::Side, tile);
+        if (north && west && tile.sideVisibility > 0.0f) {
+            AddSegment(frame, Position{position.x - 1, position.y - 1}, position,
+                       Section::Side, tile, tile.sideVisibility);
+        }
+        if (north && east && tile.sideVisibility > 0.0f) {
+            AddSegment(frame, Position{position.x + 1, position.y - 1}, position,
+                       Section::Side, tile, tile.sideVisibility);
+        }
         // Side segments on the final walkable row already meet the bottom wall.
         // A separate south cap would add a full tile below the room.
     }

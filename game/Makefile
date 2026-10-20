@@ -377,7 +377,7 @@ test: $(TEST_BIN) $(FLOOR_TEST_BIN) $(WALL_TEST_BIN)
 $(FLOOR_TEST_BIN): tests/floor_rules_tests.cpp src/floor_rules.cpp src/floor_rules.h src/room_types.h
 	$(CC) -o $@ tests/floor_rules_tests.cpp src/floor_rules.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
 
-$(WALL_TEST_BIN): tests/wall_rules_tests.cpp src/wall_rules.cpp src/wall_rules.h src/floor_rules.cpp src/floor_rules.h src/room.cpp src/room.h
+$(WALL_TEST_BIN): tests/wall_rules_tests.cpp src/wall_rules.cpp src/wall_rules.h src/floor_rules.cpp src/floor_rules.h src/room.cpp src/room.h src/door_visual_rules.h
 	$(CC) -o $@ tests/wall_rules_tests.cpp src/wall_rules.cpp src/floor_rules.cpp src/room.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
 
 # Optional integration test: requires a working graphics context (hidden window).
