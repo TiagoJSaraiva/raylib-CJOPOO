@@ -93,14 +93,25 @@ void DrawSideWallTile(WallRules::Position position, Color baseColor) {
 
 Texture2D LoadWallTexture(const std::filesystem::path& path) {
     Image image = LoadImage(path.generic_string().c_str());
-    if (image.data == nullptr || !FloorRules::IsSquareImage(image.width, image.height)) {
-        std::cerr << "[WallTiles] Expected a readable square image: " << path.generic_string() << '\n';
+    if (image.data == nullptr || image.width <= 0 || image.height <= 0) {
+        std::cerr << "[WallTiles] Invalid image " << path.generic_string() << " ("
+                  << image.width << 'x' << image.height << "): expected a readable image "
+                  << "with positive dimensions.\n";
         if (image.data != nullptr) UnloadImage(image);
         return Texture2D{};
     }
+
     Texture2D texture = LoadTextureFromImage(image);
+    const int width = image.width;
+    const int height = image.height;
     UnloadImage(image);
-    if (texture.id != 0) SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
+    if (texture.id == 0) {
+        std::cerr << "[WallTiles] Cannot upload image " << path.generic_string() << " ("
+                  << width << 'x' << height << ").\n";
+        return Texture2D{};
+    }
+
+    SetTextureFilter(texture, TEXTURE_FILTER_BILINEAR);
     return texture;
 }
 
@@ -204,9 +215,11 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
         const Texture2D texture = catalog.textures[choice.sprite];
         const Rectangle source{0.0f, 0.0f, static_cast<float>(texture.width),
                                static_cast<float>(texture.height)};
+        const float segmentBottom = static_cast<float>((segment.position.y + 1) * TILE_SIZE);
         const Rectangle destination{static_cast<float>(segment.position.x * TILE_SIZE),
-                                    static_cast<float>(segment.position.y * TILE_SIZE),
+                                    segmentBottom - static_cast<float>(TILE_SIZE),
                                     static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
+        // Stretch any source dimensions into one wall tile, keeping its base on the segment edge.
         DrawTexturePro(texture, source, destination, Vector2{0.0f, 0.0f}, 0.0f,
                        ColorAlpha(WHITE, segment.visibility));
     }

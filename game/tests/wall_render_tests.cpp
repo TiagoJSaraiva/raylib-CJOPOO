@@ -5,6 +5,7 @@
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
 
 namespace {
@@ -79,6 +80,13 @@ Color Pixel(Image image, int tileX, int tileY) {
     return GetImageColor(image, tileX * TILE_SIZE + 32, tileY * TILE_SIZE + 32);
 }
 
+void ExpectPixelColor(Image image, int pixelX, int pixelY, Color expected) {
+    const Color actual = GetImageColor(image, pixelX, pixelY);
+    assert(std::abs(static_cast<int>(actual.r) - expected.r) <= 3);
+    assert(std::abs(static_cast<int>(actual.g) - expected.g) <= 3);
+    assert(std::abs(static_cast<int>(actual.b) - expected.b) <= 3);
+}
+
 void ExpectTranslucent(Image image, int tileX, int tileY, Color source) {
     const Color actual = Pixel(image, tileX, tileY);
     assert(actual.r > 0 && actual.r < source.r);
@@ -120,9 +128,10 @@ void AddTestSprites() {
     for (std::size_t biome = 0; biome < 4; ++biome) {
         for (std::size_t section = 0; section < 3; ++section) {
             const auto wallSection = static_cast<WallRules::Section>(section);
-            const int size = (biome == 1 && wallSection == WallRules::Section::Upper) ? 256 : 64;
+            const int width = (biome == 1 && wallSection == WallRules::Section::Upper) ? 919 : 64;
+            const int height = (biome == 1 && wallSection == WallRules::Section::Upper) ? 811 : 64;
             Sprite(fs::path("assets/wall") / biomes[biome] / sections[section] / "1-2.png",
-                   size, size, SpriteColor(biome, wallSection));
+                   width, height, SpriteColor(biome, wallSection));
         }
     }
 }
@@ -148,6 +157,10 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
         ExpectColor(background, x, 1, upper);
         ExpectColor(background, x, 3, BLACK); // Bottom walls wait for the foreground pass.
     }
+    const Color rectangularUpper = SpriteColor(1, WallRules::Section::Upper);
+    ExpectPixelColor(background, 8 * TILE_SIZE + 1, 1 * TILE_SIZE + 1, rectangularUpper);
+    ExpectPixelColor(background, 8 * TILE_SIZE + TILE_SIZE - 2,
+                     2 * TILE_SIZE - 2, rectangularUpper);
     const Color lobbySideAtFullVisibility = Pixel(background, 1, 2);
     UnloadImage(background);
 
@@ -186,6 +199,11 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
 
 void TestFallback(RenderTexture2D target) {
     fs::create_directories("assets/wall");
+    fs::create_directories("assets/wall/lobby/upper");
+    {
+        std::ofstream invalid("assets/wall/lobby/upper/1-1.png", std::ios::binary);
+        invalid << "not a png";
+    }
     WallTiles walls;
     walls.BeginRun(99);
     Room lobby = MakeRoom({0, 0}, BiomeType::Lobby, 5, 2);
