@@ -63,44 +63,49 @@ Color RandomWallColorForTile(int tileX, int tileY, Color baseColor) {
     return baseColor;
 }
 
-void DrawNorthWallColumn(int tileX, int topTileY, Color baseColor) {
+void DrawNorthWallColumn(int tileX, int topTileY, Color baseColor,
+                         int widthTiles, int heightTiles) {
     const float x = static_cast<float>(tileX * TILE_SIZE);
     const float bottom = static_cast<float>(topTileY * TILE_SIZE);
-    const float height = static_cast<float>(TILE_SIZE);
-    const Rectangle wallRect{x, bottom - height, static_cast<float>(TILE_SIZE), height};
+    const float width = static_cast<float>(widthTiles * TILE_SIZE);
+    const float height = static_cast<float>(heightTiles * TILE_SIZE);
+    const Rectangle wallRect{x, bottom - height, width, height};
     DrawRectangleRec(wallRect, baseColor);
-    DrawRectangleRec(Rectangle{x, bottom - height, static_cast<float>(TILE_SIZE), height * 0.2f},
+    DrawRectangleRec(Rectangle{x, bottom - height, width, height * 0.2f},
                      OffsetRgb(baseColor, 25));
 }
 
-void DrawSouthWallColumn(int tileX, int floorTileY, Color baseColor) {
+void DrawSouthWallColumn(int tileX, int floorTileY, Color baseColor,
+                         int widthTiles, int heightTiles) {
     const float x = static_cast<float>(tileX * TILE_SIZE);
     const float y = static_cast<float>(floorTileY * TILE_SIZE);
-    const float size = static_cast<float>(TILE_SIZE);
-    DrawRectangleRec(Rectangle{x, y, size, size}, baseColor);
-    DrawRectangleRec(Rectangle{x, y, size, size * 0.18f}, OffsetRgb(baseColor, 24));
-    DrawRectangleRec(Rectangle{x, y + size * 0.18f, size, size * 0.32f}, OffsetRgb(baseColor, 8));
-    DrawRectangleRec(Rectangle{x, y + size * 0.76f, size, size * 0.24f}, OffsetRgb(baseColor, -34));
+    const float width = static_cast<float>(widthTiles * TILE_SIZE);
+    const float height = static_cast<float>(heightTiles * TILE_SIZE);
+    DrawRectangleRec(Rectangle{x, y, width, height}, baseColor);
+    DrawRectangleRec(Rectangle{x, y, width, height * 0.18f}, OffsetRgb(baseColor, 24));
+    DrawRectangleRec(Rectangle{x, y + height * 0.18f, width, height * 0.32f}, OffsetRgb(baseColor, 8));
+    DrawRectangleRec(Rectangle{x, y + height * 0.76f, width, height * 0.24f}, OffsetRgb(baseColor, -34));
 }
 
-Rectangle SideWallRect(const WallRules::Segment& segment) {
+Rectangle SideWallRect(const WallRules::Segment& segment, int heightTiles) {
     const float tileSize = static_cast<float>(TILE_SIZE);
     const float y = static_cast<float>(segment.position.y) * tileSize;
+    const float height = static_cast<float>(heightTiles * TILE_SIZE);
     const float tileX = static_cast<float>(segment.position.x) * tileSize;
-    if (segment.sidePlacement == WallRules::SidePlacement::BottomLeft) {
+    if (segment.sidePlacement == WallRules::SidePlacement::InsetLeft) {
         return Rectangle{tileX, y, kSideWallWidth, tileSize};
     }
-    if (segment.sidePlacement == WallRules::SidePlacement::BottomRight) {
+    if (segment.sidePlacement == WallRules::SidePlacement::InsetRight) {
         return Rectangle{tileX + tileSize - kSideWallWidth, y, kSideWallWidth, tileSize};
     }
     const float edgeX = static_cast<float>(segment.edgeTile.x) * tileSize;
     const bool isLeftSide = segment.position.x < segment.edgeTile.x;
     const float x = isLeftSide ? edgeX - kSideWallWidth : edgeX + tileSize;
-    return Rectangle{x, y, kSideWallWidth, tileSize};
+    return Rectangle{x, y, kSideWallWidth, height};
 }
 
-void DrawSideWallTile(const WallRules::Segment& segment, Color baseColor) {
-    const Rectangle wallRect = SideWallRect(segment);
+void DrawSideWallTile(const WallRules::Segment& segment, Color baseColor, int heightTiles) {
+    const Rectangle wallRect = SideWallRect(segment, heightTiles);
     const float highlightWidth = wallRect.width * 0.16f;
     DrawRectangleRec(wallRect, baseColor);
     DrawRectangleRec(Rectangle{wallRect.x, wallRect.y, highlightWidth, wallRect.height},
@@ -205,25 +210,32 @@ void WallTiles::DrawForeground(const std::vector<WallRules::RoomView>& rooms) co
 }
 
 void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
-    std::vector<const WallRules::Segment*> segments;
-    segments.reserve(frame.size());
-    for (const auto& entry : frame) {
-        const auto& segment = entry.second;
+    std::vector<WallRules::Module> modules;
+    for (const auto& module : WallRules::BuildModules(frame)) {
+        const auto& segment = module.segment;
         const bool drawsInForeground = segment.section == WallRules::Section::Bottom ||
             segment.sidePlacement != WallRules::SidePlacement::Edge;
         if (drawsInForeground == foreground) {
-            segments.push_back(&segment);
+            modules.push_back(module);
         }
     }
-    std::sort(segments.begin(), segments.end(), [](const auto* a, const auto* b) {
-        const int aOverlayOrder = a->sidePlacement == WallRules::SidePlacement::Edge ? 0 : 1;
-        const int bOverlayOrder = b->sidePlacement == WallRules::SidePlacement::Edge ? 0 : 1;
-        return std::tie(a->position.y, a->position.x, aOverlayOrder, a->section) <
-               std::tie(b->position.y, b->position.x, bOverlayOrder, b->section);
+    std::sort(modules.begin(), modules.end(), [](const auto& a, const auto& b) {
+        const auto& aSegment = a.segment;
+        const auto& bSegment = b.segment;
+        const auto drawOrder = [](const WallRules::Segment& segment) {
+            if (segment.section == WallRules::Section::Side) {
+                return segment.sidePlacement == WallRules::SidePlacement::Edge ? 0 : 2;
+            }
+            return segment.section == WallRules::Section::Upper ? 1 : 0;
+        };
+        return std::make_tuple(drawOrder(aSegment), aSegment.position.y, aSegment.position.x,
+                               aSegment.section) <
+               std::make_tuple(drawOrder(bSegment), bSegment.position.y, bSegment.position.x,
+                               bSegment.section);
     });
 
-    for (const auto* segmentPointer : segments) {
-        const auto& segment = *segmentPointer;
+    for (const auto& module : modules) {
+        const auto& segment = module.segment;
 
         const auto catalogIndex = BiomeIndex(segment.biome) * 3 + SectionIndex(segment.section);
         const auto& catalog = catalogs_[catalogIndex];
@@ -231,37 +243,45 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
                                                   segment.biome, catalog.cumulative,
                                                   segment.sidePlacement);
         if (choice.sprite == WallRules::NoSprite) {
-            DrawFallback(segment);
+            DrawFallback(module);
             continue;
         }
 
         const Texture2D texture = catalog.textures[choice.sprite];
         const Rectangle source{0.0f, 0.0f, static_cast<float>(texture.width),
                                static_cast<float>(texture.height)};
-        const float segmentBottom = static_cast<float>((segment.position.y + 1) * TILE_SIZE);
-        Rectangle destination{static_cast<float>(segment.position.x * TILE_SIZE),
-                              segmentBottom - static_cast<float>(TILE_SIZE),
-                              static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
-        if (segment.section == WallRules::Section::Side) destination = SideWallRect(segment);
-        // Side sprites are narrowed to the edge strip; upper and bottom keep their full tiles.
+        const float tileSize = static_cast<float>(TILE_SIZE);
+        const float width = static_cast<float>(module.widthTiles) * tileSize;
+        const float height = static_cast<float>(module.heightTiles) * tileSize;
+        const float x = static_cast<float>(segment.position.x) * tileSize;
+        const float y = static_cast<float>(segment.section == WallRules::Section::Upper
+            ? segment.position.y + 1 - module.heightTiles
+            : segment.position.y) * tileSize;
+        Rectangle destination{x, y, width, height};
+        if (segment.section == WallRules::Section::Side) {
+            destination = SideWallRect(segment, module.heightTiles);
+        }
         DrawTexturePro(texture, source, destination, Vector2{0.0f, 0.0f}, 0.0f,
                        ColorAlpha(WHITE, segment.visibility));
     }
 }
 
-void WallTiles::DrawFallback(const WallRules::Segment& segment) const {
+void WallTiles::DrawFallback(const WallRules::Module& module) const {
+    const auto& segment = module.segment;
     Color color = WallBaseColorForBiome(segment.biome);
     int variationY = segment.position.y;
-    if (segment.section == WallRules::Section::Upper) variationY = segment.edgeTile.y - 1;
+    if (segment.section == WallRules::Section::Upper) variationY = segment.edgeTile.y - module.heightTiles;
     else if (segment.section == WallRules::Section::Bottom) variationY = segment.edgeTile.y + 1;
     color = RandomWallColorForTile(segment.edgeTile.x, variationY, color);
     color = ColorAlpha(color, segment.visibility);
 
     if (segment.section == WallRules::Section::Upper) {
-        DrawNorthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color);
+        DrawNorthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color,
+                            module.widthTiles, module.heightTiles);
     } else if (segment.section == WallRules::Section::Bottom) {
-        DrawSouthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color);
+        DrawSouthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color,
+                            module.widthTiles, module.heightTiles);
     } else {
-        DrawSideWallTile(segment, color);
+        DrawSideWallTile(segment, color, module.heightTiles);
     }
 }

@@ -25,7 +25,7 @@ private:
     };
 
     void Draw(const WallRules::Frame& frame, bool foreground) const;
-    void DrawFallback(const WallRules::Segment& segment) const;
+    void DrawFallback(const WallRules::Module& module) const;
 
     std::array<Catalog, 12> catalogs_{};
     mutable WallRules::TileMemory memory_;

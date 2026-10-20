@@ -18,8 +18,8 @@ enum class Section : std::uint8_t {
 
 enum class SidePlacement : std::uint8_t {
     Edge,
-    BottomLeft,
-    BottomRight
+    InsetLeft,
+    InsetRight
 };
 
 struct Position {
@@ -45,6 +45,12 @@ struct Segment {
     SidePlacement sidePlacement{SidePlacement::Edge};
 };
 
+struct Module {
+    Segment segment;          // First tile in this module's horizontal or vertical span.
+    int widthTiles{1};
+    int heightTiles{1};
+};
+
 struct Key {
     Position position;
     Section section;
@@ -64,6 +70,10 @@ using Frame = std::unordered_map<Key, Segment, KeyHash>;
 
 // Builds the union of visible room and open-corridor geometry, then emits its exposed walls.
 Frame BuildFrame(const std::vector<RoomView>& rooms);
+
+// Groups compatible tile edges into 2x2 horizontal walls and 1x2 side-wall strips.
+// One-tile caps and incomplete runs remain single-tile modules.
+std::vector<Module> BuildModules(const Frame& frame);
 
 constexpr std::size_t NoSprite = std::numeric_limits<std::size_t>::max();
 

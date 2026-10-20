@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <random>
+#include <tuple>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -42,6 +43,18 @@ struct EdgeKeyHash {
         hash = HashCombine(hash, static_cast<std::uint64_t>(key.direction));
         return static_cast<std::size_t>(hash);
     }
+};
+
+struct HorizontalMouth {
+    Position upperWall;
+    Position upperEdgeTile;
+    Position upperRoomSide;
+    Position bottomWall;
+    Position bottomEdgeTile;
+    Position bottomRoomSide;
+    BiomeType biome;
+    float visibility;
+    SidePlacement sidePlacement;
 };
 
 using WalkableTiles = std::unordered_map<Position, TileInfo, PositionHash>;
@@ -142,6 +155,17 @@ std::uint64_t WallSalt(Section section, BiomeType biome) {
     return HashCombine(salt, static_cast<std::uint64_t>(biome));
 }
 
+bool SameModuleStyle(const Segment& a, const Segment& b) {
+    return a.section == b.section && a.biome == b.biome &&
+           a.sidePlacement == b.sidePlacement;
+}
+
+bool IsRegularSideSegment(const Segment& segment) {
+    return segment.section == Section::Side &&
+           segment.sidePlacement == SidePlacement::Edge &&
+           segment.position.y == segment.edgeTile.y;
+}
+
 } // namespace
 
 std::size_t KeyHash::operator()(const Key& key) const noexcept {
@@ -168,6 +192,7 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
 
     WalkableTiles walkable;
     std::unordered_set<EdgeKey, EdgeKeyHash> openEdges;
+    std::vector<HorizontalMouth> horizontalMouths;
 
     // Add room footprints first so corridor tiles use the resolved corridor biome only outside rooms.
     for (const auto& view : ordered) {
@@ -191,6 +216,29 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
             const float sideProgress = DoorVisualRules::OpenProgress(door.doorState.get());
             AddRect(walkable, door.corridorTiles, corridorBiome, view.visibility, sideProgress,
                     true, door.direction == Direction::South);
+
+            const TileRect& corridor = door.corridorTiles;
+            if ((door.direction == Direction::East || door.direction == Direction::West) &&
+                corridor.width > 0 && corridor.height > 0) {
+                const int mouthX = door.direction == Direction::East
+                    ? corridor.x
+                    : corridor.x + corridor.width - 1;
+                const Position upperWall{mouthX, corridor.y - 1};
+                const Position bottomWall{mouthX, corridor.y + corridor.height - 1};
+                horizontalMouths.push_back(HorizontalMouth{
+                    upperWall,
+                    Position{mouthX, corridor.y},
+                    upperWall,
+                    bottomWall,
+                    Position{mouthX, bottomWall.y},
+                    Position{mouthX, bottomWall.y + 1},
+                    corridorBiome,
+                    view.visibility * sideProgress,
+                    door.direction == Direction::East
+                        ? SidePlacement::InsetLeft
+                        : SidePlacement::InsetRight
+                });
+            }
         }
     }
 
@@ -248,14 +296,92 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
         // A side segment to the left of its corridor tile caps the bottom wall's right edge,
         // and a segment to the right caps its left edge.
         const SidePlacement placement = side.position.x < side.edgeTile.x
-            ? SidePlacement::BottomRight
-            : SidePlacement::BottomLeft;
+            ? SidePlacement::InsetRight
+            : SidePlacement::InsetLeft;
         const TileInfo capTile{side.biome, side.visibility, side.visibility};
         AddSegment(frame, bottomPosition, side.edgeTile, Section::Side, capTile,
                    side.visibility, placement);
     }
 
+    // Cap the upper and lower horizontal corridor walls where they meet a room side wall.
+    // The paired side segment checks prevent caps at open corridor ends and ordinary room corners.
+    for (const auto& mouth : horizontalMouths) {
+        if (!(mouth.visibility > 0.0f)) continue;
+
+        const TileInfo capTile{mouth.biome, mouth.visibility, mouth.visibility};
+        if (frame.find(Key{mouth.upperWall, Section::Upper}) != frame.end() &&
+            frame.find(Key{mouth.upperRoomSide, Section::Side}) != frame.end()) {
+            AddSegment(frame, mouth.upperWall, mouth.upperEdgeTile, Section::Side,
+                       capTile, mouth.visibility, mouth.sidePlacement);
+        }
+        if (frame.find(Key{mouth.bottomWall, Section::Bottom}) != frame.end() &&
+            frame.find(Key{mouth.bottomRoomSide, Section::Side}) != frame.end()) {
+            AddSegment(frame, mouth.bottomWall, mouth.bottomEdgeTile, Section::Side,
+                       capTile, mouth.visibility, mouth.sidePlacement);
+        }
+    }
+
     return frame;
+}
+
+std::vector<Module> BuildModules(const Frame& frame) {
+    std::vector<const Segment*> ordered;
+    ordered.reserve(frame.size());
+    for (const auto& entry : frame) ordered.push_back(&entry.second);
+    std::sort(ordered.begin(), ordered.end(), [](const Segment* a, const Segment* b) {
+        return std::tie(a->position.y, a->position.x, a->section, a->sidePlacement) <
+               std::tie(b->position.y, b->position.x, b->section, b->sidePlacement);
+    });
+
+    std::unordered_set<Key, KeyHash> consumed;
+    consumed.reserve(frame.size());
+    std::vector<Module> modules;
+    modules.reserve(frame.size());
+
+    for (const Segment* segment : ordered) {
+        const Key key{segment->position, segment->section, segment->sidePlacement};
+        if (!consumed.insert(key).second) continue;
+
+        Module module{*segment, 1, 1};
+        Position partnerPosition = segment->position;
+        bool canPair = false;
+
+        if ((segment->section == Section::Upper || segment->section == Section::Bottom) &&
+            segment->sidePlacement == SidePlacement::Edge) {
+            ++partnerPosition.x;
+            canPair = true;
+        } else if (IsRegularSideSegment(*segment)) {
+            ++partnerPosition.y;
+            canPair = true;
+        }
+
+        if (canPair) {
+            const Key partnerKey{partnerPosition, segment->section, segment->sidePlacement};
+            const auto partner = frame.find(partnerKey);
+            if (partner != frame.end() && SameModuleStyle(*segment, partner->second)) {
+                if (segment->section == Section::Side) {
+                    if (partner->second.edgeTile.x == segment->edgeTile.x &&
+                        partner->second.edgeTile.y == segment->edgeTile.y + 1) {
+                        module.heightTiles = 2;
+                        module.segment.visibility = std::min(segment->visibility,
+                                                             partner->second.visibility);
+                        consumed.insert(partnerKey);
+                    }
+                } else if (partner->second.edgeTile.x == segment->edgeTile.x + 1 &&
+                           partner->second.edgeTile.y == segment->edgeTile.y) {
+                    module.widthTiles = 2;
+                    module.heightTiles = 2;
+                    module.segment.visibility = std::min(segment->visibility,
+                                                         partner->second.visibility);
+                    consumed.insert(partnerKey);
+                }
+            }
+        }
+
+        modules.push_back(module);
+    }
+
+    return modules;
 }
 
 void TileMemory::Reset(std::uint64_t seed) {

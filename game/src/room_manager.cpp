@@ -17,12 +17,21 @@ namespace {
 constexpr int MIN_ROOM_SPACING_TILES = 2;
 // Garante corredores com pelo menos duas tiles por lado.
 constexpr int MIN_CORRIDOR_LENGTH_TILES = MIN_ROOM_SPACING_TILES * 2;
-constexpr int MAX_CORRIDOR_LENGTH_TILES = MIN_CORRIDOR_LENGTH_TILES * 3;
+constexpr int MAX_CORRIDOR_LENGTH_TILES = MIN_CORRIDOR_LENGTH_TILES + 2;
 
-// Sorteia inteiro inclusivo no intervalo dado para layouts e portas.
-int RandomInt(std::mt19937_64& rng, int minInclusive, int maxInclusive) {
-    std::uniform_int_distribution<int> dist(minInclusive, maxInclusive);
-    return dist(rng);
+int RandomEvenInt(std::mt19937_64& rng, int minInclusive, int maxInclusive) {
+    const int firstEven = (minInclusive % 2 == 0) ? minInclusive : minInclusive + 1;
+    const int lastEven = (maxInclusive % 2 == 0) ? maxInclusive : maxInclusive - 1;
+    if (firstEven > lastEven) return firstEven;
+
+    std::uniform_int_distribution<int> dist(0, (lastEven - firstEven) / 2);
+    return firstEven + dist(rng) * 2;
+}
+
+int NearestEvenAtOrBelowTie(int value) {
+    const int lower = value - value % 2;
+    const int upper = lower + 2;
+    return value - lower <= upper - value ? lower : upper;
 }
 
 // Sorteia double inclusivo, usado para pesos/probabilidades.
@@ -62,6 +71,11 @@ int CorridorLengthForDirection(Direction direction, const TileRect& corridor) {
     return corridor.width;
 }
 
+bool IsValidGeneratedCorridorLength(int length) {
+    return length >= MIN_CORRIDOR_LENGTH_TILES &&
+           length <= MAX_CORRIDOR_LENGTH_TILES && length % 2 == 0;
+}
+
 // Recalcula corredor físico entre duas salas de layouts conhecidos.
 TileRect ComputeCorridorBetweenRooms(const RoomLayout& originLayout, const Doorway& door, const RoomLayout& neighborLayout) {
     TileRect corridor{};
@@ -75,7 +89,7 @@ TileRect ComputeCorridorBetweenRooms(const RoomLayout& originLayout, const Doorw
             int neighborBottom = neighborBounds.y + neighborBounds.height;
             int originTop = originBounds.y;
             int gap = originTop - neighborBottom;
-            if (gap <= 0) return {};
+            if (!IsValidGeneratedCorridorLength(gap)) return {};
             corridor.x = doorWorldX;
             corridor.y = neighborBottom;
             corridor.width = door.width;
@@ -86,7 +100,7 @@ TileRect ComputeCorridorBetweenRooms(const RoomLayout& originLayout, const Doorw
             int originBottom = originBounds.y + originBounds.height;
             int neighborTop = neighborBounds.y;
             int gap = neighborTop - originBottom;
-            if (gap <= 0) return {};
+            if (!IsValidGeneratedCorridorLength(gap)) return {};
             corridor.x = doorWorldX;
             corridor.y = originBottom;
             corridor.width = door.width;
@@ -97,7 +111,7 @@ TileRect ComputeCorridorBetweenRooms(const RoomLayout& originLayout, const Doorw
             int originRight = originBounds.x + originBounds.width;
             int neighborLeft = neighborBounds.x;
             int gap = neighborLeft - originRight;
-            if (gap <= 0) return {};
+            if (!IsValidGeneratedCorridorLength(gap)) return {};
             corridor.x = originRight;
             corridor.y = originBounds.y + door.offset;
             corridor.width = gap;
@@ -108,7 +122,7 @@ TileRect ComputeCorridorBetweenRooms(const RoomLayout& originLayout, const Doorw
             int neighborRight = neighborBounds.x + neighborBounds.width;
             int originLeft = originBounds.x;
             int gap = originLeft - neighborRight;
-            if (gap <= 0) return {};
+            if (!IsValidGeneratedCorridorLength(gap)) return {};
             corridor.x = neighborRight;
             corridor.y = originBounds.y + door.offset;
             corridor.width = gap;
@@ -222,7 +236,7 @@ Room& RoomManager::CreateInitialRoom() {
 
     Doorway startingDoor{};
     startingDoor.direction = Direction::North;
-    startingDoor.offset = (kInitialRoomSize - startingDoor.width) / 2;
+    startingDoor.offset = NearestEvenAtOrBelowTie((kInitialRoomSize - startingDoor.width) / 2);
     startingDoor.corridorLength = std::max(4, MIN_CORRIDOR_LENGTH_TILES);
     startingDoor.targetCoords = coords + ToDirectionOffset(Direction::North);
     layout.doors.push_back(startingDoor);
@@ -461,17 +475,20 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
                 heightTiles = 12;
                 break;
             default:
-                widthTiles = RandomInt(rng, 10, 20);
-                heightTiles = RandomInt(rng, 10, 20);
+                widthTiles = RandomEvenInt(rng, 10, 20);
+                heightTiles = RandomEvenInt(rng, 10, 20);
                 break;
         }
 
         const int wallLength = WallLengthForDirection(widthTiles, heightTiles, Opposite(originDoor.direction));
         const int maxOffset = std::max(1, wallLength - originDoor.width - 1);
-        entranceOffset = RandomInt(rng, 1, maxOffset);
+        entranceOffset = RandomEvenInt(rng, 1, maxOffset);
 
-        if (originDoor.corridorLength < MIN_CORRIDOR_LENGTH_TILES || originDoor.corridorLength > MAX_CORRIDOR_LENGTH_TILES) {
-            originDoor.corridorLength = RandomInt(rng, MIN_CORRIDOR_LENGTH_TILES, MAX_CORRIDOR_LENGTH_TILES);
+        if (originDoor.corridorLength < MIN_CORRIDOR_LENGTH_TILES ||
+            originDoor.corridorLength > MAX_CORRIDOR_LENGTH_TILES ||
+            originDoor.corridorLength % 2 != 0) {
+            originDoor.corridorLength = RandomEvenInt(rng, MIN_CORRIDOR_LENGTH_TILES,
+                                                      MAX_CORRIDOR_LENGTH_TILES);
         }
 
         RoomPlacement placement = ComputePlacement(originRoom, originDoor, widthTiles, heightTiles, entranceOffset);
@@ -621,8 +638,8 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
         }
 
         std::vector<int> offsets;
-        offsets.reserve(std::max(1, wallLength - DOOR_WIDTH_TILES - 1));
-        for (int offset = 1; offset <= wallLength - DOOR_WIDTH_TILES - 1; ++offset) {
+        offsets.reserve(std::max(1, (wallLength - DOOR_WIDTH_TILES) / 2));
+        for (int offset = 2; offset <= wallLength - DOOR_WIDTH_TILES - 1; offset += 2) {
             offsets.push_back(offset);
         }
         if (offsets.empty()) {
@@ -653,9 +670,9 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
 
         for (const auto& candidate : orderedOffsets) {
             std::vector<int> corridorOptions;
-            corridorOptions.reserve(MAX_CORRIDOR_LENGTH_TILES - MIN_CORRIDOR_LENGTH_TILES + 1);
+            corridorOptions.reserve((MAX_CORRIDOR_LENGTH_TILES - MIN_CORRIDOR_LENGTH_TILES) / 2 + 1);
             for (int len = MAX_CORRIDOR_LENGTH_TILES; len >= MIN_CORRIDOR_LENGTH_TILES; --len) {
-                corridorOptions.push_back(len);
+                if (len % 2 == 0) corridorOptions.push_back(len);
             }
             std::shuffle(corridorOptions.begin(), corridorOptions.end(), rng);
 
