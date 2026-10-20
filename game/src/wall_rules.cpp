@@ -191,11 +191,11 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
         if (west) AddSegment(frame, Position{position.x - 1, position.y}, position, Section::Side, tile);
         if (east) AddSegment(frame, Position{position.x + 1, position.y}, position, Section::Side, tile);
 
-        // There is no separate corner catalog, so fill convex gaps with the side pool.
+        // Upper corner caps connect the side run to the upper wall without a gap.
         if (north && west) AddSegment(frame, Position{position.x - 1, position.y - 1}, position, Section::Side, tile);
         if (north && east) AddSegment(frame, Position{position.x + 1, position.y - 1}, position, Section::Side, tile);
-        if (south && west) AddSegment(frame, Position{position.x - 1, position.y + 1}, position, Section::Side, tile);
-        if (south && east) AddSegment(frame, Position{position.x + 1, position.y + 1}, position, Section::Side, tile);
+        // Side segments on the final walkable row already meet the bottom wall.
+        // A separate south cap would add a full tile below the room.
     }
 
     return frame;

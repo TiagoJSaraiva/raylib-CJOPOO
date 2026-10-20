@@ -13,6 +13,7 @@ namespace {
 
 constexpr const char* kBiomeDirectories[] = {"lobby", "cave", "mansion", "dungeon"};
 constexpr const char* kSectionDirectories[] = {"side", "upper", "bottom"};
+constexpr float kSideWallWidth = static_cast<float>(TILE_SIZE) / 4.0f;
 
 std::size_t BiomeIndex(BiomeType biome) {
     switch (biome) {
@@ -82,13 +83,23 @@ void DrawSouthWallColumn(int tileX, int floorTileY, Color baseColor) {
     DrawRectangleRec(Rectangle{x, y + size * 0.76f, size, size * 0.24f}, OffsetRgb(baseColor, -34));
 }
 
-void DrawSideWallTile(WallRules::Position position, Color baseColor) {
-    const float x = static_cast<float>(position.x * TILE_SIZE);
-    const float y = static_cast<float>(position.y * TILE_SIZE);
-    const float size = static_cast<float>(TILE_SIZE);
-    DrawRectangleRec(Rectangle{x, y, size, size}, baseColor);
-    DrawRectangleRec(Rectangle{x, y, size * 0.16f, size}, OffsetRgb(baseColor, 18));
-    DrawRectangleRec(Rectangle{x + size * 0.84f, y, size * 0.16f, size}, OffsetRgb(baseColor, -28));
+Rectangle SideWallRect(const WallRules::Segment& segment) {
+    const float tileSize = static_cast<float>(TILE_SIZE);
+    const float edgeX = static_cast<float>(segment.edgeTile.x) * tileSize;
+    const bool isLeftSide = segment.position.x < segment.edgeTile.x;
+    const float x = isLeftSide ? edgeX - kSideWallWidth : edgeX + tileSize;
+    const float y = static_cast<float>(segment.position.y) * tileSize;
+    return Rectangle{x, y, kSideWallWidth, tileSize};
+}
+
+void DrawSideWallTile(const WallRules::Segment& segment, Color baseColor) {
+    const Rectangle wallRect = SideWallRect(segment);
+    const float highlightWidth = wallRect.width * 0.16f;
+    DrawRectangleRec(wallRect, baseColor);
+    DrawRectangleRec(Rectangle{wallRect.x, wallRect.y, highlightWidth, wallRect.height},
+                     OffsetRgb(baseColor, 18));
+    DrawRectangleRec(Rectangle{wallRect.x + wallRect.width - highlightWidth, wallRect.y,
+                               highlightWidth, wallRect.height}, OffsetRgb(baseColor, -28));
 }
 
 Texture2D LoadWallTexture(const std::filesystem::path& path) {
@@ -216,10 +227,11 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
         const Rectangle source{0.0f, 0.0f, static_cast<float>(texture.width),
                                static_cast<float>(texture.height)};
         const float segmentBottom = static_cast<float>((segment.position.y + 1) * TILE_SIZE);
-        const Rectangle destination{static_cast<float>(segment.position.x * TILE_SIZE),
-                                    segmentBottom - static_cast<float>(TILE_SIZE),
-                                    static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
-        // Stretch any source dimensions into one wall tile, keeping its base on the segment edge.
+        Rectangle destination{static_cast<float>(segment.position.x * TILE_SIZE),
+                              segmentBottom - static_cast<float>(TILE_SIZE),
+                              static_cast<float>(TILE_SIZE), static_cast<float>(TILE_SIZE)};
+        if (segment.section == WallRules::Section::Side) destination = SideWallRect(segment);
+        // Side sprites are narrowed to the edge strip; upper and bottom keep their full tiles.
         DrawTexturePro(texture, source, destination, Vector2{0.0f, 0.0f}, 0.0f,
                        ColorAlpha(WHITE, segment.visibility));
     }
@@ -238,6 +250,6 @@ void WallTiles::DrawFallback(const WallRules::Segment& segment) const {
     } else if (segment.section == WallRules::Section::Bottom) {
         DrawSouthWallColumn(segment.edgeTile.x, segment.edgeTile.y, color);
     } else {
-        DrawSideWallTile(segment.position, color);
+        DrawSideWallTile(segment, color);
     }
 }

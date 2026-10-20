@@ -52,13 +52,16 @@ void TestRoomPerimeterAndCorners() {
     const auto frame = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
     assert(Count(frame, WallRules::Section::Upper) == 2);
     assert(Count(frame, WallRules::Section::Bottom) == 2);
-    assert(Count(frame, WallRules::Section::Side) == 8); // Both sides and four filled corners.
+    assert(Count(frame, WallRules::Section::Side) == 6); // Both side runs and the two upper caps.
     assert(Has(frame, WallRules::Section::Upper, 10, 19));
     assert(Has(frame, WallRules::Section::Bottom, 10, 21));
     assert(Has(frame, WallRules::Section::Side, 9, 20));
     assert(Has(frame, WallRules::Section::Side, 12, 21));
     assert(Has(frame, WallRules::Section::Side, 9, 19));
-    assert(Has(frame, WallRules::Section::Side, 12, 22));
+    assert(Has(frame, WallRules::Section::Side, 12, 19));
+    assert(Has(frame, WallRules::Section::Side, 9, 21));
+    assert(!Has(frame, WallRules::Section::Side, 9, 22));
+    assert(!Has(frame, WallRules::Section::Side, 12, 22));
 }
 
 void TestOpenNorthCorridorAndSealedDoor() {

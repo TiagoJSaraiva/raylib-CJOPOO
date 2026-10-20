@@ -76,10 +76,6 @@ void ExpectColor(Image image, int tileX, int tileY, Color expected, float visibi
     assert(std::abs(static_cast<int>(actual.b) - expectedB) <= 3);
 }
 
-Color Pixel(Image image, int tileX, int tileY) {
-    return GetImageColor(image, tileX * TILE_SIZE + 32, tileY * TILE_SIZE + 32);
-}
-
 void ExpectPixelColor(Image image, int pixelX, int pixelY, Color expected) {
     const Color actual = GetImageColor(image, pixelX, pixelY);
     assert(std::abs(static_cast<int>(actual.r) - expected.r) <= 3);
@@ -87,8 +83,8 @@ void ExpectPixelColor(Image image, int pixelX, int pixelY, Color expected) {
     assert(std::abs(static_cast<int>(actual.b) - expected.b) <= 3);
 }
 
-void ExpectTranslucent(Image image, int tileX, int tileY, Color source) {
-    const Color actual = Pixel(image, tileX, tileY);
+void ExpectTranslucentPixel(Image image, int pixelX, int pixelY, Color source) {
+    const Color actual = GetImageColor(image, pixelX, pixelY);
     assert(actual.r > 0 && actual.r < source.r);
     assert(actual.g > 0 && actual.g < source.g);
     assert(actual.b > 0 && actual.b < source.b);
@@ -96,6 +92,13 @@ void ExpectTranslucent(Image image, int tileX, int tileY, Color source) {
 
 void ExpectFallbackColor(Image image, int tileX, int tileY, Color base) {
     const auto actual = GetImageColor(image, tileX * TILE_SIZE + 32, tileY * TILE_SIZE + 32);
+    assert(std::abs(static_cast<int>(actual.r) - static_cast<int>(base.r)) <= 45);
+    assert(std::abs(static_cast<int>(actual.g) - static_cast<int>(base.g)) <= 45);
+    assert(std::abs(static_cast<int>(actual.b) - static_cast<int>(base.b)) <= 45);
+}
+
+void ExpectFallbackPixelColor(Image image, int pixelX, int pixelY, Color base) {
+    const auto actual = GetImageColor(image, pixelX, pixelY);
     assert(std::abs(static_cast<int>(actual.r) - static_cast<int>(base.r)) <= 45);
     assert(std::abs(static_cast<int>(actual.g) - static_cast<int>(base.g)) <= 45);
     assert(std::abs(static_cast<int>(actual.b) - static_cast<int>(base.b)) <= 45);
@@ -152,22 +155,60 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
         const int x = 2 + static_cast<int>(biome) * 6;
         const Color side = SpriteColor(biome, WallRules::Section::Side);
         const Color upper = SpriteColor(biome, WallRules::Section::Upper);
-        if (biome == 0) ExpectTranslucent(background, x - 1, 2, side);
-        else ExpectColor(background, x - 1, 2, side);
+        const int leftEdgeX = x * TILE_SIZE;
+        const int rightEdgeX = (x + 3) * TILE_SIZE;
+        const int sideMiddleY = 2 * TILE_SIZE + TILE_SIZE / 2;
+        const int upperMiddleY = TILE_SIZE + TILE_SIZE / 2;
+        if (biome == 0) {
+            ExpectTranslucentPixel(background, leftEdgeX - 8, sideMiddleY, side);
+            ExpectTranslucentPixel(background, rightEdgeX + 8, sideMiddleY, side);
+            ExpectTranslucentPixel(background, leftEdgeX - 8, upperMiddleY, side);
+        } else {
+            ExpectPixelColor(background, leftEdgeX - 8, sideMiddleY, side);
+            ExpectPixelColor(background, rightEdgeX + 8, sideMiddleY, side);
+            ExpectPixelColor(background, leftEdgeX - 8, upperMiddleY, side);
+        }
+        ExpectPixelColor(background, leftEdgeX - 17, sideMiddleY, BLACK);
+        ExpectPixelColor(background, leftEdgeX, sideMiddleY, BLACK);
+        ExpectPixelColor(background, rightEdgeX - 1, sideMiddleY, BLACK);
+        ExpectPixelColor(background, rightEdgeX + 16, sideMiddleY, BLACK);
         ExpectColor(background, x, 1, upper);
+        ExpectPixelColor(background, leftEdgeX, upperMiddleY, upper);
+        ExpectPixelColor(background, rightEdgeX - 1, upperMiddleY, upper);
+        if (biome == 0) ExpectTranslucentPixel(background, rightEdgeX + 8, upperMiddleY, side);
+        else ExpectPixelColor(background, rightEdgeX + 8, upperMiddleY, side);
         ExpectColor(background, x, 3, BLACK); // Bottom walls wait for the foreground pass.
     }
     const Color rectangularUpper = SpriteColor(1, WallRules::Section::Upper);
     ExpectPixelColor(background, 8 * TILE_SIZE + 1, 1 * TILE_SIZE + 1, rectangularUpper);
     ExpectPixelColor(background, 8 * TILE_SIZE + TILE_SIZE - 2,
                      2 * TILE_SIZE - 2, rectangularUpper);
-    const Color lobbySideAtFullVisibility = Pixel(background, 1, 2);
+    const int lobbyLeftSidePixelX = 2 * TILE_SIZE - 8;
+    const int lobbySidePixelY = 2 * TILE_SIZE + TILE_SIZE / 2;
+    const Color lobbySideAtFullVisibility =
+        GetImageColor(background, lobbyLeftSidePixelX, lobbySidePixelY);
     UnloadImage(background);
 
     Image full = Render(walls, views, target, true);
     for (std::size_t biome = 0; biome < 4; ++biome) {
         const int x = 2 + static_cast<int>(biome) * 6;
         ExpectColor(full, x, 3, SpriteColor(biome, WallRules::Section::Bottom));
+        const int leftEdgeX = x * TILE_SIZE;
+        const int rightEdgeX = (x + 3) * TILE_SIZE;
+        const int bottomMiddleY = 3 * TILE_SIZE + TILE_SIZE / 2;
+        const Color side = SpriteColor(biome, WallRules::Section::Side);
+        const Color bottom = SpriteColor(biome, WallRules::Section::Bottom);
+        if (biome == 0) {
+            ExpectTranslucentPixel(full, leftEdgeX - 8, bottomMiddleY, side);
+            ExpectTranslucentPixel(full, rightEdgeX + 8, bottomMiddleY, side);
+        } else {
+            ExpectPixelColor(full, leftEdgeX - 8, bottomMiddleY, side);
+            ExpectPixelColor(full, rightEdgeX + 8, bottomMiddleY, side);
+        }
+        ExpectPixelColor(full, leftEdgeX, bottomMiddleY, bottom);
+        ExpectPixelColor(full, rightEdgeX - 1, bottomMiddleY, bottom);
+        ExpectPixelColor(full, leftEdgeX - 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
+        ExpectPixelColor(full, rightEdgeX + 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     }
 
     Image repeated = Render(walls, views, target, true);
@@ -182,7 +223,7 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     UnloadImage(full);
 
     Image faded = Render(walls, {{&lobby, 0.5f}}, target, false);
-    const Color lobbySideFaded = Pixel(faded, 1, 2);
+    const Color lobbySideFaded = GetImageColor(faded, lobbyLeftSidePixelX, lobbySidePixelY);
     assert(lobbySideFaded.r > 0 && lobbySideFaded.r < lobbySideAtFullVisibility.r);
     assert(lobbySideFaded.g > 0 && lobbySideFaded.g < lobbySideAtFullVisibility.g);
     assert(lobbySideFaded.b > 0 && lobbySideFaded.b < lobbySideAtFullVisibility.b);
@@ -191,7 +232,8 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     // Catalogs stay resident after the asset files change.
     fs::remove_all("assets/wall");
     Image retained = Render(walls, {{&cave, 1.0f}}, target, true);
-    ExpectColor(retained, 7, 2, SpriteColor(1, WallRules::Section::Side));
+    ExpectPixelColor(retained, 8 * TILE_SIZE - 8, 2 * TILE_SIZE + TILE_SIZE / 2,
+                     SpriteColor(1, WallRules::Section::Side));
     UnloadImage(retained);
     walls.Unload();
     walls.Unload();
@@ -208,9 +250,18 @@ void TestFallback(RenderTexture2D target) {
     walls.BeginRun(99);
     Room lobby = MakeRoom({0, 0}, BiomeType::Lobby, 5, 2);
     Image image = Render(walls, {{&lobby, 1.0f}}, target, true);
-    ExpectFallbackColor(image, 4, 2, Color{90, 92, 110, 255}); // side
     ExpectFallbackColor(image, 5, 1, Color{90, 92, 110, 255}); // upper
     ExpectFallbackColor(image, 5, 3, Color{90, 92, 110, 255}); // bottom
+    const int leftEdgeX = 5 * TILE_SIZE;
+    const int rightEdgeX = 8 * TILE_SIZE;
+    const int sideMiddleY = 2 * TILE_SIZE + TILE_SIZE / 2;
+    ExpectPixelColor(image, leftEdgeX - 17, sideMiddleY, BLACK);
+    ExpectPixelColor(image, rightEdgeX + 16, sideMiddleY, BLACK);
+    ExpectPixelColor(image, leftEdgeX - 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
+    ExpectPixelColor(image, rightEdgeX + 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
+    const Color fallbackBase{90, 92, 110, 255};
+    ExpectFallbackPixelColor(image, leftEdgeX - 8, sideMiddleY, fallbackBase);
+    ExpectFallbackPixelColor(image, rightEdgeX + 8, sideMiddleY, fallbackBase);
     UnloadImage(image);
 }
 

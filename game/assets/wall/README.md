@@ -13,10 +13,10 @@ bioma e orientação.
 `upper/` contém as paredes superiores, `bottom/` as paredes inferiores e
 `side/` as paredes laterais esquerda e direita. O mesmo catálogo de `side/` é
 usado nos dois lados. Cada imagem precisa ser legível e ter dimensões positivas;
-não precisa ser quadrada. Ela é esticada para preencher um segmento de parede de
-64 × 64 pixels com filtro bilinear, sem rotação ou espelhamento. A proporção
-original não é mantida, e a transparência é preservada. A base do segmento fica
-alinhada à borda do piso correspondente.
+não precisa ser quadrada. As imagens de `upper/` e `bottom/` são esticadas para
+64 × 64 pixels; as de `side/`, para uma faixa vertical de 16 × 64 pixels, alinhada
+à borda do piso. O filtro bilinear é usado, sem rotação ou espelhamento. A
+proporção original não é mantida, e a transparência é preservada.
 
 Os catálogos são carregados ao abrir o aplicativo. Reinicie-o para incorporar
 novos arquivos ou alterações de peso. Arquivos inválidos são ignorados. Se um
