@@ -92,7 +92,7 @@ void DrawSouthWallColumn(int tileX, int floorTileY, Color baseColor,
 
 Rectangle SideWallRect(const WallRules::Segment& segment, int heightTiles) {
     const float tileSize = static_cast<float>(TILE_SIZE);
-    const float y = static_cast<float>(segment.position.y) * tileSize;
+    float y = static_cast<float>(segment.position.y) * tileSize;
     const float height = static_cast<float>(heightTiles * TILE_SIZE);
     const float tileX = static_cast<float>(segment.position.x) * tileSize;
     if (segment.sidePlacement == WallRules::SidePlacement::InsetLeft) {
@@ -100,6 +100,10 @@ Rectangle SideWallRect(const WallRules::Segment& segment, int heightTiles) {
     }
     if (segment.sidePlacement == WallRules::SidePlacement::InsetRight) {
         return Rectangle{tileX + tileSize - kSideWallWidth, y, kSideWallWidth, tileSize};
+    }
+    if (segment.position.y + 1 == segment.edgeTile.y && heightTiles == 2) {
+        // Extend the upper corner strip upward across the full upper-wall height.
+        y -= tileSize;
     }
     const float edgeX = static_cast<float>(segment.edgeTile.x) * tileSize;
     const bool isLeftSide = segment.position.x < segment.edgeTile.x;

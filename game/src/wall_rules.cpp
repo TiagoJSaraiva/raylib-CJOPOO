@@ -171,6 +171,12 @@ bool IsRegularSideSegment(const Segment& segment) {
            segment.position.y == segment.edgeTile.y;
 }
 
+bool IsUpperSideCornerCap(const Segment& segment) {
+    return segment.section == Section::Side &&
+           segment.sidePlacement == SidePlacement::Edge &&
+           segment.position.y + 1 == segment.edgeTile.y;
+}
+
 } // namespace
 
 std::size_t KeyHash::operator()(const Key& key) const noexcept {
@@ -370,6 +376,7 @@ std::vector<Module> BuildModules(const Frame& frame) {
         if (!consumed.insert(key).second) continue;
 
         Module module{*segment, 1, 1};
+        if (IsUpperSideCornerCap(*segment)) module.heightTiles = 2;
         Position partnerPosition = segment->position;
         bool canPair = false;
 

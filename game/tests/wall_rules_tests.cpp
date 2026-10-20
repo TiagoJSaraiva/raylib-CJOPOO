@@ -141,8 +141,8 @@ void TestTwoTileWallModules() {
     }
     const auto* leftCorner = FindModule(modules, WallRules::Section::Side, 9, 19);
     const auto* rightCorner = FindModule(modules, WallRules::Section::Side, 14, 19);
-    assert(leftCorner != nullptr && leftCorner->heightTiles == 1);
-    assert(rightCorner != nullptr && rightCorner->heightTiles == 1);
+    assert(leftCorner != nullptr && leftCorner->heightTiles == 2);
+    assert(rightCorner != nullptr && rightCorner->heightTiles == 2);
 
     auto fadingFrame = frame;
     fadingFrame.at(WallRules::Key{WallRules::Position{11, 19},
@@ -184,7 +184,7 @@ void TestTwoTileWallModules() {
         } else if (segment.position.y == segment.edgeTile.y) {
             assert(module.heightTiles == 2);
         } else {
-            assert(module.heightTiles == 1); // Upper corner caps remain one tile tall.
+            assert(module.heightTiles == 2); // Upper corner caps match the full upper-wall height.
         }
     }
 }
