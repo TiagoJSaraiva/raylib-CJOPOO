@@ -2,6 +2,7 @@
 #include "door_visual_rules.h"
 #include "wall_rules.h"
 
+#include <algorithm>
 #include <cassert>
 #include <cmath>
 #include <cstdint>
@@ -31,8 +32,31 @@ bool Has(const WallRules::Frame& frame, WallRules::Section section, int x, int y
     return frame.find(WallRules::Key{WallRules::Position{x, y}, section}) != frame.end();
 }
 
+bool HasSidePlacement(const WallRules::Frame& frame, int x, int y,
+                      WallRules::SidePlacement placement) {
+    return frame.find(WallRules::Key{WallRules::Position{x, y}, WallRules::Section::Side,
+                                     placement}) != frame.end();
+}
+
+std::size_t CountSidePlacement(const WallRules::Frame& frame,
+                               WallRules::SidePlacement placement) {
+    return static_cast<std::size_t>(std::count_if(frame.begin(), frame.end(),
+        [placement](const auto& entry) {
+            return entry.first.section == WallRules::Section::Side &&
+                   entry.first.sidePlacement == placement;
+        }));
+}
+
 float Visibility(const WallRules::Frame& frame, WallRules::Section section, int x, int y) {
     const auto found = frame.find(WallRules::Key{WallRules::Position{x, y}, section});
+    assert(found != frame.end());
+    return found->second.visibility;
+}
+
+float SidePlacementVisibility(const WallRules::Frame& frame, int x, int y,
+                              WallRules::SidePlacement placement) {
+    const auto found = frame.find(WallRules::Key{WallRules::Position{x, y},
+                                                  WallRules::Section::Side, placement});
     assert(found != frame.end());
     return found->second.visibility;
 }
@@ -56,20 +80,107 @@ void TestSpriteNamingAndWeights() {
 }
 
 void TestRoomPerimeterAndCorners() {
-    Room room = MakeRoom({0, 0}, BiomeType::Cave, TileRect{10, 20, 2, 2});
+    Room room = MakeRoom({0, 0}, BiomeType::Cave, TileRect{10, 20, 3, 2});
     const auto frame = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
-    assert(Count(frame, WallRules::Section::Upper) == 2);
-    assert(Count(frame, WallRules::Section::Bottom) == 2);
-    assert(Count(frame, WallRules::Section::Side) == 6); // Both side runs and the two upper caps.
+    assert(Count(frame, WallRules::Section::Upper) == 3);
+    assert(Count(frame, WallRules::Section::Bottom) == 3);
+    assert(Count(frame, WallRules::Section::Side) == 6); // Side runs plus upper corner caps only.
     assert(Has(frame, WallRules::Section::Upper, 10, 19));
     assert(Has(frame, WallRules::Section::Bottom, 10, 21));
     assert(Has(frame, WallRules::Section::Side, 9, 20));
-    assert(Has(frame, WallRules::Section::Side, 12, 21));
+    assert(Has(frame, WallRules::Section::Side, 13, 21));
     assert(Has(frame, WallRules::Section::Side, 9, 19));
-    assert(Has(frame, WallRules::Section::Side, 12, 19));
+    assert(Has(frame, WallRules::Section::Side, 13, 19));
     assert(Has(frame, WallRules::Section::Side, 9, 21));
+    assert(CountSidePlacement(frame, WallRules::SidePlacement::BottomLeft) == 0);
+    assert(CountSidePlacement(frame, WallRules::SidePlacement::BottomRight) == 0);
     assert(!Has(frame, WallRules::Section::Side, 9, 22));
-    assert(!Has(frame, WallRules::Section::Side, 12, 22));
+    assert(!Has(frame, WallRules::Section::Side, 13, 22));
+}
+
+void TestBottomCornersInCorridorUnionAndFade() {
+    Room room = MakeRoom({0, 0}, BiomeType::Lobby, TileRect{10, 20, 5, 3});
+    auto doorState = std::make_shared<DoorInstance>();
+    Doorway south;
+    south.direction = Direction::South;
+    south.offset = 2;
+    south.width = 1;
+    south.corridorTiles = TileRect{12, 23, 1, 2};
+    south.doorState = doorState;
+    room.Layout().doors.push_back(south);
+
+    const auto closed = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
+    assert(Has(closed, WallRules::Section::Bottom, 11, 22));
+    assert(Has(closed, WallRules::Section::Bottom, 13, 22));
+    assert(!HasSidePlacement(closed, 11, 22, WallRules::SidePlacement::BottomRight));
+    assert(!HasSidePlacement(closed, 13, 22, WallRules::SidePlacement::BottomLeft));
+
+    doorState->opening = true;
+    doorState->fadeProgress = DoorVisualRules::FadeDuration * 0.4f;
+    const auto opening = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
+    assert(HasSidePlacement(opening, 11, 22, WallRules::SidePlacement::BottomRight));
+    assert(HasSidePlacement(opening, 13, 22, WallRules::SidePlacement::BottomLeft));
+    assert(std::abs(SidePlacementVisibility(opening, 11, 22,
+                                            WallRules::SidePlacement::BottomRight) - 0.4f) < 0.001f);
+    assert(std::abs(SidePlacementVisibility(opening, 13, 22,
+                                            WallRules::SidePlacement::BottomLeft) - 0.4f) < 0.001f);
+    assert(!HasSidePlacement(opening, 10, 22, WallRules::SidePlacement::BottomLeft));
+    assert(!HasSidePlacement(opening, 14, 22, WallRules::SidePlacement::BottomRight));
+
+    doorState->open = true;
+    const auto open = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
+    assert(std::abs(SidePlacementVisibility(open, 11, 22,
+                                            WallRules::SidePlacement::BottomRight) - 1.0f) < 0.001f);
+    assert(std::abs(SidePlacementVisibility(open, 13, 22,
+                                            WallRules::SidePlacement::BottomLeft) - 1.0f) < 0.001f);
+
+    Room wideRoom = MakeRoom({1, 0}, BiomeType::Cave, TileRect{20, 20, 5, 3});
+    auto wideDoorState = std::make_shared<DoorInstance>();
+    wideDoorState->open = true;
+    Doorway wideSouth;
+    wideSouth.direction = Direction::South;
+    wideSouth.offset = 1;
+    wideSouth.width = 2;
+    wideSouth.corridorTiles = TileRect{21, 23, 2, 2};
+    wideSouth.doorState = wideDoorState;
+    wideRoom.Layout().doors.push_back(wideSouth);
+    const auto wideFrame = WallRules::BuildFrame({WallRules::RoomView{&wideRoom, 1.0f}});
+    assert(HasSidePlacement(wideFrame, 20, 22, WallRules::SidePlacement::BottomRight));
+    assert(HasSidePlacement(wideFrame, 23, 22, WallRules::SidePlacement::BottomLeft));
+    assert(CountSidePlacement(wideFrame, WallRules::SidePlacement::BottomLeft) == 1);
+    assert(CountSidePlacement(wideFrame, WallRules::SidePlacement::BottomRight) == 1);
+}
+
+void TestSharedSouthCorridorDoesNotDuplicateCaps() {
+    Room upper = MakeRoom({0, 0}, BiomeType::Lobby, TileRect{10, 20, 5, 3});
+    Room lower = MakeRoom({0, 1}, BiomeType::Cave, TileRect{10, 25, 5, 3});
+    auto sharedDoorState = std::make_shared<DoorInstance>();
+    sharedDoorState->open = true;
+
+    Doorway south;
+    south.direction = Direction::South;
+    south.offset = 2;
+    south.width = 1;
+    south.targetCoords = lower.GetCoords();
+    south.corridorTiles = TileRect{12, 23, 1, 2};
+    south.doorState = sharedDoorState;
+    upper.Layout().doors.push_back(south);
+
+    Doorway north;
+    north.direction = Direction::North;
+    north.offset = 2;
+    north.width = 1;
+    north.targetCoords = upper.GetCoords();
+    north.corridorTiles = south.corridorTiles;
+    north.doorState = sharedDoorState;
+    lower.Layout().doors.push_back(north);
+
+    const auto frame = WallRules::BuildFrame({WallRules::RoomView{&upper, 1.0f},
+                                               WallRules::RoomView{&lower, 1.0f}});
+    assert(CountSidePlacement(frame, WallRules::SidePlacement::BottomRight) == 1);
+    assert(CountSidePlacement(frame, WallRules::SidePlacement::BottomLeft) == 1);
+    assert(std::abs(SidePlacementVisibility(frame, 11, 22,
+                                            WallRules::SidePlacement::BottomRight) - 1.0f) < 0.001f);
 }
 
 void TestOpenNorthCorridorAndSealedDoor() {
@@ -95,6 +206,8 @@ void TestOpenNorthCorridorAndSealedDoor() {
     const auto openingFrame = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
     assert(std::abs(Visibility(openingFrame, WallRules::Section::Side, 0, -2) - 0.4f) < 0.001f);
     assert(std::abs(Visibility(openingFrame, WallRules::Section::Side, 2, -2) - 0.4f) < 0.001f);
+    assert(CountSidePlacement(openingFrame, WallRules::SidePlacement::BottomLeft) == 0);
+    assert(CountSidePlacement(openingFrame, WallRules::SidePlacement::BottomRight) == 0);
     assert(std::abs(DoorVisualRules::MaskAlpha(*doorState) - 0.6f) < 0.001f);
 
     doorState->open = true;
@@ -232,6 +345,8 @@ void TestDeterministicChoices() {
 int main() {
     TestSpriteNamingAndWeights();
     TestRoomPerimeterAndCorners();
+    TestBottomCornersInCorridorUnionAndFade();
+    TestSharedSouthCorridorDoesNotDuplicateCaps();
     TestOpenNorthCorridorAndSealedDoor();
     TestSouthAndWestCorridors();
     TestEastCorridorAndSharedConnection();

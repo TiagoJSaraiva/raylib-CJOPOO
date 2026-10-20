@@ -85,10 +85,17 @@ void DrawSouthWallColumn(int tileX, int floorTileY, Color baseColor) {
 
 Rectangle SideWallRect(const WallRules::Segment& segment) {
     const float tileSize = static_cast<float>(TILE_SIZE);
+    const float y = static_cast<float>(segment.position.y) * tileSize;
+    const float tileX = static_cast<float>(segment.position.x) * tileSize;
+    if (segment.sidePlacement == WallRules::SidePlacement::BottomLeft) {
+        return Rectangle{tileX, y, kSideWallWidth, tileSize};
+    }
+    if (segment.sidePlacement == WallRules::SidePlacement::BottomRight) {
+        return Rectangle{tileX + tileSize - kSideWallWidth, y, kSideWallWidth, tileSize};
+    }
     const float edgeX = static_cast<float>(segment.edgeTile.x) * tileSize;
     const bool isLeftSide = segment.position.x < segment.edgeTile.x;
     const float x = isLeftSide ? edgeX - kSideWallWidth : edgeX + tileSize;
-    const float y = static_cast<float>(segment.position.y) * tileSize;
     return Rectangle{x, y, kSideWallWidth, tileSize};
 }
 
@@ -202,13 +209,17 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
     segments.reserve(frame.size());
     for (const auto& entry : frame) {
         const auto& segment = entry.second;
-        if ((segment.section == WallRules::Section::Bottom) == foreground) {
+        const bool drawsInForeground = segment.section == WallRules::Section::Bottom ||
+            segment.sidePlacement != WallRules::SidePlacement::Edge;
+        if (drawsInForeground == foreground) {
             segments.push_back(&segment);
         }
     }
     std::sort(segments.begin(), segments.end(), [](const auto* a, const auto* b) {
-        return std::tie(a->position.y, a->position.x, a->section) <
-               std::tie(b->position.y, b->position.x, b->section);
+        const int aOverlayOrder = a->sidePlacement == WallRules::SidePlacement::Edge ? 0 : 1;
+        const int bOverlayOrder = b->sidePlacement == WallRules::SidePlacement::Edge ? 0 : 1;
+        return std::tie(a->position.y, a->position.x, aOverlayOrder, a->section) <
+               std::tie(b->position.y, b->position.x, bOverlayOrder, b->section);
     });
 
     for (const auto* segmentPointer : segments) {
@@ -217,7 +228,8 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground) const {
         const auto catalogIndex = BiomeIndex(segment.biome) * 3 + SectionIndex(segment.section);
         const auto& catalog = catalogs_[catalogIndex];
         const auto& choice = memory_.GetOrCreate(segment.position, segment.section,
-                                                  segment.biome, catalog.cumulative);
+                                                  segment.biome, catalog.cumulative,
+                                                  segment.sidePlacement);
         if (choice.sprite == WallRules::NoSprite) {
             DrawFallback(segment);
             continue;

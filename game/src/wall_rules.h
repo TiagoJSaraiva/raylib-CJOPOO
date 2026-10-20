@@ -16,6 +16,12 @@ enum class Section : std::uint8_t {
     Bottom
 };
 
+enum class SidePlacement : std::uint8_t {
+    Edge,
+    BottomLeft,
+    BottomRight
+};
+
 struct Position {
     int x;
     int y;
@@ -36,14 +42,17 @@ struct Segment {
     Section section;
     BiomeType biome;
     float visibility;
+    SidePlacement sidePlacement{SidePlacement::Edge};
 };
 
 struct Key {
     Position position;
     Section section;
+    SidePlacement sidePlacement{SidePlacement::Edge};
 
     bool operator==(const Key& other) const noexcept {
-        return position == other.position && section == other.section;
+        return position == other.position && section == other.section &&
+               sidePlacement == other.sidePlacement;
     }
 };
 
@@ -67,7 +76,8 @@ class TileMemory {
 public:
     void Reset(std::uint64_t seed);
     const Choice& GetOrCreate(Position position, Section section, BiomeType biome,
-                              const std::vector<std::uint64_t>& cumulative);
+                              const std::vector<std::uint64_t>& cumulative,
+                              SidePlacement sidePlacement = SidePlacement::Edge);
 
 private:
     std::uint64_t seed_{0};

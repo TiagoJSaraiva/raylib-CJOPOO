@@ -5,10 +5,12 @@
 #include <cassert>
 #include <chrono>
 #include <cmath>
+#include <cstdint>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <memory>
+#include <random>
 
 namespace {
 namespace fs = std::filesystem;
@@ -83,6 +85,29 @@ void ExpectPixelColor(Image image, int pixelX, int pixelY, Color expected) {
     assert(std::abs(static_cast<int>(actual.r) - expected.r) <= 3);
     assert(std::abs(static_cast<int>(actual.g) - expected.g) <= 3);
     assert(std::abs(static_cast<int>(actual.b) - expected.b) <= 3);
+}
+
+Color BlendOver(Color source, Color background, float visibility = 1.0f) {
+    const float alpha = (static_cast<float>(source.a) / 255.0f) * visibility;
+    return Color{
+        static_cast<unsigned char>(std::lround(source.r * alpha + background.r * (1.0f - alpha))),
+        static_cast<unsigned char>(std::lround(source.g * alpha + background.g * (1.0f - alpha))),
+        static_cast<unsigned char>(std::lround(source.b * alpha + background.b * (1.0f - alpha))),
+        255
+    };
+}
+
+Color ProceduralSideColor(int tileX, int tileY, Color base) {
+    const std::uint64_t seedX = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileX));
+    const std::uint64_t seedY = static_cast<std::uint64_t>(static_cast<std::int64_t>(tileY));
+    std::uint64_t seed = seedX * 0x9e3779b97f4a7c15ULL ^ seedY;
+    seed ^= (seed >> 23);
+    std::mt19937_64 rng(seed);
+    std::uniform_int_distribution<int> delta(-12, 12);
+    const auto adjust = [&delta, &rng](unsigned char value) {
+        return static_cast<unsigned char>(std::clamp(static_cast<int>(value) + delta(rng), 0, 255));
+    };
+    return Color{adjust(base.r), adjust(base.g), adjust(base.b), base.a};
 }
 
 void ExpectTranslucentPixel(Image image, int pixelX, int pixelY, Color source) {
@@ -207,8 +232,8 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
             ExpectPixelColor(full, leftEdgeX - 8, bottomMiddleY, side);
             ExpectPixelColor(full, rightEdgeX + 8, bottomMiddleY, side);
         }
-        ExpectPixelColor(full, leftEdgeX, bottomMiddleY, bottom);
-        ExpectPixelColor(full, rightEdgeX - 1, bottomMiddleY, bottom);
+        ExpectPixelColor(full, leftEdgeX + TILE_SIZE / 8, bottomMiddleY, bottom);
+        ExpectPixelColor(full, rightEdgeX - TILE_SIZE / 8, bottomMiddleY, bottom);
         ExpectPixelColor(full, leftEdgeX - 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
         ExpectPixelColor(full, rightEdgeX + 8, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
     }
@@ -223,6 +248,55 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     }
     UnloadImage(repeated);
     UnloadImage(full);
+
+    Room southRoom = MakeRoom({4, 1}, BiomeType::Lobby, 5, 2);
+    auto southDoorState = std::make_shared<DoorInstance>();
+    Doorway southDoor;
+    southDoor.direction = Direction::South;
+    southDoor.offset = 1;
+    southDoor.width = 1;
+    southDoor.corridorTiles = TileRect{6, 4, 1, 2};
+    southDoor.doorState = southDoorState;
+    southRoom.Layout().doors.push_back(southDoor);
+
+    const int bottomWallY = 3 * TILE_SIZE + TILE_SIZE / 2;
+    const int leftInnerX = 6 * TILE_SIZE - TILE_SIZE / 8;
+    const int rightInnerX = 7 * TILE_SIZE + TILE_SIZE / 8;
+    const int leftOuterX = 5 * TILE_SIZE + TILE_SIZE / 8;
+    const int rightOuterX = 8 * TILE_SIZE - TILE_SIZE / 8;
+    const Color lobbySide = SpriteColor(0, WallRules::Section::Side);
+    const Color lobbyBottom = SpriteColor(0, WallRules::Section::Bottom);
+
+    Image closedSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
+    ExpectPixelColor(closedSouth, leftInnerX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(closedSouth, rightInnerX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(closedSouth, leftOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(closedSouth, rightOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(closedSouth, leftInnerX, 4 * TILE_SIZE + TILE_SIZE / 2, BLACK);
+    UnloadImage(closedSouth);
+
+    southDoorState->opening = true;
+    southDoorState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
+    Image openingSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
+    const Color halfVisibilityCorner = BlendOver(lobbySide, lobbyBottom, 0.5f);
+    ExpectPixelColor(openingSouth, leftInnerX, bottomWallY, halfVisibilityCorner);
+    ExpectPixelColor(openingSouth, rightInnerX, bottomWallY, halfVisibilityCorner);
+    ExpectPixelColor(openingSouth, leftOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(openingSouth, rightOuterX, bottomWallY, lobbyBottom);
+    UnloadImage(openingSouth);
+
+    southDoorState->open = true;
+    Image openSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
+    const Color fullVisibilityCorner = BlendOver(lobbySide, lobbyBottom);
+    ExpectPixelColor(openSouth, leftInnerX, bottomWallY, fullVisibilityCorner);
+    ExpectPixelColor(openSouth, rightInnerX, bottomWallY, fullVisibilityCorner);
+    ExpectPixelColor(openSouth, leftOuterX, bottomWallY, lobbyBottom);
+    ExpectPixelColor(openSouth, rightOuterX, bottomWallY, lobbyBottom);
+    ExpectTranslucentPixel(openSouth, leftInnerX, 4 * TILE_SIZE + TILE_SIZE / 2, lobbySide);
+    // The 16px overlays remain inside the terminal bottom-wall tiles.
+    ExpectPixelColor(openSouth, 6 * TILE_SIZE, bottomWallY, BLACK);
+    ExpectPixelColor(openSouth, 7 * TILE_SIZE + TILE_SIZE / 4, bottomWallY, lobbyBottom);
+    UnloadImage(openSouth);
 
     Image faded = Render(walls, {{&lobby, 0.5f}}, target, false);
     const Color lobbySideFaded = GetImageColor(faded, lobbyLeftSidePixelX, lobbySidePixelY);
@@ -298,6 +372,11 @@ void TestFallback(RenderTexture2D target) {
     const Color fallbackBase{90, 92, 110, 255};
     ExpectFallbackPixelColor(image, leftEdgeX - 8, sideMiddleY, fallbackBase);
     ExpectFallbackPixelColor(image, rightEdgeX + 8, sideMiddleY, fallbackBase);
+    const int bottomMiddleY = 3 * TILE_SIZE + TILE_SIZE / 2;
+    ExpectPixelColor(image, leftEdgeX + TILE_SIZE / 8, bottomMiddleY,
+                     GetImageColor(image, leftEdgeX + TILE_SIZE / 2, bottomMiddleY));
+    ExpectPixelColor(image, rightEdgeX - TILE_SIZE / 8, bottomMiddleY,
+                     GetImageColor(image, rightEdgeX - TILE_SIZE / 2, bottomMiddleY));
     UnloadImage(image);
 
     Room corridorRoom = MakeRoom({1, 0}, BiomeType::Lobby, 5, 2);
@@ -334,6 +413,51 @@ void TestFallback(RenderTexture2D target) {
     assert(openLeft.r > openingLeft.r && openLeft.g > openingLeft.g && openLeft.b > openingLeft.b);
     assert(openRight.r > openingRight.r && openRight.g > openingRight.g && openRight.b > openingRight.b);
     UnloadImage(openCorridor);
+
+    Room southRoom = MakeRoom({2, 0}, BiomeType::Lobby, 5, 2);
+    auto southDoorState = std::make_shared<DoorInstance>();
+    Doorway southDoor;
+    southDoor.direction = Direction::South;
+    southDoor.offset = 1;
+    southDoor.width = 1;
+    southDoor.corridorTiles = TileRect{6, 4, 1, 2};
+    southDoor.doorState = southDoorState;
+    southRoom.Layout().doors.push_back(southDoor);
+
+    const int capY = 3 * TILE_SIZE + TILE_SIZE / 2;
+    const int capLeftX = 6 * TILE_SIZE - TILE_SIZE / 8;
+    const int capRightX = 7 * TILE_SIZE + TILE_SIZE / 8;
+    const int outerLeftX = 5 * TILE_SIZE + TILE_SIZE / 8;
+    const int outerRightX = 8 * TILE_SIZE - TILE_SIZE / 8;
+    Image closedSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
+    const Color closedLeft = GetImageColor(closedSouth, capLeftX, capY);
+    const Color closedRight = GetImageColor(closedSouth, capRightX, capY);
+    ExpectPixelColor(closedSouth, capLeftX, capY,
+                     GetImageColor(closedSouth, 5 * TILE_SIZE + TILE_SIZE / 2, capY));
+    ExpectPixelColor(closedSouth, capRightX, capY,
+                     GetImageColor(closedSouth, 7 * TILE_SIZE + TILE_SIZE / 2, capY));
+    const Color closedOuterLeft = GetImageColor(closedSouth, outerLeftX, capY);
+    const Color closedOuterRight = GetImageColor(closedSouth, outerRightX, capY);
+    UnloadImage(closedSouth);
+
+    southDoorState->opening = true;
+    southDoorState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
+    Image openingSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
+    const Color sideFallback = ProceduralSideColor(6, 3, fallbackBase);
+    ExpectPixelColor(openingSouth, capLeftX, capY, BlendOver(sideFallback, closedLeft, 0.5f));
+    ExpectPixelColor(openingSouth, capRightX, capY, BlendOver(sideFallback, closedRight, 0.5f));
+    ExpectPixelColor(openingSouth, outerLeftX, capY, closedOuterLeft);
+    ExpectPixelColor(openingSouth, outerRightX, capY, closedOuterRight);
+    UnloadImage(openingSouth);
+
+    southDoorState->open = true;
+    Image openSouth = Render(walls, {{&southRoom, 1.0f}}, target, true);
+    ExpectPixelColor(openSouth, capLeftX, capY, sideFallback);
+    ExpectPixelColor(openSouth, capRightX, capY, sideFallback);
+    ExpectPixelColor(openSouth, 6 * TILE_SIZE, capY, BLACK);
+    ExpectPixelColor(openSouth, 7 * TILE_SIZE + TILE_SIZE / 4, capY,
+                     GetImageColor(openSouth, outerRightX, capY));
+    UnloadImage(openSouth);
 }
 
 } // namespace
