@@ -477,12 +477,14 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     Image closedEast = Render(walls, {{&horizontalEast, 1.0f}}, target, true);
     const Color closedEastUpper = GetImageColor(closedEast, eastUpperX, eastUpperWallTopY);
     const Color closedEastUpperMiddle = GetImageColor(closedEast, eastUpperX, eastWallMiddleY);
-    const Color closedEastBottomTop = GetImageColor(closedEast, eastUpperX, eastBottomWallTopY);
-    const Color closedEastLower = GetImageColor(closedEast, eastUpperX, eastLowerY);
+    const Color eastSideOverBottom = BlendOver(lobbySide,
+        SpriteColor(0, WallRules::Section::Bottom));
     ExpectPixelColor(closedEast, 13 * TILE_SIZE + TILE_SIZE / 2, eastWallMiddleY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(closedEast, 13 * TILE_SIZE + TILE_SIZE / 2, eastLowerY,
                      SpriteColor(0, WallRules::Section::Bottom));
+    ExpectPixelColor(closedEast, eastUpperX, eastBottomWallTopY, eastSideOverBottom);
+    ExpectPixelColor(closedEast, eastUpperX, eastLowerY, eastSideOverBottom);
     UnloadImage(closedEast);
 
     horizontalEastState->opening = true;
@@ -493,9 +495,9 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     ExpectPixelColor(openingEast, eastUpperX, eastWallMiddleY,
                      closedEastUpperMiddle);
     ExpectPixelColor(openingEast, eastUpperX, eastBottomWallTopY,
-                     BlendOver(lobbySide, closedEastBottomTop, 0.5f));
+                     eastSideOverBottom);
     ExpectPixelColor(openingEast, eastUpperX, eastLowerY,
-                     BlendOver(lobbySide, closedEastLower, 0.5f));
+                     eastSideOverBottom);
     UnloadImage(openingEast);
 
     horizontalEastState->open = true;
@@ -505,9 +507,9 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     ExpectPixelColor(openEast, eastUpperX, eastWallMiddleY,
                      closedEastUpperMiddle);
     ExpectPixelColor(openEast, eastUpperX, eastBottomWallTopY,
-                     BlendOver(lobbySide, closedEastBottomTop));
+                     eastSideOverBottom);
     ExpectPixelColor(openEast, eastUpperX, eastLowerY,
-                     BlendOver(lobbySide, closedEastLower));
+                     eastSideOverBottom);
     ExpectPixelColor(openEast, 13 * TILE_SIZE + TILE_SIZE / 2, eastWallMiddleY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(openEast, 13 * TILE_SIZE + TILE_SIZE / 2, eastLowerY,
@@ -524,16 +526,31 @@ void TestWallCatalogsAndLayers(RenderTexture2D target) {
     horizontalWestDoor.corridorTiles = TileRect{16, 2, 2, 2};
     horizontalWestDoor.doorState = horizontalWestState;
     horizontalWest.Layout().doors.push_back(horizontalWestDoor);
-    Image openWest = Render(walls, {{&horizontalWest, 1.0f}}, target, true);
+
     const int westCapX = 17 * TILE_SIZE + TILE_SIZE - TILE_SIZE / 8;
+    Image closedWest = Render(walls, {{&horizontalWest, 1.0f}}, target, true);
+    const Color westSideOverBottom = BlendOver(lobbySide,
+        SpriteColor(0, WallRules::Section::Bottom));
+    ExpectPixelColor(closedWest, westCapX, eastBottomWallTopY, westSideOverBottom);
+    ExpectPixelColor(closedWest, westCapX, eastLowerY, westSideOverBottom);
+    UnloadImage(closedWest);
+
+    horizontalWestState->opening = true;
+    horizontalWestState->fadeProgress = DoorVisualRules::FadeDuration * 0.5f;
+    Image openingWest = Render(walls, {{&horizontalWest, 1.0f}}, target, true);
+    ExpectPixelColor(openingWest, westCapX, eastBottomWallTopY, westSideOverBottom);
+    ExpectPixelColor(openingWest, westCapX, eastLowerY, westSideOverBottom);
+    UnloadImage(openingWest);
+
+    Image openWest = Render(walls, {{&horizontalWest, 1.0f}}, target, true);
     ExpectPixelColor(openWest, westCapX, eastUpperWallTopY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(openWest, westCapX, eastWallMiddleY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(openWest, westCapX, eastBottomWallTopY,
-                     BlendOver(lobbySide, SpriteColor(0, WallRules::Section::Bottom)));
+                     westSideOverBottom);
     ExpectPixelColor(openWest, westCapX, eastLowerY,
-                     BlendOver(lobbySide, SpriteColor(0, WallRules::Section::Bottom)));
+                     westSideOverBottom);
     ExpectPixelColor(openWest, 17 * TILE_SIZE + TILE_SIZE / 2, eastWallMiddleY,
                      SpriteColor(0, WallRules::Section::Upper));
     ExpectPixelColor(openWest, 17 * TILE_SIZE + TILE_SIZE / 2, eastLowerY,

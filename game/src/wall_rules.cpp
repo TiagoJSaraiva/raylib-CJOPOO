@@ -52,7 +52,7 @@ struct HorizontalMouth {
     Position bottomEdgeTile;
     Position bottomRoomSide;
     BiomeType biome;
-    float visibility;
+    float roomVisibility;
     SidePlacement sidePlacement;
 };
 
@@ -277,7 +277,7 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
                     Position{mouthX, bottomWall.y},
                     Position{mouthX, bottomWall.y + 1},
                     corridorBiome,
-                    view.visibility * sideProgress,
+                    view.visibility,
                     door.direction == Direction::East
                         ? SidePlacement::InsetLeft
                         : SidePlacement::InsetRight
@@ -351,18 +351,19 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
     }
 
     // Cap only the lower horizontal corridor wall where it meets a room side wall.
+    // Keep this overlap visible with the room, independently from door animation.
     // Upper corridor walls intentionally have no side cap.
     for (const auto& mouth : horizontalMouths) {
-        if (!(mouth.visibility > 0.0f)) continue;
+        if (!(mouth.roomVisibility > 0.0f)) continue;
 
-        const TileInfo capTile{mouth.biome, mouth.visibility, mouth.visibility};
+        const TileInfo capTile{mouth.biome, mouth.roomVisibility, mouth.roomVisibility};
         if (frame.find(Key{mouth.bottomWall, Section::Bottom}) != frame.end() &&
             frame.find(Key{mouth.bottomRoomSide, Section::Side}) != frame.end()) {
             // Bottom sprites are anchored one tile above their segment. Match
             // the cap's two-tile span to the complete bottom-wall sprite.
             const Position bottomCap{mouth.bottomWall.x, mouth.bottomWall.y - 1};
             AddSegment(frame, bottomCap, mouth.bottomEdgeTile, Section::Side,
-                       capTile, mouth.visibility, mouth.sidePlacement);
+                       capTile, mouth.roomVisibility, mouth.sidePlacement);
         }
     }
 
