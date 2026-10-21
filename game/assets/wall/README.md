@@ -18,7 +18,8 @@ não precisa ser quadrada. As imagens de `upper/` e `bottom/` são esticadas par
 de `side/` são esticadas para uma faixa vertical de 16 × 128 pixels, cobrindo dois
 tiles de altura e alinhada à borda do piso. Capas superiores dos cantos também
 cobrem dois tiles para acompanhar a altura da parede superior. Terminais abertos
-de passagens verticais também cobrem dois tiles; capas de portas usam apenas um.
+de passagens verticais e capas no bottom wall das entradas horizontais também
+cobrem dois tiles de altura. O upper wall dos corredores não recebe capa lateral.
 O filtro bilinear é usado, sem rotação ou espelhamento. A
 proporção original não é mantida, e a transparência é preservada.
 

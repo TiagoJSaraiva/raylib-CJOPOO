@@ -47,9 +47,6 @@ struct EdgeKeyHash {
 };
 
 struct HorizontalMouth {
-    Position upperWall;
-    Position upperEdgeTile;
-    Position upperRoomSide;
     Position bottomWall;
     Position bottomEdgeTile;
     Position bottomRoomSide;
@@ -256,12 +253,8 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
                 const int mouthX = door.direction == Direction::East
                     ? corridor.x
                     : corridor.x + corridor.width - 1;
-                const Position upperWall{mouthX, corridor.y - 1};
                 const Position bottomWall{mouthX, corridor.y + corridor.height - 1};
                 horizontalMouths.push_back(HorizontalMouth{
-                    upperWall,
-                    Position{mouthX, corridor.y},
-                    upperWall,
                     bottomWall,
                     Position{mouthX, bottomWall.y},
                     Position{mouthX, bottomWall.y + 1},
@@ -332,25 +325,23 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
             ? SidePlacement::InsetRight
             : SidePlacement::InsetLeft;
         const TileInfo capTile{side.biome, side.visibility, side.visibility};
-        AddSegment(frame, bottomPosition, side.edgeTile, Section::Side, capTile,
+        const Position bottomCap{bottomPosition.x, bottomPosition.y - 1};
+        AddSegment(frame, bottomCap, side.edgeTile, Section::Side, capTile,
                    side.visibility, placement);
     }
 
-    // Cap the upper and lower horizontal corridor walls where they meet a room side wall.
-    // The paired side segment checks prevent caps at open corridor ends and ordinary room corners.
+    // Cap only the lower horizontal corridor wall where it meets a room side wall.
+    // Upper corridor walls intentionally have no side cap.
     for (const auto& mouth : horizontalMouths) {
         if (!(mouth.visibility > 0.0f)) continue;
 
         const TileInfo capTile{mouth.biome, mouth.visibility, mouth.visibility};
-        if (frame.find(Key{mouth.upperWall, Section::Upper}) != frame.end() &&
-            frame.find(Key{mouth.upperRoomSide, Section::Side}) != frame.end()) {
-            AddSegment(frame, mouth.upperWall, mouth.upperEdgeTile, Section::Side,
-                       capTile, mouth.visibility, mouth.sidePlacement);
-        }
         if (frame.find(Key{mouth.bottomWall, Section::Bottom}) != frame.end() &&
             frame.find(Key{mouth.bottomRoomSide, Section::Side}) != frame.end()) {
-            // Bottom sprites are anchored one tile above their segment, so cap below the opening.
-            AddSegment(frame, mouth.bottomRoomSide, mouth.bottomEdgeTile, Section::Side,
+            // Bottom sprites are anchored one tile above their segment. Match
+            // the cap's two-tile span to the complete bottom-wall sprite.
+            const Position bottomCap{mouth.bottomWall.x, mouth.bottomWall.y - 1};
+            AddSegment(frame, bottomCap, mouth.bottomEdgeTile, Section::Side,
                        capTile, mouth.visibility, mouth.sidePlacement);
         }
     }
@@ -389,9 +380,8 @@ std::vector<Module> BuildModules(const Frame& frame) {
         const Key key{segment->position, segment->section, segment->sidePlacement};
         if (!consumed.insert(key).second) continue;
 
-        Module module{*segment, 1, 1};
+        Module module{*segment, 1, 2};
         if (IsUpperSideCornerCap(*segment)) {
-            module.heightTiles = 2;
             --module.segment.position.y;
         } else if (IsRegularSideSegment(*segment)) {
             const Position upperPosition{segment->position.x, segment->position.y - 1};
@@ -402,24 +392,13 @@ std::vector<Module> BuildModules(const Frame& frame) {
                 upper->second.edgeTile.x == segment->edgeTile.x &&
                 upper->second.edgeTile.y + 1 == segment->edgeTile.y) {
                 module.segment = upper->second;
-                module.heightTiles = 2;
                 module.segment.visibility = std::min(segment->visibility,
                                                      upper->second.visibility);
                 consumed.insert(upperKey);
-            } else {
-                const Position lowerPosition{segment->position.x, segment->position.y + 1};
-                const auto lower = frame.find(Key{lowerPosition, Section::Side,
-                                                   SidePlacement::Edge});
-                const bool continuesBelow = lower != frame.end() &&
-                    IsRegularSideSegment(lower->second) &&
-                    SameModuleStyle(*segment, lower->second) &&
-                    lower->second.edgeTile.x == segment->edgeTile.x &&
-                    lower->second.edgeTile.y == segment->edgeTile.y + 1;
-                const bool hasUpperSegment = upper != frame.end();
-                if (!hasUpperSegment && continuesBelow) {
-                    module.heightTiles = 2;
-                    --module.segment.position.y;
-                }
+            } else if (upper == frame.end()) {
+                // An unmatched upper terminal (including a single-tile run)
+                // grows upward so the module stays aligned to its lower edge.
+                --module.segment.position.y;
             }
         }
 

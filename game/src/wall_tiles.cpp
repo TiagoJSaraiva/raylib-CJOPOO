@@ -96,10 +96,10 @@ Rectangle SideWallRect(const WallRules::Segment& segment, int heightTiles) {
     const float height = static_cast<float>(heightTiles * TILE_SIZE);
     const float tileX = static_cast<float>(segment.position.x) * tileSize;
     if (segment.sidePlacement == WallRules::SidePlacement::InsetLeft) {
-        return Rectangle{tileX, y, kSideWallWidth, tileSize};
+        return Rectangle{tileX, y, kSideWallWidth, height};
     }
     if (segment.sidePlacement == WallRules::SidePlacement::InsetRight) {
-        return Rectangle{tileX + tileSize - kSideWallWidth, y, kSideWallWidth, tileSize};
+        return Rectangle{tileX + tileSize - kSideWallWidth, y, kSideWallWidth, height};
     }
     const float edgeX = static_cast<float>(segment.edgeTile.x) * tileSize;
     const bool isLeftSide = segment.position.x < segment.edgeTile.x;
