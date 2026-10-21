@@ -38,6 +38,13 @@ bool HasSidePlacement(const WallRules::Frame& frame, int x, int y,
                                      placement}) != frame.end();
 }
 
+bool HasWallType(const WallRules::Frame& frame, int x, int y,
+                 WallRules::WallType wallType) {
+    const auto found = frame.find(WallRules::Key{WallRules::Position{x, y},
+                                                  WallRules::Section::Side});
+    return found != frame.end() && found->second.wallType == wallType;
+}
+
 std::size_t CountSidePlacement(const WallRules::Frame& frame,
                                WallRules::SidePlacement placement) {
     return static_cast<std::size_t>(std::count_if(frame.begin(), frame.end(),
@@ -182,6 +189,44 @@ void TestTwoTileWallModules() {
             assert(module.widthTiles == 2 && module.heightTiles == 2);
         }
     }
+}
+
+void TestRoomLowerSideCornersUseEdgeType() {
+    Room room = MakeRoom({0, 0}, BiomeType::Lobby, TileRect{10, 20, 4, 4});
+    const auto frame = WallRules::BuildFrame({WallRules::RoomView{&room, 1.0f}});
+    const auto modules = WallRules::BuildModules(frame);
+
+    for (const int x : {9, 14}) {
+        for (const int y : {22, 23}) {
+            assert(HasWallType(frame, x, y, WallRules::WallType::Edge));
+        }
+        for (const int y : {19, 20, 21}) {
+            assert(HasWallType(frame, x, y, WallRules::WallType::Standard));
+        }
+
+        const auto* edge = FindModule(modules, WallRules::Section::Side, x, 22);
+        assert(edge != nullptr && edge->widthTiles == 1 && edge->heightTiles == 2);
+        assert(edge->segment.wallType == WallRules::WallType::Edge);
+
+        const auto* regular = FindModule(modules, WallRules::Section::Side, x, 20);
+        assert(regular != nullptr && regular->heightTiles == 2);
+        assert(regular->segment.wallType == WallRules::WallType::Standard);
+    }
+
+    Room corridorRoom = MakeRoom({1, 0}, BiomeType::Lobby, TileRect{5, 20, 3, 4});
+    auto doorState = std::make_shared<DoorInstance>();
+    doorState->open = true;
+    Doorway south;
+    south.direction = Direction::South;
+    south.offset = 1;
+    south.width = 1;
+    south.corridorTiles = TileRect{6, 24, 1, 2};
+    south.doorState = doorState;
+    corridorRoom.Layout().doors.push_back(south);
+    const auto corridorFrame = WallRules::BuildFrame(
+        {WallRules::RoomView{&corridorRoom, 1.0f}});
+    assert(HasWallType(corridorFrame, 5, 24, WallRules::WallType::Standard));
+    assert(HasWallType(corridorFrame, 7, 24, WallRules::WallType::Standard));
 }
 
 void TestVerticalPassageTerminalSideModules() {
@@ -555,6 +600,12 @@ void TestDeterministicChoices() {
     assert(first.biome == repeated.biome);
     assert(first.sprite == repeated.sprite);
     assert(first.sprite < cumulative.size());
+
+    const auto edge = memory.GetOrCreate({-5, 8}, WallRules::Section::Side,
+                                         BiomeType::Dungeon, cumulative,
+                                         WallRules::SidePlacement::Edge,
+                                         WallRules::WallType::Edge);
+    assert(edge.wallType == WallRules::WallType::Edge);
 }
 
 } // namespace
@@ -563,6 +614,7 @@ int main() {
     TestSpriteNamingAndWeights();
     TestRoomPerimeterAndCorners();
     TestTwoTileWallModules();
+    TestRoomLowerSideCornersUseEdgeType();
     TestVerticalPassageTerminalSideModules();
     TestBottomCornersInCorridorUnionAndFade();
     TestSharedSouthCorridorDoesNotDuplicateCaps();

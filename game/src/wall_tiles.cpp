@@ -13,7 +13,8 @@
 namespace {
 
 constexpr const char* kBiomeDirectories[] = {"lobby", "cave", "mansion", "dungeon"};
-constexpr const char* kSectionDirectories[] = {"side", "upper", "bottom"};
+constexpr const char* kSectionDirectories[] = {"side", "upper", "bottom", "edge"};
+constexpr std::size_t kCatalogsPerBiome = 4;
 constexpr float kSideWallWidth = static_cast<float>(TILE_SIZE) / 4.0f;
 constexpr float kOccludedBottomWallVisibility = 0.6f;
 constexpr float kBottomWallTweenDuration = 0.2f;
@@ -30,6 +31,15 @@ std::size_t BiomeIndex(BiomeType biome) {
 
 std::size_t SectionIndex(WallRules::Section section) {
     return static_cast<std::size_t>(section);
+}
+
+std::size_t CatalogIndex(BiomeType biome, WallRules::Section section,
+                         WallRules::WallType wallType) {
+    const std::size_t sectionIndex = section == WallRules::Section::Side &&
+            wallType == WallRules::WallType::Edge
+        ? 3
+        : SectionIndex(section);
+    return BiomeIndex(biome) * kCatalogsPerBiome + sectionIndex;
 }
 
 Color WallBaseColorForBiome(BiomeType biome) {
@@ -146,8 +156,8 @@ Texture2D LoadWallTexture(const std::filesystem::path& path) {
 WallTiles::WallTiles() {
     namespace fs = std::filesystem;
     for (std::size_t biome = 0; biome < 4; ++biome) {
-        for (std::size_t section = 0; section < 3; ++section) {
-            auto& catalog = catalogs_[biome * 3 + section];
+        for (std::size_t section = 0; section < kCatalogsPerBiome; ++section) {
+            auto& catalog = catalogs_[biome * kCatalogsPerBiome + section];
             const fs::path directory = fs::path("assets/wall") / kBiomeDirectories[biome] /
                                        kSectionDirectories[section];
             std::vector<fs::path> paths;
@@ -160,7 +170,7 @@ WallTiles::WallTiles() {
                 if (entry.is_regular_file(fileError)) paths.push_back(entry.path());
                 iterator.increment(error);
             }
-            if (error) {
+            if (error && section != 3) {
                 std::cerr << "[WallTiles] Cannot read " << directory.generic_string()
                           << ": " << error.message() << '\n';
             }
@@ -183,7 +193,7 @@ WallTiles::WallTiles() {
                 }
                 catalog.textures.push_back(texture);
             }
-            if (catalog.textures.empty()) {
+            if (catalog.textures.empty() && section != 3) {
                 std::cerr << "[WallTiles] No valid sprites in " << directory.generic_string()
                           << "; using procedural wall color.\n";
             }
@@ -332,11 +342,17 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground,
             }
         }
 
-        const auto catalogIndex = BiomeIndex(segment.biome) * 3 + SectionIndex(segment.section);
+        WallRules::WallType selectedWallType = segment.wallType;
+        std::size_t catalogIndex = CatalogIndex(segment.biome, segment.section, selectedWallType);
+        if (selectedWallType == WallRules::WallType::Edge &&
+            catalogs_[catalogIndex].textures.empty()) {
+            selectedWallType = WallRules::WallType::Standard;
+            catalogIndex = CatalogIndex(segment.biome, WallRules::Section::Side, selectedWallType);
+        }
         const auto& catalog = catalogs_[catalogIndex];
         const auto& choice = memory_.GetOrCreate(segment.position, segment.section,
                                                   segment.biome, catalog.cumulative,
-                                                  segment.sidePlacement);
+                                                  segment.sidePlacement, selectedWallType);
         if (choice.sprite == WallRules::NoSprite) {
             DrawFallback(drawModule);
             continue;

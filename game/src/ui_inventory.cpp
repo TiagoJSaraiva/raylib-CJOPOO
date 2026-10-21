@@ -2259,6 +2259,9 @@ void InitializeInventoryUIDummyData(InventoryUIState& state) {
     SetWeaponSlot(state, 0, 1);
     SetWeaponSlot(state, 1, 3);
     SetEquipmentSlot(state, 0, idkitDoTestador);
+    SetEquipmentSlot(state, 1, idkitDoTestador);
+    SetEquipmentSlot(state, 2, idkitDoTestador);
+    SetEquipmentSlot(state, 3, idkitDoTestador);
 
     EnsureEquipmentCapacity(state, 5);
 

@@ -16,6 +16,11 @@ enum class Section : std::uint8_t {
     Bottom
 };
 
+enum class WallType : std::uint8_t {
+    Standard,
+    Edge
+};
+
 enum class SidePlacement : std::uint8_t {
     Edge,
     InsetLeft,
@@ -64,6 +69,7 @@ struct Segment {
     BiomeType biome;
     float visibility;
     SidePlacement sidePlacement{SidePlacement::Edge};
+    WallType wallType{WallType::Standard};
     BottomWallRowId bottomWallRow{};
 };
 
@@ -105,6 +111,7 @@ constexpr std::size_t NoSprite = std::numeric_limits<std::size_t>::max();
 
 struct Choice {
     BiomeType biome;
+    WallType wallType{WallType::Standard};
     std::size_t sprite;
 };
 
@@ -113,7 +120,8 @@ public:
     void Reset(std::uint64_t seed);
     const Choice& GetOrCreate(Position position, Section section, BiomeType biome,
                               const std::vector<std::uint64_t>& cumulative,
-                              SidePlacement sidePlacement = SidePlacement::Edge);
+                              SidePlacement sidePlacement = SidePlacement::Edge,
+                              WallType wallType = WallType::Standard);
 
 private:
     std::uint64_t seed_{0};

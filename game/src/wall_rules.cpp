@@ -19,6 +19,7 @@ struct TileInfo {
     bool roomTile;
     bool southCorridorTile;
     BottomWallRowId bottomWallRow;
+    int roomLeftX{0};
 };
 
 struct PositionHash {
@@ -68,7 +69,7 @@ void AddRect(WalkableTiles& tiles, const TileRect& rect, BiomeType biome, float 
             const Position position{x, y};
             auto [it, inserted] = tiles.emplace(position,
                 TileInfo{biome, visibility, sideVisibility, !isCorridor, isSouthCorridor,
-                         bottomWallRow});
+                         bottomWallRow, isCorridor ? 0 : rect.x});
             if (!inserted) {
                 it->second.visibility = std::max(it->second.visibility, visibility);
                 it->second.sideVisibility = std::max(it->second.sideVisibility, sideVisibility);
@@ -132,13 +133,16 @@ bool IsOpen(const std::unordered_set<EdgeKey, EdgeKeyHash>& openEdges,
 
 void AddSegment(Frame& frame, Position position, Position edgeTile, Section section,
                 const TileInfo& tile, float visibility,
-                SidePlacement sidePlacement = SidePlacement::Edge) {
+                SidePlacement sidePlacement = SidePlacement::Edge,
+                WallType wallType = WallType::Standard) {
     const Key key{position, section, sidePlacement};
     auto [it, inserted] = frame.emplace(
         key, Segment{position, edgeTile, section, tile.biome, visibility, sidePlacement,
+                     wallType,
                      section == Section::Bottom ? tile.bottomWallRow : BottomWallRowId{}});
     if (!inserted) {
         it->second.visibility = std::max(it->second.visibility, visibility);
+        if (wallType == WallType::Edge) it->second.wallType = WallType::Edge;
         const bool lowerBiome = static_cast<int>(tile.biome) < static_cast<int>(it->second.biome);
         const bool stableEdge = tile.biome == it->second.biome &&
             (edgeTile.x < it->second.edgeTile.x ||
@@ -151,14 +155,28 @@ void AddSegment(Frame& frame, Position position, Position edgeTile, Section sect
     }
 }
 
-std::uint64_t WallSalt(Section section, BiomeType biome) {
+WallType SideWallType(const TileInfo& tile, Position edgeTile) {
+    const BottomWallRowId& room = tile.bottomWallRow;
+    if (!tile.roomTile || room.kind != BottomWallRowKind::Room ||
+        room.ownerWidth <= 0 || room.ownerHeight < 2) {
+        return WallType::Standard;
+    }
+
+    const bool outerRoomColumn = edgeTile.x == tile.roomLeftX ||
+        edgeTile.x == tile.roomLeftX + room.ownerWidth - 1;
+    const bool lowerRoomRows = edgeTile.y >= room.edgeY - 1 && edgeTile.y <= room.edgeY;
+    return outerRoomColumn && lowerRoomRows ? WallType::Edge : WallType::Standard;
+}
+
+std::uint64_t WallSalt(Section section, BiomeType biome, WallType wallType) {
     std::uint64_t salt = HashCombine(0x57414C4CULL, static_cast<std::uint64_t>(section));
-    return HashCombine(salt, static_cast<std::uint64_t>(biome));
+    salt = HashCombine(salt, static_cast<std::uint64_t>(biome));
+    return HashCombine(salt, static_cast<std::uint64_t>(wallType));
 }
 
 bool SameModuleStyle(const Segment& a, const Segment& b) {
     return a.section == b.section && a.biome == b.biome &&
-           a.sidePlacement == b.sidePlacement &&
+           a.sidePlacement == b.sidePlacement && a.wallType == b.wallType &&
            (a.section != Section::Bottom || a.bottomWallRow == b.bottomWallRow);
 }
 
@@ -286,7 +304,8 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
         if (west && tile.sideVisibility > 0.0f) {
             const Position sidePosition{position.x - 1, position.y};
             AddSegment(frame, sidePosition, position,
-                       Section::Side, tile, tile.sideVisibility);
+                       Section::Side, tile, tile.sideVisibility,
+                       SidePlacement::Edge, SideWallType(tile, position));
             if (tile.southCorridorTile) {
                 corridorSides.push_back(Segment{sidePosition, position, Section::Side,
                                                 tile.biome, tile.sideVisibility});
@@ -295,7 +314,8 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
         if (east && tile.sideVisibility > 0.0f) {
             const Position sidePosition{position.x + 1, position.y};
             AddSegment(frame, sidePosition, position,
-                       Section::Side, tile, tile.sideVisibility);
+                       Section::Side, tile, tile.sideVisibility,
+                       SidePlacement::Edge, SideWallType(tile, position));
             if (tile.southCorridorTile) {
                 corridorSides.push_back(Segment{sidePosition, position, Section::Side,
                                                 tile.biome, tile.sideVisibility});
@@ -448,19 +468,23 @@ void TileMemory::Reset(std::uint64_t seed) {
 
 const Choice& TileMemory::GetOrCreate(Position position, Section section, BiomeType biome,
                                       const std::vector<std::uint64_t>& cumulative,
-                                      SidePlacement sidePlacement) {
+                                      SidePlacement sidePlacement, WallType wallType) {
     const Key key{position, section, sidePlacement};
     const auto found = choices_.find(key);
-    if (found != choices_.end() && found->second.biome == biome) return found->second;
+    if (found != choices_.end() && found->second.biome == biome &&
+        found->second.wallType == wallType) {
+        return found->second;
+    }
 
     std::size_t sprite = NoSprite;
     if (!cumulative.empty()) {
-        const auto tileSeed = MakeRoomSeed(seed_, RoomCoords{position.x, position.y}, WallSalt(section, biome));
+        const auto tileSeed = MakeRoomSeed(seed_, RoomCoords{position.x, position.y},
+                                           WallSalt(section, biome, wallType));
         std::mt19937_64 rng(tileSeed);
         std::uniform_int_distribution<std::uint64_t> distribution(0, cumulative.back() - 1);
         sprite = FloorRules::SelectTicket(cumulative, distribution(rng));
     }
-    auto [it, inserted] = choices_.insert_or_assign(key, Choice{biome, sprite});
+    auto [it, inserted] = choices_.insert_or_assign(key, Choice{biome, wallType, sprite});
     (void)inserted;
     return it->second;
 }

@@ -23,7 +23,7 @@ struct TemporaryAssets {
 
     TemporaryAssets() {
         for (const char* biome : {"lobby", "cave", "dungeon", "mansion"}) {
-            for (const char* section : {"side", "upper", "bottom"}) {
+            for (const char* section : {"side", "upper", "bottom", "edge"}) {
                 fs::create_directories(root / "assets/wall" / biome / section);
             }
         }
@@ -618,6 +618,55 @@ void TestVerticalPassageTerminalSideRendering(RenderTexture2D target) {
     walls.Unload();
 }
 
+void TestEdgeWallCatalogAndFallback(RenderTexture2D target) {
+    const Color edge{15, 30, 240, 255};
+    Sprite("assets/wall/lobby/edge/1-1.png", 64, 64, edge);
+
+    WallTiles walls;
+    walls.BeginRun(7100);
+    Room lobby = MakeRoom({0, 0}, BiomeType::Lobby, 2, 2, 4, 4);
+    Room cave = MakeRoom({1, 0}, BiomeType::Cave, 8, 2, 4, 4);
+    Image image = Render(walls, {{&lobby, 1.0f}, {&cave, 1.0f}}, target, false);
+
+    const Color lobbySide = SpriteColor(0, WallRules::Section::Side);
+    const Color caveSide = SpriteColor(1, WallRules::Section::Side);
+    const int lobbyLeftX = 2 * TILE_SIZE - TILE_SIZE / 8;
+    const int lobbyRightX = 6 * TILE_SIZE + TILE_SIZE / 8;
+    const int caveLeftX = 8 * TILE_SIZE - TILE_SIZE / 8;
+    const int caveRightX = 12 * TILE_SIZE + TILE_SIZE / 8;
+    for (const int y : {2, 3}) {
+        const int sampleY = y * TILE_SIZE + TILE_SIZE / 2;
+        ExpectPixelColor(image, lobbyLeftX, sampleY, BlendOver(lobbySide, BLACK));
+        ExpectPixelColor(image, lobbyRightX, sampleY, BlendOver(lobbySide, BLACK));
+    }
+    for (const int y : {4, 5}) {
+        const int sampleY = y * TILE_SIZE + TILE_SIZE / 2;
+        ExpectPixelColor(image, lobbyLeftX, sampleY, edge);
+        ExpectPixelColor(image, lobbyRightX, sampleY, edge);
+        ExpectPixelColor(image, caveLeftX, sampleY, caveSide);
+        ExpectPixelColor(image, caveRightX, sampleY, caveSide);
+    }
+    UnloadImage(image);
+
+    auto northDoorState = std::make_shared<DoorInstance>();
+    northDoorState->open = true;
+    Doorway northDoor;
+    northDoor.direction = Direction::North;
+    northDoor.offset = 1;
+    northDoor.width = 1;
+    northDoor.corridorTiles = TileRect{3, 0, 1, 2};
+    northDoor.doorState = northDoorState;
+    lobby.Layout().doors.push_back(northDoor);
+    Image corridor = Render(walls, {{&lobby, 1.0f}}, target, false);
+    const Color corridorSide = BlendOver(lobbySide, BLACK);
+    ExpectPixelColor(corridor, 3 * TILE_SIZE - TILE_SIZE / 8,
+                     TILE_SIZE / 2, corridorSide);
+    UnloadImage(corridor);
+
+    walls.Unload();
+    fs::remove("assets/wall/lobby/edge/1-1.png");
+}
+
 void TestFallback(RenderTexture2D target) {
     fs::create_directories("assets/wall");
     fs::create_directories("assets/wall/lobby/upper");
@@ -820,6 +869,7 @@ int main() {
     assert(target.id != 0);
     TestTwoTileWallRendering(target);
     TestVerticalPassageTerminalSideRendering(target);
+    TestEdgeWallCatalogAndFallback(target);
     TestWallCatalogsAndLayers(target);
     TestFallback(target);
     UnloadRenderTexture(target);

@@ -40,7 +40,7 @@ private:
                                 Rectangle playerBounds, float deltaSeconds) const;
     void DrawFallback(const WallRules::Module& module) const;
 
-    std::array<Catalog, 12> catalogs_{};
+    std::array<Catalog, 16> catalogs_{};
     mutable WallRules::TileMemory memory_;
     mutable std::unordered_map<WallRules::BottomWallRowId, BottomWallTween,
                                WallRules::BottomWallRowIdHash>
