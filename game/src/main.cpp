@@ -20,6 +20,7 @@
 
 #include "room_manager.h"
 #include "room_renderer.h"
+#include "room_collision_rules.h"
 #include "room_types.h"
 #include "door_visual_rules.h"
 #include "projectile.h"
@@ -859,10 +860,11 @@ Vector2 ClampBoxToRect(const Rectangle& rect,
 void ClampPlayerToAccessibleArea(Vector2& position,
                                  float halfWidth,
                                  float halfHeight,
-                                 const RoomLayout& layout) {
+                                 const RoomLayout& layout,
+                                 BiomeType biome) {
     constexpr float tolerance = 0.0f;
 
-    Rectangle floor = TileRectToPixels(layout.tileBounds);
+    Rectangle floor = RoomCollisionRules::RoomBoundsForCollision(layout.tileBounds, biome);
 
     struct AccessibleRegion {
         Rectangle clampRect;
@@ -1310,7 +1312,8 @@ int main() {
         Room& activeRoom = roomManager.GetCurrentRoom();
         ensureRoomEnemies(activeRoom);
         // Primeira etapa de restrição: mantêm jogador dentro dos tiles e evita colidir com estações da sala atual.
-        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, activeRoom.Layout());
+        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT,
+                                    activeRoom.Layout(), activeRoom.GetBiome());
         if (const ForgeInstance* forge = activeRoom.GetForge()) {
             desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
@@ -1369,7 +1372,8 @@ int main() {
         ensureRoomEnemies(*currentRoomPtr);
 
         // Segunda etapa de clamp/colisão após potencial transição de sala.
-        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT, currentRoomPtr->Layout());
+        ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT,
+                                    currentRoomPtr->Layout(), currentRoomPtr->GetBiome());
         if (const ForgeInstance* forge = currentRoomPtr->GetForge()) {
             desiredPosition = ResolveCollisionWithForge(*forge, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
