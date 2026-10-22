@@ -11,6 +11,7 @@
 
 #include "room_types.h"
 #include "chest.h"
+#include "prop.h"
 
 // Situação atual da porta para determinar se o jogador pode atravessar.
 enum class DoorInteractionState {
@@ -141,6 +142,11 @@ public:
     std::optional<Direction> GetEntranceDirection() const { return entranceDirection_; }
     void SetEntranceDirection(std::optional<Direction> direction) { entranceDirection_ = direction; }
 
+    std::vector<PropInstance>& Props() { return props_; }
+    const std::vector<PropInstance>& Props() const { return props_; }
+    bool PropsInitialized() const { return propsInitialized_; }
+    void SetPropsInitialized() { propsInitialized_ = true; }
+
     // ---- Forja ----
     bool HasForge() const { return forge_.has_value(); }
     ForgeInstance* GetForge();
@@ -163,6 +169,8 @@ public:
     void ClearChest();
 
 private:
+    std::vector<PropInstance> props_; // Never erased/reordered after generation: stable combat identities.
+    bool propsInitialized_{false};
     RoomCoords coords_{}; // Posição da sala no grid.
     RoomSeedData seedData_{}; // Dados usados para reproduzir o layout/bioma.
     RoomLayout layout_{}; // Estrutura física com portas e dimensões em tiles.

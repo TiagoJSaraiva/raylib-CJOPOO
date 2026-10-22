@@ -9,10 +9,9 @@ struct ProjectileSystem::ProjectileInstance {
     virtual void Update(float deltaSeconds) = 0;
     virtual void Draw() const = 0;
     virtual bool IsExpired() const = 0;
-    virtual void CollectHitEvents(const Vector2&,
-                                  float,
-                                  std::uintptr_t,
-                                  float,
+    virtual float ImpactFraction(const ProjectileTarget&) const { return 0.0f; }
+    virtual bool ConsumesOnImpact() const { return false; }
+    virtual void CollectHitEvents(const ProjectileTarget&,
                                   std::mt19937&,
                                   std::vector<ProjectileSystem::DamageEvent>&) {}
 };

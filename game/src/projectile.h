@@ -1,4 +1,5 @@
 #pragma once
+#include "combat_geometry.h"
 
 #include "raylib.h"
 
@@ -170,6 +171,11 @@ public:
                                                 float targetRadius,
                                                 std::uintptr_t targetId = 0,
                                                 float targetImmunitySeconds = 0.0f);
+
+    struct TargetDamageEvent { std::uintptr_t targetId; DamageEvent damage; };
+    std::vector<DamageEvent> CollectDamageEvents(Rectangle targetBounds, std::uintptr_t targetId);
+    // All potential targets of each consuming shot must be supplied together.
+    std::vector<TargetDamageEvent> CollectDamageEventsForTargets(const std::vector<ProjectileTarget>& targets);
 
     struct ProjectileInstance;
 

@@ -68,10 +68,7 @@ public:
         }
     }
 
-    void CollectHitEvents(const Vector2&,
-                          float,
-                          std::uintptr_t,
-                          float,
+    void CollectHitEvents(const ProjectileTarget&,
                           std::mt19937&,
                           std::vector<ProjectileSystem::DamageEvent>&) override {
         // Display-only projectiles do not generate damage events.
@@ -109,19 +106,24 @@ public:
         if (Vector2LengthSqr(direction_) <= 1e-6f) {
             direction_ = Vector2{1.0f, 0.0f};
         }
+        previousPosition_ = position_;
         aimAngleDeg_ = DirectionToDegrees(direction_);
     }
 
     void Update(float deltaSeconds) override {
-        position_ = Vector2Add(position_, Vector2Scale(direction_, params_.speed * deltaSeconds));
-        traveled_ += params_.speed * deltaSeconds;
-        elapsed_ += deltaSeconds;
-
-        bool distanceExceeded = (params_.maxDistance > 0.0f) && (traveled_ >= params_.maxDistance);
-        bool lifespanExceeded = (common_.lifespanSeconds > 0.0f) && (elapsed_ >= common_.lifespanSeconds);
-        if (distanceExceeded || lifespanExceeded) {
-            expired_ = true;
-        }
+        if (terminalFrame_) { expired_ = true; return; }
+        previousPosition_ = position_;
+        float seconds = std::max(0.0f, deltaSeconds);
+        if (common_.lifespanSeconds > 0)
+            seconds = std::min(seconds, std::max(0.0f, common_.lifespanSeconds - elapsed_));
+        if (params_.maxDistance > 0 && params_.speed > 0)
+            seconds = std::min(seconds, std::max(0.0f, (params_.maxDistance - traveled_) / params_.speed));
+        position_ = Vector2Add(position_, Vector2Scale(direction_, params_.speed * seconds));
+        traveled_ += params_.speed * seconds;
+        elapsed_ += seconds;
+        // Retain the final swept segment until hit collection has run this frame.
+        terminalFrame_ = (params_.maxDistance > 0 && traveled_ >= params_.maxDistance - 0.001f) ||
+                         (common_.lifespanSeconds > 0 && elapsed_ >= common_.lifespanSeconds - 0.00001f);
     }
 
     void Draw() const override {
@@ -142,27 +144,23 @@ public:
         }
     }
 
-    void CollectHitEvents(const Vector2& targetCenter,
-                          float targetRadius,
-                          std::uintptr_t targetId,
-                          float targetImmunitySeconds,
+    bool ConsumesOnImpact() const override { return true; }
+    float ImpactFraction(const ProjectileTarget& target) const override {
+        return CombatGeometry::Sweep(previousPosition_, position_, params_.radius, target);
+    }
+    void CollectHitEvents(const ProjectileTarget& target,
                           std::mt19937& rng,
                           std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
-        (void)targetId;
+        (void)target.id;
         if (damageApplied_ || expired_ || common_.damage <= 0.0f) {
             return;
         }
 
-        if (targetImmunitySeconds > 0.0f) {
+        if (target.immunitySeconds > 0.0f) {
             return;
         }
 
-        float distance = Vector2Distance(position_, targetCenter);
-        float effectiveRadius = params_.radius + targetRadius;
-
-        if (distance > effectiveRadius) {
-            return;
-        }
+        if (!std::isfinite(ImpactFraction(target))) return;
 
         ProjectileSystem::DamageEvent event{};
         event.amount = common_.damage;
@@ -189,6 +187,7 @@ public:
 private:
     ProjectileCommonParams common_{};
     AmmunitionProjectileParams params_{};
+    Vector2 previousPosition_{};
     Vector2 position_{};
     Vector2 direction_{1.0f, 0.0f};
     float aimAngleDeg_{0.0f};
@@ -196,6 +195,7 @@ private:
     float elapsed_{0.0f};
     bool expired_{false};
     bool damageApplied_{false};
+    bool terminalFrame_{false};
 };
 
 // Representa feixes contínuos/lasers arremessados com duração e fade.
@@ -279,17 +279,14 @@ public:
         }
     }
 
-    void CollectHitEvents(const Vector2& targetCenter,
-                          float targetRadius,
-                          std::uintptr_t targetId,
-                          float targetImmunitySeconds,
+    void CollectHitEvents(const ProjectileTarget& target,
                           std::mt19937& rng,
                           std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
         if (expired_ || common_.damage <= 0.0f || !IsBeamVisible()) {
             return;
         }
 
-        if (targetImmunitySeconds > 0.0f) {
+        if (target.immunitySeconds > 0.0f) {
             return;
         }
 
@@ -297,15 +294,10 @@ public:
         Vector2 beamEnd{};
         ComputeBeamSegment(beamStart, beamEnd);
 
-        float distance = DistancePointToSegment(targetCenter, beamStart, beamEnd);
-        float effectiveRadius = params_.thickness * 0.5f + targetRadius;
-
-        if (distance > effectiveRadius) {
-            return;
-        }
+        if (!CombatGeometry::Segment(target, beamStart, beamEnd, params_.thickness * 0.5f)) return;
 
         const float hitCooldown = std::max(common_.perTargetHitCooldownSeconds, 0.0f);
-        if (!perTargetHits_.CanHit(targetId, elapsed_, hitCooldown)) {
+        if (!perTargetHits_.CanHit(target.id, elapsed_, hitCooldown)) {
             return;
         }
 
@@ -322,7 +314,7 @@ public:
             }
         }
 
-        perTargetHits_.RecordHit(targetId, elapsed_);
+        perTargetHits_.RecordHit(target.id, elapsed_);
         outEvents.push_back(event);
     }
 

@@ -1,4 +1,5 @@
 #include "room_manager.h"
+#include "prop_rules.h"
 
 #include <algorithm>
 #include <array>
@@ -335,6 +336,9 @@ void RoomManager::EnsureNeighborsGenerated(const RoomCoords& coords, int radius)
 
     std::unordered_set<RoomCoords, RoomCoordsHash> visited;
     EnsureNeighborsRecursive(coords, radius, visited);
+    for (auto& entry : rooms_) {
+        if (entry.second->DoorsInitialized()) PropRules::Initialize(*entry.second);
+    }
 }
 
 // Percorre grafo de salas recursivamente gerando portas e destinos.

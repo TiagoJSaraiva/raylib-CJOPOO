@@ -8,6 +8,7 @@
 #include "raymath.h"
 
 #include "room.h"
+#include "prop_rules.h"
 #include "weapon_blueprints.h"
 
 namespace {
@@ -113,6 +114,7 @@ void EnemySpawner::RegisterDefaults() {
 void EnemySpawner::SpawnEnemiesForRoom(Room& room,
                                        std::vector<std::unique_ptr<Enemy>>& storage,
                                        std::mt19937& rng) const {
+    PropRules::Initialize(room);
     if (!storage.empty()) {
         return;
     }
@@ -161,6 +163,14 @@ void EnemySpawner::SpawnEnemiesForRoom(Room& room,
         Vector2 spawnPosition{randX(rng), randY(rng)};
         const EnemyTemplate& selected = defs[index];
         auto enemy = std::make_unique<EnemyCommon>(selected.config, selected.range, selected.weapon, selected.sprite);
+        bool available = false;
+        for (int attempt = 0; attempt < 64; ++attempt) {
+            if (PropRules::IsFree(room, PropRules::EntityBounds(spawnPosition, enemy->GetHalfWidth(), enemy->GetHalfHeight()))) {
+                available = true; break;
+            }
+            spawnPosition = {randX(rng), randY(rng)};
+        }
+        if (!available) continue;
         enemy->Initialize(room, spawnPosition);
         storage.push_back(std::move(enemy));
     }

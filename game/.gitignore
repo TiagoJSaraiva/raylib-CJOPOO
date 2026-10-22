@@ -11,3 +11,8 @@
 /vendor/raylib/src/raygui.c
 /vendor/raylib/src/*-protocol.h
 /vendor/raylib/src/*-protocol-code.h
+
+/tests/prop_rules_tests
+/tests/prop_combat_tests
+/tests/prop_render_tests
+/tests/prop_gameplay_tests

@@ -12,6 +12,16 @@ O jogo usa módulos C++ organizados por domínio. `main.cpp` compõe os sistemas
 | Interface e recursos | `hud` desenha informações de jogo; `font_manager` administra a fonte; `chest` define os tipos de armazenamento; `debug_console` implementa comandos de depuração. |
 | Integração | `main.cpp` conecta os módulos e processa o ciclo do jogo; `station_persistence` sincroniza forjas e lojas entre UI e salas. |
 
+## Props e luz
+
+`prop` define o catálogo e o estado por instância; `prop_rules` isola geração,
+colisão, navegação e dano ambiental. `prop_renderer` desenha sprites e compõe
+iluminação; `combat_geometry` fornece interseções e trajetos para alvos
+circulares e retangulares. As salas guardam os props durante toda a partida.
+
+Consulte [Props e iluminação](props-and-lighting.md) para configuração,
+contratos, testes e verificação manual.
+
 ## Build, testes e execução
 
 - O jogo usa C++17 e Raylib 5.5, vendorizada em `game/vendor/raylib`.

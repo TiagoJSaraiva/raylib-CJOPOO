@@ -1,3 +1,6 @@
+#include <functional>
+#include "prop_rules.h"
+#include "prop_renderer.h"
 #include "raylib.h"
 #include "raymath.h"
 
@@ -1112,6 +1115,9 @@ int main() {
     std::uint64_t worldSeed = GenerateWorldSeed();
     RoomManager roomManager{worldSeed};
     RoomRenderer roomRenderer;
+    PropRenderer propRenderer;
+    SceneLighting sceneLighting;
+    float propAnimationTime = 0;
     roomRenderer.BeginFloorRun(worldSeed);
     ProjectileSystem projectileSystem;
     ProjectileSystem enemyProjectileSystem;
@@ -1162,6 +1168,7 @@ int main() {
 
     // Reseta completamente o estado da run, com opção de gerar nova seed procedural.
     auto BeginNewRun = [&](bool regenerateSeed) {
+        propAnimationTime = 0.0f;
         if (regenerateSeed) {
             worldSeed = GenerateWorldSeed();
         }
@@ -1233,6 +1240,7 @@ int main() {
 
     while (!WindowShouldClose()) {
         const float delta = GetFrameTime();
+        propAnimationTime += delta;
         UpdateEquipmentAbilityCooldowns(inventoryUI, delta);
 
         bool shiftHeld = IsKeyDown(KEY_LEFT_SHIFT) || IsKeyDown(KEY_RIGHT_SHIFT);
@@ -1312,6 +1320,8 @@ int main() {
         Room& activeRoom = roomManager.GetCurrentRoom();
         ensureRoomEnemies(activeRoom);
         // Primeira etapa de restrição: mantêm jogador dentro dos tiles e evita colidir com estações da sala atual.
+        Vector2 attemptedPlayerPosition = desiredPosition;
+        desiredPosition = PropRules::ResolveMovement(activeRoom, playerPosition, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         ClampPlayerToAccessibleArea(desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT,
                                     activeRoom.Layout(), activeRoom.GetBiome());
         if (const ForgeInstance* forge = activeRoom.GetForge()) {
@@ -1380,6 +1390,8 @@ int main() {
         if (const ShopInstance* shop = currentRoomPtr->GetShop()) {
             desiredPosition = ResolveCollisionWithShop(*shop, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
         }
+        desiredPosition = PropRules::ResolveMovement(*currentRoomPtr, playerPosition, desiredPosition, PLAYER_HALF_WIDTH, PLAYER_HALF_HEIGHT);
+        float environmentalDamage = PropRules::ContactDamage(*currentRoomPtr, PlayerBounds(attemptedPlayerPosition), PlayerBounds(desiredPosition), delta);
         movementDelta = Vector2Subtract(desiredPosition, playerPosition);
         playerPosition = desiredPosition;
         playerIsMoving = Vector2LengthSqr(movementDelta) > 1.0f;
@@ -1488,6 +1500,34 @@ int main() {
         const float outgoingDamageMultiplier = player.derivedStats.damageDealtMultiplierFromCurse;
         const float lifeStealPercent = player.derivedStats.vampirismChance;
 
+        std::vector<ProjectileTarget> playerTargets;
+        auto activeEnemies = roomEnemies.find(roomManager.GetCurrentCoords());
+        if (activeEnemies != roomEnemies.end()) {
+            for (const auto& enemy : activeEnemies->second)
+                if (enemy && enemy->IsAlive() && enemy->HasCompletedFade())
+                    playerTargets.push_back({reinterpret_cast<std::uintptr_t>(enemy.get()), enemy->GetPosition(), enemy->GetCollisionRadius(), std::nullopt, 0});
+        }
+        auto& combatRoom = roomManager.GetCurrentRoom();
+        auto appendPropTargets = [&](std::vector<ProjectileTarget>& targets) {
+            for (const auto& prop : combatRoom.Props())
+                if (!prop.destroyed && prop.definition->destructible)
+                    targets.push_back({prop.TargetId(), {}, 0, prop.Hitbox(), 0});
+        };
+        auto damageProps = [&](const std::vector<ProjectileSystem::TargetDamageEvent>& events, float multiplier) {
+            for (auto& prop : combatRoom.Props()) for (const auto& event : events) {
+                if (event.targetId != prop.TargetId() || prop.destroyed) continue;
+                float before = prop.health;
+                prop.TakeDamage(event.damage.amount * multiplier);
+                if (before > prop.health)
+                    PushDamageNumber(damageNumbers, {prop.Hitbox().x + prop.Hitbox().width * 0.5f, prop.Depth()}, before - prop.health, event.damage.isCritical);
+            }
+        };
+        appendPropTargets(playerTargets);
+        auto outgoingEvents = projectileSystem.CollectDamageEventsForTargets(playerTargets);
+        damageProps(outgoingEvents, outgoingDamageMultiplier);
+        std::unordered_map<std::uintptr_t, std::vector<ProjectileSystem::DamageEvent>> enemyHits;
+        for (const auto& event : outgoingEvents) enemyHits[event.targetId].push_back(event.damage);
+
         // Aplica dano dos projéteis do jogador em todos os inimigos vivos.
         for (auto& enemyEntry : roomEnemies) {
             Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
@@ -1502,11 +1542,7 @@ int main() {
                     if (!enemyPtr || !enemyPtr->IsAlive() || !enemyPtr->HasCompletedFade()) {
                         continue;
                     }
-                    auto hits = projectileSystem.CollectDamageEvents(
-                        enemyPtr->GetPosition(),
-                        enemyPtr->GetCollisionRadius(),
-                        reinterpret_cast<std::uintptr_t>(enemyPtr.get()),
-                        0.0f);
+                    const auto& hits = enemyHits[reinterpret_cast<std::uintptr_t>(enemyPtr.get())];
                     if (hits.empty()) {
                         continue;
                     }
@@ -1568,11 +1604,13 @@ int main() {
         // Atualiza disparos inimigos e coleta dano recebido pelo jogador.
         enemyProjectileSystem.Update(delta);
 
-        auto playerHits = enemyProjectileSystem.CollectDamageEvents(
-            playerPosition,
-            PLAYER_COLLISION_RADIUS,
-            reinterpret_cast<std::uintptr_t>(&player),
-            0.0f);
+        std::vector<ProjectileTarget> incomingTargets{{reinterpret_cast<std::uintptr_t>(&player), playerPosition, PLAYER_COLLISION_RADIUS, std::nullopt, 0}};
+        appendPropTargets(incomingTargets);
+        auto incomingEvents = enemyProjectileSystem.CollectDamageEventsForTargets(incomingTargets);
+        damageProps(incomingEvents, 1.0f);
+        std::vector<ProjectileSystem::DamageEvent> playerHits;
+        for (const auto& event : incomingEvents)
+            if (event.targetId == reinterpret_cast<std::uintptr_t>(&player)) playerHits.push_back(event.damage);
 
         const float dodgeChance = player.derivedStats.dodgeChance;
         const float flatReduction = std::max(0.0f, player.derivedStats.flatDamageReduction);
@@ -1600,6 +1638,9 @@ int main() {
             player.currentHealth = std::max(0.0f, player.currentHealth - incomingDamage);
             PushDamageNumber(damageNumbers, playerPosition, incomingDamage, hit.isCritical);
         }
+
+        if (!playerDead && environmentalDamage > 0)
+            player.currentHealth = std::max(0.0f, player.currentHealth - environmentalDamage);
 
         // Quando a vida chega a zero, fecha UIs ativos e reseta estados persistidos.
         if (!playerDead && player.currentHealth <= 0.0f) {
@@ -2075,37 +2116,6 @@ int main() {
             }
         }
 
-        // Helper que desenha inimigos em duas passagens (antes e depois do jogador) para manter parallax.
-        auto drawEnemies = [&](bool drawAfterPlayer) {
-            for (const auto& enemyEntry : roomEnemies) {
-                const Room* enemyRoom = roomManager.TryGetRoom(enemyEntry.first);
-                if (enemyRoom == nullptr) {
-                    continue;
-                }
-                float roomVisibility = resolveRoomVisibility(*enemyRoom);
-                if (roomVisibility <= 0.0f) {
-                    continue;
-                }
-                bool isActiveRoom = (enemyRoom->GetCoords() == roomManager.GetCurrentCoords());
-                for (const auto& enemyPtr : enemyEntry.second) {
-                    if (!enemyPtr || !enemyPtr->IsAlive()) {
-                        continue;
-                    }
-                    bool enemyAfterPlayer = false;
-                    if (isActiveRoom) {
-                        enemyAfterPlayer = (enemyPtr->GetPosition().y >= playerPosition.y);
-                    }
-                    if (enemyAfterPlayer != drawAfterPlayer) {
-                        continue;
-                    }
-                    EnemyDrawContext drawContext{};
-                    drawContext.roomVisibility = roomVisibility;
-                    drawContext.isActiveRoom = isActiveRoom;
-                    enemyPtr->Draw(drawContext);
-                }
-            }
-        };
-
         // Helper que desenha portas respeitando camada (abaixo/acima do jogador e mask).
         auto drawDoors = [&](bool drawAfterPlayer, bool aboveMask) {
             for (const DoorRenderData& doorData : doorRenderData) {
@@ -2117,21 +2127,42 @@ int main() {
         };
 
         drawDoors(false, false);
-        drawEnemies(false);
-
-        if (!DrawCharacterSprite(playerSprites, snappedPlayerPosition, playerIsMoving)) {
-            // Fallback simples caso sprites não estejam disponíveis.
-            Rectangle renderRect{
-                snappedPlayerPosition.x - PLAYER_RENDER_HALF_WIDTH,
-                snappedPlayerPosition.y - PLAYER_RENDER_HALF_HEIGHT,
-                PLAYER_RENDER_HALF_WIDTH * 2.0f,
-                PLAYER_RENDER_HALF_HEIGHT * 2.0f
-            };
-            DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
-            DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
+        std::vector<SceneActor> actors;
+        for (const auto& view : floorRooms) {
+            if (view.visibility <= 0) continue;
+            for (const auto& prop : view.room->Props()) {
+                if (prop.destroyed) continue;
+                const PropInstance* instance = &prop;
+                float visibility = view.visibility;
+                actors.push_back({prop.Depth(), [&, instance, visibility] { propRenderer.Draw(*instance, visibility, propAnimationTime); }});
+            }
         }
+        for (const auto& entry : roomEnemies) {
+            const Room* room = roomManager.TryGetRoom(entry.first);
+            if (!room) continue;
+            EnemyDrawContext context{resolveRoomVisibility(*room), entry.first == roomManager.GetCurrentCoords()};
+            if (context.roomVisibility <= 0) continue;
+            for (const auto& enemy : entry.second) {
+                if (!enemy || !enemy->IsAlive()) continue;
+                const Enemy* instance = enemy.get();
+                actors.push_back({instance->GetPosition().y + instance->GetHalfHeight(), [instance, context] { instance->Draw(context); }});
+            }
+        }
+        actors.push_back({playerPosition.y + PLAYER_HALF_HEIGHT, [&] {
+            if (!DrawCharacterSprite(playerSprites, snappedPlayerPosition, playerIsMoving)) {
+                // Fallback simples caso sprites não estejam disponíveis.
+                Rectangle renderRect{
+                    snappedPlayerPosition.x - PLAYER_RENDER_HALF_WIDTH,
+                    snappedPlayerPosition.y - PLAYER_RENDER_HALF_HEIGHT,
+                    PLAYER_RENDER_HALF_WIDTH * 2.0f,
+                    PLAYER_RENDER_HALF_HEIGHT * 2.0f
+                };
+                DrawRectangleRec(renderRect, Color{120, 180, 220, 255});
+                DrawRectangleLinesEx(renderRect, 2.0f, Color{30, 60, 90, 255});
+            }
 
-        drawEnemies(true);
+        }});
+        DrawDepthSorted(actors);
         drawDoors(true, false);
 
         if (drawForgeAfterPlayer && activeForge != nullptr) {
@@ -2179,6 +2210,11 @@ int main() {
 
         drawDoors(false, true);
         drawDoors(true, true);
+
+        EndMode2D();
+        sceneLighting.Apply(floorRooms, renderCamera, propRenderer, propAnimationTime);
+        BeginMode2D(renderCamera);
+
 
         // Sequência de prompts contextuais para estações e portas próximas.
         if (activeForge != nullptr && forgeNearby) {
@@ -2296,6 +2332,8 @@ int main() {
     UnloadCharacterSprites(playerSprites);
     UnloadGameFont();
     roomRenderer.UnloadTextures();
+    propRenderer.Unload();
+    sceneLighting.Unload();
     CloseWindow();
     return 0;
 }

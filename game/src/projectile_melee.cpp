@@ -114,17 +114,14 @@ public:
     // Trata colisões com base na distância ao segmento do golpe em tempo real.
     // Verifica colisão de círculo para aplicar dano único.
     // Considera o feixe como segmento para aplicar dano repetido respeitando cooldown.
-    void CollectHitEvents(const Vector2& targetCenter,
-                          float targetRadius,
-                          std::uintptr_t targetId,
-                          float targetImmunitySeconds,
+    void CollectHitEvents(const ProjectileTarget& target,
                           std::mt19937& rng,
                           std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
         if (expired_ || common_.damage <= 0.0f) {
             return;
         }
 
-        if (targetImmunitySeconds > 0.0f) {
+        if (target.immunitySeconds > 0.0f) {
             return;
         }
 
@@ -133,7 +130,6 @@ public:
         const float centerAngle = startCenterDegrees_ + (endCenterDegrees_ - startCenterDegrees_) * t;
         const float angleRad = centerAngle * DEG2RAD;
         Vector2 forward{std::cos(angleRad), std::sin(angleRad)};
-        Vector2 right{-forward.y, forward.x};
 
         float rectLength = (params_.length > 0.0f) ? params_.length : std::max(params_.thickness, 20.0f);
         float rectThickness = (params_.thickness > 0.0f) ? params_.thickness : rectLength * 0.35f;
@@ -142,18 +138,10 @@ public:
     float hitboxOffset = params_.radius;
     Vector2 rectCenter = Vector2Add(origin_, Vector2Scale(forward, hitboxOffset));
 
-        Vector2 toTarget = Vector2Subtract(targetCenter, rectCenter);
-        float localForward = Vector2DotProduct(toTarget, forward);
-        float localRight = Vector2DotProduct(toTarget, right);
-        float expandedHalfLength = halfLength + targetRadius;
-        float expandedHalfThickness = halfThickness + targetRadius;
-
-        if (std::abs(localForward) > expandedHalfLength || std::abs(localRight) > expandedHalfThickness) {
-            return;
-        }
+        if (!CombatGeometry::Box(target, rectCenter, forward, halfLength, halfThickness)) return;
 
         const float hitCooldown = std::max(common_.perTargetHitCooldownSeconds, 0.0f);
-        if (!perTargetHits_.CanHit(targetId, elapsed_, hitCooldown)) {
+        if (!perTargetHits_.CanHit(target.id, elapsed_, hitCooldown)) {
             return;
         }
 
@@ -170,7 +158,7 @@ public:
             }
         }
 
-        perTargetHits_.RecordHit(targetId, elapsed_);
+        perTargetHits_.RecordHit(target.id, elapsed_);
         outEvents.push_back(event);
     }
 
@@ -278,17 +266,14 @@ public:
         }
     }
 
-    void CollectHitEvents(const Vector2& targetCenter,
-                          float targetRadius,
-                          std::uintptr_t targetId,
-                          float targetImmunitySeconds,
+    void CollectHitEvents(const ProjectileTarget& target,
                           std::mt19937& rng,
                           std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
         if (expired_ || common_.damage <= 0.0f || params_.length <= 0.0f) {
             return;
         }
 
-        if (targetImmunitySeconds > 0.0f) {
+        if (target.immunitySeconds > 0.0f) {
             return;
         }
 
@@ -299,15 +284,10 @@ public:
         Vector2 direction{std::cos(angleRad), std::sin(angleRad)};
         Vector2 endPoint = Vector2Add(origin_, Vector2Scale(direction, params_.length));
 
-        float distance = DistancePointToSegment(targetCenter, origin_, endPoint);
-        float effectiveRadius = params_.thickness * 0.5f + targetRadius;
-
-        if (distance > effectiveRadius) {
-            return;
-        }
+        if (!CombatGeometry::Segment(target, origin_, endPoint, params_.thickness * 0.5f)) return;
 
         const float hitCooldown = std::max(common_.perTargetHitCooldownSeconds, 0.0f);
-        if (!perTargetHits_.CanHit(targetId, elapsed_, hitCooldown)) {
+        if (!perTargetHits_.CanHit(target.id, elapsed_, hitCooldown)) {
             return;
         }
 
@@ -324,7 +304,7 @@ public:
             }
         }
 
-        perTargetHits_.RecordHit(targetId, elapsed_);
+        perTargetHits_.RecordHit(target.id, elapsed_);
         outEvents.push_back(event);
     }
 
@@ -470,17 +450,14 @@ public:
         }
     }
 
-    void CollectHitEvents(const Vector2& targetCenter,
-                          float targetRadius,
-                          std::uintptr_t targetId,
-                          float targetImmunitySeconds,
+    void CollectHitEvents(const ProjectileTarget& target,
                           std::mt19937& rng,
                           std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
         if (common_.damage <= 0.0f || (expired_ && currentReach_ <= 1e-4f) || params_.length <= 1e-4f) {
             return;
         }
 
-        if (targetImmunitySeconds > 0.0f) {
+        if (target.immunitySeconds > 0.0f) {
             return;
         }
 
@@ -489,15 +466,10 @@ public:
         Vector2 start = Vector2Add(anchor, Vector2Scale(forward, currentReach_));
         Vector2 end = Vector2Add(start, Vector2Scale(forward, params_.length));
 
-        float distance = DistancePointToSegment(targetCenter, start, end);
-        float effectiveRadius = ((params_.thickness > 0.0f) ? params_.thickness * 0.5f : params_.length * 0.1f) + targetRadius;
-
-        if (distance > effectiveRadius) {
-            return;
-        }
+        if (!CombatGeometry::Segment(target, start, end, ((params_.thickness > 0.0f) ? params_.thickness * 0.5f : params_.length * 0.1f))) return;
 
         const float hitCooldown = std::max(common_.perTargetHitCooldownSeconds, 0.0f);
-        if (!perTargetHits_.CanHit(targetId, elapsed_, hitCooldown)) {
+        if (!perTargetHits_.CanHit(target.id, elapsed_, hitCooldown)) {
             return;
         }
 
@@ -514,7 +486,7 @@ public:
             }
         }
 
-        perTargetHits_.RecordHit(targetId, elapsed_);
+        perTargetHits_.RecordHit(target.id, elapsed_);
         outEvents.push_back(event);
     }
 
@@ -608,17 +580,14 @@ public:
         }
     }
 
-    void CollectHitEvents(const Vector2& targetCenter,
-                          float targetRadius,
-                          std::uintptr_t targetId,
-                          float targetImmunitySeconds,
+    void CollectHitEvents(const ProjectileTarget& target,
                           std::mt19937& rng,
                           std::vector<ProjectileSystem::DamageEvent>& outEvents) override {
         if (expired_ || common_.damage <= 0.0f || params_.length <= 1e-3f) {
             return;
         }
 
-        if (targetImmunitySeconds > 0.0f) {
+        if (target.immunitySeconds > 0.0f) {
             return;
         }
 
@@ -627,15 +596,10 @@ public:
         Vector2 start = origin_;
         Vector2 end = Vector2Add(start, Vector2Scale(direction, params_.length));
 
-        float distance = DistancePointToSegment(targetCenter, start, end);
-        float effectiveRadius = params_.thickness * 0.5f + targetRadius;
-
-        if (distance > effectiveRadius) {
-            return;
-        }
+        if (!CombatGeometry::Segment(target, start, end, params_.thickness * 0.5f)) return;
 
         const float hitCooldown = std::max(common_.perTargetHitCooldownSeconds, 0.0f);
-        if (!perTargetHits_.CanHit(targetId, elapsed_, hitCooldown)) {
+        if (!perTargetHits_.CanHit(target.id, elapsed_, hitCooldown)) {
             return;
         }
 
@@ -652,7 +616,7 @@ public:
             }
         }
 
-        perTargetHits_.RecordHit(targetId, elapsed_);
+        perTargetHits_.RecordHit(target.id, elapsed_);
         outEvents.push_back(event);
     }
 

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "room.h"
+#include "prop_rules.h"
 
 namespace {
 
@@ -348,7 +349,8 @@ void Enemy::HealToFull() {
 }
 
 Vector2 Enemy::ResolveRoomCollision(const RoomLayout& layout, const Vector2& desiredPosition) const {
-    return ClampEntityToAccessibleArea(layout, desiredPosition, collisionHalfWidth_, collisionHalfHeight_);
+    Vector2 clamped = ClampEntityToAccessibleArea(layout, desiredPosition, collisionHalfWidth_, collisionHalfHeight_);
+    return room_ ? PropRules::ResolveMovement(*room_, position_, clamped, collisionHalfWidth_, collisionHalfHeight_) : clamped;
 }
 
 bool Enemy::IsInsideRoomBounds(const RoomLayout& layout, const Vector2& position) const {
@@ -411,7 +413,8 @@ void Enemy::MoveTowardsOriginal(float deltaSeconds, const RoomLayout& layout) {
 
 // Movimento auxiliar com velocidade limitada.
 Vector2 Enemy::MoveTowards(const Vector2& target, float deltaSeconds, float speed) const {
-    Vector2 delta = Vector2Subtract(target, position_);
+    Vector2 waypoint = room_ ? PropRules::NavigationTarget(*room_, position_, target, collisionHalfWidth_, collisionHalfHeight_) : target;
+    Vector2 delta = Vector2Subtract(waypoint, position_);
     float distance = Vector2Length(delta);
     if (distance <= 1e-4f) {
         return position_;
@@ -419,7 +422,7 @@ Vector2 Enemy::MoveTowards(const Vector2& target, float deltaSeconds, float spee
     Vector2 direction = Vector2Scale(delta, 1.0f / distance);
     float maxDistance = speed * deltaSeconds;
     if (maxDistance > distance) {
-        return target;
+        return waypoint;
     }
     return Vector2Add(position_, Vector2Scale(direction, maxDistance));
 }

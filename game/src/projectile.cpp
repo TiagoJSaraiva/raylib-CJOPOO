@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <random>
+#include <limits>
 #include <unordered_map>
 
 using namespace projectile_detail;
@@ -479,8 +480,37 @@ std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents
     events.reserve(projectiles_.size());
 
     for (auto& projectile : projectiles_) {
-        projectile->CollectHitEvents(targetCenter, targetRadius, targetId, targetImmunitySeconds, rng_, events);
+        projectile->CollectHitEvents(ProjectileTarget{targetId, targetCenter, targetRadius, std::nullopt, targetImmunitySeconds}, rng_, events);
     }
 
     return events;
+}
+
+std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents(Rectangle bounds, std::uintptr_t id) {
+    std::vector<DamageEvent> events;
+    for (auto& projectile : projectiles_)
+        projectile->CollectHitEvents(ProjectileTarget{id, {}, 0, bounds, 0}, rng_, events);
+    return events;
+}
+
+std::vector<ProjectileSystem::TargetDamageEvent> ProjectileSystem::CollectDamageEventsForTargets(const std::vector<ProjectileTarget>& targets) {
+    std::vector<TargetDamageEvent> result;
+    for (auto& projectile : projectiles_) {
+        const ProjectileTarget* first = nullptr;
+        float fraction = std::numeric_limits<float>::infinity();
+        if (projectile->ConsumesOnImpact()) {
+            for (const auto& target : targets) {
+                if (target.immunitySeconds > 0) continue;
+                float t = projectile->ImpactFraction(target);
+                if (t < fraction || (t == fraction && first && target.id < first->id)) { fraction = t; first = &target; }
+            }
+        }
+        for (const auto& target : targets) {
+            if (projectile->ConsumesOnImpact() && &target != first) continue;
+            std::vector<DamageEvent> events;
+            projectile->CollectHitEvents(target, rng_, events);
+            for (const auto& event : events) result.push_back({target.id, event});
+        }
+    }
+    return result;
 }
