@@ -1,6 +1,7 @@
 #include <functional>
 #include "prop_rules.h"
 #include "prop_renderer.h"
+#include "wall_prop_renderer.h"
 #include "reward_pouch_operations.h"
 #include "reward_pouch_renderer.h"
 #include "raylib.h"
@@ -2086,6 +2087,13 @@ int main() {
         roomRenderer.DrawFloors(floorRooms);
         // Une salas e corredores antes de desenhar as paredes de fundo.
         roomRenderer.DrawWallBackground(floorRooms);
+        std::vector<WallRules::RoomView> wallRooms;
+        wallRooms.reserve(floorRooms.size());
+        for (const auto& view : floorRooms) wallRooms.push_back({view.room, view.visibility});
+        const auto wallPropViews = WallPropRules::VisibleInstances(roomManager.WallProps(), wallRooms);
+        for (const auto& view : wallPropViews)
+            if (view.prop->key.section == WallRules::Section::Upper)
+                WallPropRendering::Draw(view, propRenderer, propAnimationTime);
 
         if (dummyActive) {
             DrawCircleV(trainingDummy.position, trainingDummy.radius, Color{96, 128, 196, 80});
@@ -2144,6 +2152,11 @@ int main() {
 
         drawDoors(false, false);
         std::vector<SceneActor> actors;
+        for (const auto& view : wallPropViews)
+            if (view.prop->key.section == WallRules::Section::Bottom)
+                actors.push_back({view.prop->Depth(), [&, view] {
+                    WallPropRendering::Draw(view, propRenderer, propAnimationTime);
+                }});
         for (const auto& view : floorRooms) {
             if (view.visibility <= 0) continue;
             for (const auto& pouch : view.room->RewardPouches()) {
@@ -2233,7 +2246,8 @@ int main() {
         drawDoors(true, true);
 
         EndMode2D();
-        sceneLighting.Apply(floorRooms, renderCamera, propRenderer, propAnimationTime);
+        const auto wallLights = WallPropRendering::Lights(wallPropViews, propRenderer, propAnimationTime);
+        sceneLighting.Apply(floorRooms, renderCamera, propRenderer, propAnimationTime, nullptr, wallLights);
         BeginMode2D(renderCamera);
 
 

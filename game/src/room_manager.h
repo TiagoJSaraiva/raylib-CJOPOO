@@ -7,6 +7,7 @@
 #include <unordered_set>
 
 #include "room.h"
+#include "wall_prop.h"
 
 // Responsável por gerar, armazenar e navegar entre salas do mapa.
 class RoomManager {
@@ -28,6 +29,7 @@ public:
     RoomCoords GetCurrentCoords() const { return currentRoomCoords_; }
 
     const auto& Rooms() const { return rooms_; }
+    const std::vector<WallPropInstance>& WallProps() const { return wallProps_; }
 
 private:
     Room& CreateInitialRoom();
@@ -55,6 +57,7 @@ private:
     std::optional<BiomeType> initialBiomeOverride_{};
     RoomCoords currentRoomCoords_{};
     std::unordered_map<RoomCoords, std::unique_ptr<Room>, RoomCoordsHash> rooms_{};
+    std::vector<WallPropInstance> wallProps_;
     int roomsDiscovered_{0};
     bool bossSpawned_{false};
     int roomsSinceBoss_{0};

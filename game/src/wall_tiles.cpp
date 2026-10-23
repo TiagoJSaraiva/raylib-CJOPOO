@@ -15,7 +15,6 @@ namespace {
 constexpr const char* kBiomeDirectories[] = {"lobby", "cave", "mansion", "dungeon"};
 constexpr const char* kSectionDirectories[] = {"side", "upper", "bottom", "edge"};
 constexpr std::size_t kCatalogsPerBiome = 4;
-constexpr float kSideWallWidth = static_cast<float>(TILE_SIZE) / 4.0f;
 constexpr float kOccludedBottomWallVisibility = 0.6f;
 constexpr float kBottomWallTweenDuration = 0.2f;
 
@@ -101,20 +100,7 @@ void DrawSouthWallColumn(int tileX, int floorTileY, Color baseColor,
 }
 
 Rectangle SideWallRect(const WallRules::Segment& segment, int heightTiles) {
-    const float tileSize = static_cast<float>(TILE_SIZE);
-    const float y = static_cast<float>(segment.position.y) * tileSize;
-    const float height = static_cast<float>(heightTiles * TILE_SIZE);
-    const float tileX = static_cast<float>(segment.position.x) * tileSize;
-    if (segment.sidePlacement == WallRules::SidePlacement::InsetLeft) {
-        return Rectangle{tileX, y, kSideWallWidth, height};
-    }
-    if (segment.sidePlacement == WallRules::SidePlacement::InsetRight) {
-        return Rectangle{tileX + tileSize - kSideWallWidth, y, kSideWallWidth, height};
-    }
-    const float edgeX = static_cast<float>(segment.edgeTile.x) * tileSize;
-    const bool isLeftSide = segment.position.x < segment.edgeTile.x;
-    const float x = isLeftSide ? edgeX - kSideWallWidth : edgeX + tileSize;
-    return Rectangle{x, y, kSideWallWidth, height};
+    return WallRules::ModuleBounds({segment, 1, heightTiles});
 }
 
 void DrawSideWallTile(const WallRules::Segment& segment, Color baseColor, int heightTiles) {
@@ -241,7 +227,6 @@ void WallTiles::UpdateBottomWallTweens(const WallRules::Frame& frame,
     std::unordered_set<WallRules::BottomWallRowId, WallRules::BottomWallRowIdHash> occludedRows;
     bottomWallRowsBySegment_.clear();
     const float safeDelta = std::clamp(deltaSeconds, 0.0f, 1.0f);
-    const float tileSize = static_cast<float>(TILE_SIZE);
 
     for (const auto& module : WallRules::BuildModules(frame)) {
         const auto& segment = module.segment;
@@ -253,12 +238,7 @@ void WallTiles::UpdateBottomWallTweens(const WallRules::Frame& frame,
         bottomWallRowsBySegment_.emplace(moduleKey, segment.bottomWallRow);
         activeRows.insert(segment.bottomWallRow);
 
-        const Rectangle wallBounds{
-            static_cast<float>(segment.position.x) * tileSize,
-            static_cast<float>(segment.position.y - 1) * tileSize,
-            static_cast<float>(module.widthTiles) * tileSize,
-            static_cast<float>(module.heightTiles) * tileSize
-        };
+        const Rectangle wallBounds = WallRules::ModuleBounds(module);
         const bool overlapsPlayer = playerBounds.x < wallBounds.x + wallBounds.width &&
             playerBounds.x + playerBounds.width > wallBounds.x &&
             playerBounds.y < wallBounds.y + wallBounds.height &&
@@ -361,21 +341,7 @@ void WallTiles::Draw(const WallRules::Frame& frame, bool foreground,
         const Texture2D texture = catalog.textures[choice.sprite];
         const Rectangle source{0.0f, 0.0f, static_cast<float>(texture.width),
                                static_cast<float>(texture.height)};
-        const float tileSize = static_cast<float>(TILE_SIZE);
-        const float width = static_cast<float>(module.widthTiles) * tileSize;
-        const float height = static_cast<float>(module.heightTiles) * tileSize;
-        const float x = static_cast<float>(segment.position.x) * tileSize;
-        int topTileY = segment.position.y;
-        if (segment.section == WallRules::Section::Upper) {
-            topTileY += 1 - module.heightTiles;
-        } else if (segment.section == WallRules::Section::Bottom) {
-            --topTileY;
-        }
-        const float y = static_cast<float>(topTileY) * tileSize;
-        Rectangle destination{x, y, width, height};
-        if (segment.section == WallRules::Section::Side) {
-            destination = SideWallRect(segment, module.heightTiles);
-        }
+        const Rectangle destination = WallRules::ModuleBounds(module);
         DrawTexturePro(texture, source, destination, Vector2{0.0f, 0.0f}, 0.0f,
                        ColorAlpha(WHITE, segment.visibility));
     }

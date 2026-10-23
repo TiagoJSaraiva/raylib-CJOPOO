@@ -76,6 +76,25 @@ void CheckForcedBiome(std::uint64_t seed, BiomeType forcedBiome) {
     }
 }
 
+void CheckWallPropRegistry() {
+    RoomManager manager(1234, BiomeType::Dungeon);
+    assert(!manager.WallProps().empty());
+    const auto before = manager.WallProps();
+    manager.EnsureNeighborsGenerated(manager.GetCurrentCoords());
+    const auto& after = manager.WallProps();
+    assert(before.size() == after.size());
+    for (std::size_t i = 0; i < before.size(); ++i) {
+        assert(before[i].key == after[i].key);
+        assert(before[i].animationPhase == after[i].animationPhase);
+    }
+    RoomManager replay(1234, BiomeType::Dungeon);
+    assert(before.size() == replay.WallProps().size());
+    for (std::size_t i = 0; i < before.size(); ++i)
+        assert(before[i].key == replay.WallProps()[i].key);
+    manager = RoomManager(5678, BiomeType::Cave);
+    assert(manager.WallProps().empty());
+}
+
 void CheckBiomeConfigParsing() {
     assert(BiomeConfig::ParseBiomeOverride("cave") == BiomeType::Cave);
     assert(BiomeConfig::ParseBiomeOverride("  MANSION \n") == BiomeType::Mansion);
@@ -91,6 +110,7 @@ void CheckBiomeConfigParsing() {
 
 int main() {
     CheckBiomeConfigParsing();
+    CheckWallPropRegistry();
     for (std::uint64_t seed = 1; seed <= 16; ++seed) CheckGeneratedWorld(seed);
     CheckForcedBiome(1234, BiomeType::Dungeon);
     CheckForcedBiome(5678, BiomeType::Cave);

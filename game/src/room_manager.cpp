@@ -340,6 +340,10 @@ void RoomManager::EnsureNeighborsGenerated(const RoomCoords& coords, int radius)
     for (auto& entry : rooms_) {
         if (entry.second->DoorsInitialized()) PropRules::Initialize(*entry.second);
     }
+    std::vector<WallRules::RoomView> wallRooms;
+    wallRooms.reserve(rooms_.size());
+    for (const auto& entry : rooms_) wallRooms.push_back({entry.second.get(), 1.0f});
+    wallProps_ = WallPropRules::Generate(wallRooms, worldSeed_);
 }
 
 // Percorre grafo de salas recursivamente gerando portas e destinos.

@@ -62,6 +62,20 @@ struct RoomView {
     float visibility;
 };
 
+enum class HostKind : std::uint8_t { None, Room, Corridor };
+
+// A corridor is identified by its world-space footprint, independent of its two doors.
+struct HostId {
+    HostKind kind{HostKind::None};
+    TileRect bounds{};
+    RoomCoords room{};
+    bool operator==(const HostId& other) const noexcept {
+        return kind == other.kind && room == other.room && bounds.x == other.bounds.x &&
+               bounds.y == other.bounds.y && bounds.width == other.bounds.width &&
+               bounds.height == other.bounds.height;
+    }
+};
+
 struct Segment {
     Position position;       // Wall anchor tile; bottom sprites draw one tile above it.
     Position edgeTile;       // Walkable tile that produced this edge.
@@ -71,6 +85,7 @@ struct Segment {
     SidePlacement sidePlacement{SidePlacement::Edge};
     WallType wallType{WallType::Standard};
     BottomWallRowId bottomWallRow{};
+    HostId host{};
 };
 
 struct Module {
@@ -106,6 +121,7 @@ Frame BuildFrame(const std::vector<RoomView>& rooms);
 // Groups compatible horizontal edges into 2x2 walls and regular side runs into 1x2 strips.
 // All side modules, including inset caps, span two tiles vertically.
 std::vector<Module> BuildModules(const Frame& frame);
+Rectangle ModuleBounds(const Module& module);
 
 constexpr std::size_t NoSprite = std::numeric_limits<std::size_t>::max();
 

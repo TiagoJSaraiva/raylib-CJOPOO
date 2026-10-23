@@ -1,6 +1,6 @@
 # Props e iluminação
 
-Props são gerados uma vez, depois das portas e antes dos inimigos. Somente
+Props de chão são gerados uma vez, depois das portas e antes dos inimigos. Somente
 salas `Normal` recebem props; o catálogo inicial inclui apenas `Dungeon`.
 O estado pertence à sala: vida e destruição persistem ao sair e retornar,
 mas são recriados numa nova partida. Não há persistência em disco.
@@ -79,6 +79,81 @@ Não há sombras projetadas, emissão do jogador nem efeito sobre HUD,
 inventário, console e prompts. Texturas e mapa de luz são descarregados
 antes do fechamento da janela.
 
+## Props de parede
+
+O catálogo de parede fica em `game/src/wall_prop.cpp`, separado das props
+de chão e de suas identidades de combate. `WallPropDefinition` configura
+identificador, caminho do PNG, largura em tiles, seções, biomas, peso e,
+opcionalmente, `PropAnimation` e `PropLight`. O catálogo precisa viver por
+toda a partida. Acrescentar uma decoração estática ou sem luz exige apenas
+uma nova definição; seções `Side` ainda não são suportadas pela geração.
+
+`WallPropInstance` referencia um módulo real de `WallRules`. O frame inteiro,
+incluindo margens transparentes, é escalado para a largura declarada; sua
+base coincide com a base do retângulo visual da parede. `ModuleBounds`
+centraliza esse retângulo para paredes, oclusão e props. A renderização
+compartilha seleção de frames, escala, cache de texturas e fallback magenta
+com as props de chão; os caminhos completos identificam as texturas no cache.
+
+| Identificador | Encaixe | Animação | Luz |
+|---|---|---|---|
+| `torch` | 2 tiles / 128 px | 8 frames horizontais de 995×957 px; 0,10 s/frame | Raio 320 px; intensidade 0,65; RGB `(255, 210, 140)` |
+
+O PNG fica em `assets/img/wallprop/torch.png` e é preservado sem recorte.
+A origem da luz é `(0,50; 0,36)` dentro do frame. A fase da animação deriva
+da identidade da instância. Tochas não recebem ataques, não bloqueiam
+movimento e não causam dano nem oferecem interação.
+
+### Geração e ciclo de vida
+
+- Salas normais de Dungeon usam chance de 35% por módulo elegível e reserva
+  de 2 tiles livres entre footprints na mesma superfície contínua.
+- Salas especiais de Dungeon recebem uma tocha garantida no módulo
+  imediatamente à esquerda e à direita de cada porta north/south não selada.
+  Um lado sem espaço é omitido, módulos compartilhados não duplicam props,
+  e o espaçamento aleatório não impede as colocações garantidas.
+- Corredores usam o bioma resolvido por `FloorRules::CorridorBiome` e recebem
+  tochas somente quando ele for Dungeon. Trechos upper/bottom são elegíveis;
+  corredores verticais com apenas paredes side ficam sem tochas.
+- Vãos, módulos residuais de 1 tile e módulos que cruzam anfitriões são
+  excluídos. Lobby não recebe essas props.
+
+`WallPropRules::GenerationSettings` centraliza chance e espaçamento. O RNG
+é independente do mapa, combate e props de chão. A geração usa todas as
+salas conhecidas com visibilidade plena e ordenação estável, sem depender
+da revelação ou ordem de entrada no mapa de salas.
+
+O registro pertence a `RoomManager` e é reconstruído deterministicamente
+após a geração/alinhamento de portas. A identidade combina anfitrião, seção
+e posição: salas usam suas coordenadas e bounds; corredores usam seu
+footprint global, compartilhado pelas duas portas. Assim não há desenhos
+ou fontes de luz duplicados. A mesma geometria e seed reproduzem posição
+e fase ao retornar; uma nova partida substitui o registro. Não há gravação
+em disco. Views de renderização só são válidas até a próxima atualização
+do registro.
+
+### Camadas, revelação e luz
+
+Upper props são desenhadas depois das paredes de fundo e antes dos atores.
+Bottom props participam da ordenação dos atores pela base do módulo e são
+cobertas pelo passe de paredes frontais. A bottom continua transitando de
+100% para 60% de opacidade em 0,2 s quando encobre o jogador. A tocha mantém
+sua própria opacidade: é vista através da parede translúcida, sem um segundo
+fade. O estado de oclusão não participa da emissão de luz.
+
+A revelação da sala afeta tanto o desenho quanto a intensidade da fonte.
+Em corredores, a exposição combina revelação e progresso de abertura da
+porta compartilhada; portas fechadas não expõem tochas nem emitem essa luz.
+Máscaras escuras de portas continuam sendo aplicadas normalmente.
+
+`SceneLighting::Apply` aceita fontes adicionais `SceneLightSource`, com
+posição global, configuração de luz, visibilidade e retângulo de recorte.
+As fontes de parede são limitadas à sala ou ao corredor anfitrião, incluindo
+a faixa vertical de paredes, e não iluminam salas vizinhas. As paredes dos
+corredores também recebem a luminosidade ambiente do respectivo bioma.
+Tochas e velas usam o mesmo passe multiplicativo, com saturação, câmera e
+zoom; interfaces continuam fora desse passe.
+
 ## Validação
 
 Execute dentro de `game/`:
@@ -87,6 +162,8 @@ Execute dentro de `game/`:
 mingw32-make game
 mingw32-make test
 mingw32-make test-prop-render
+mingw32-make test-wall-render
+mingw32-make test-wall-prop-render
 ```
 
 Os testes de regras não exigem janela. Os testes de combate e gameplay
@@ -96,6 +173,17 @@ de tamanho fixo, independente da escala de tela do Windows. Ele cobre
 escala, transparência, animação nas duas orientações, profundidade,
 revelação, múltiplas fontes, zoom, isolamento entre salas e redimensionamento.
 Uma prévia com os quatro sprites reais é salva em `game/obj/props-preview.png`.
+
+Os testes de wall props cobrem determinismo, biomas, encaixe, espaçamento,
+portas de salas especiais, corredores compartilhados, revelação e abertura
+de portas. A suíte de geração também verifica a integração do registro com
+`RoomManager` e sua substituição ao reiniciar. O teste gráfico compara pixels
+durante entrada e saída da translucidez da bottom, profundidade dos atores,
+os oito frames, margens transparentes, luz além do alcance da vela, recorte
+em salas/corredores e câmera com zoom. Usa janela oculta e assets temporários.
+A prévia `game/obj/wall-props-preview.png` usa os sprites reais e os passes de
+parede e iluminação, mostrando upper, bottom opaca, bottom translúcida e um
+corredor aberto. Ambas as prévias são artefatos locais, fora do Git.
 
 Verificação manual em `game.exe`, iniciado de `game/`:
 
@@ -114,3 +202,12 @@ Verificação manual em `game.exe`, iniciado de `game/`:
 6. Conferir luz suave perto da vela, legibilidade longe dela, transições de
    revelação e corredores fechados. HUD, inventário, prompts e console
    mantêm suas cores. Observar encaixe da iluminação ao mover a câmera.
+7. Em Dungeon, conferir tochas nas upper e luz junto às bottom opacas.
+   Aproximar o jogador da bottom: a fileira fica translúcida e revela as
+   tochas através da parede; afastar restaura a oclusão. Conferir a ordem
+   em relação ao jogador e inimigos e observar a animação sem mover o encaixe.
+8. Conferir pares de tochas junto às portas north/south de salas especiais
+   quando houver espaço. Portas east/west não garantem tochas nessas salas.
+   Abrir corredores horizontais e conferir aparecimento gradual, luz e
+   ausência de duplicação ao atravessar e retornar. Corredores verticais
+   não recebem tochas em suas paredes laterais.

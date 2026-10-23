@@ -20,6 +20,7 @@ struct TileInfo {
     bool southCorridorTile;
     BottomWallRowId bottomWallRow;
     int roomLeftX{0};
+    HostId host{};
 };
 
 struct PositionHash {
@@ -60,7 +61,7 @@ using WalkableTiles = std::unordered_map<Position, TileInfo, PositionHash>;
 
 void AddRect(WalkableTiles& tiles, const TileRect& rect, BiomeType biome, float visibility,
              float sideVisibility = 1.0f, bool isCorridor = false,
-             bool isSouthCorridor = false, BottomWallRowId bottomWallRow = {}) {
+             bool isSouthCorridor = false, BottomWallRowId bottomWallRow = {}, HostId host = {}) {
     if (!(visibility > 0.0f) || rect.width <= 0 || rect.height <= 0) return;
     visibility = std::min(visibility, 1.0f);
     sideVisibility = visibility * std::clamp(sideVisibility, 0.0f, 1.0f);
@@ -69,7 +70,7 @@ void AddRect(WalkableTiles& tiles, const TileRect& rect, BiomeType biome, float 
             const Position position{x, y};
             auto [it, inserted] = tiles.emplace(position,
                 TileInfo{biome, visibility, sideVisibility, !isCorridor, isSouthCorridor,
-                         bottomWallRow, isCorridor ? 0 : rect.x});
+                         bottomWallRow, isCorridor ? 0 : rect.x, host});
             if (!inserted) {
                 it->second.visibility = std::max(it->second.visibility, visibility);
                 it->second.sideVisibility = std::max(it->second.sideVisibility, sideVisibility);
@@ -139,7 +140,7 @@ void AddSegment(Frame& frame, Position position, Position edgeTile, Section sect
     auto [it, inserted] = frame.emplace(
         key, Segment{position, edgeTile, section, tile.biome, visibility, sidePlacement,
                      wallType,
-                     section == Section::Bottom ? tile.bottomWallRow : BottomWallRowId{}});
+                     section == Section::Bottom ? tile.bottomWallRow : BottomWallRowId{}, tile.host});
     if (!inserted) {
         it->second.visibility = std::max(it->second.visibility, visibility);
         if (wallType == WallType::Edge) it->second.wallType = WallType::Edge;
@@ -150,6 +151,7 @@ void AddSegment(Frame& frame, Position position, Position edgeTile, Section sect
         if (lowerBiome || stableEdge) {
             it->second.biome = tile.biome;
             it->second.edgeTile = edgeTile;
+            it->second.host = tile.host;
             if (section == Section::Bottom) it->second.bottomWallRow = tile.bottomWallRow;
         }
     }
@@ -240,7 +242,7 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
             bounds.y + bounds.height - 1
         };
         AddRect(walkable, bounds, view.room->GetBiome(), view.visibility, 1.0f,
-                false, false, bottomWallRow);
+                false, false, bottomWallRow, HostId{HostKind::Room, bounds, coords});
     }
 
     for (const auto& view : ordered) {
@@ -263,7 +265,8 @@ Frame BuildFrame(const std::vector<RoomView>& rooms) {
                 door.corridorTiles.y + door.corridorTiles.height - 1
             };
             AddRect(walkable, door.corridorTiles, corridorBiome, view.visibility, sideProgress,
-                    true, door.direction == Direction::South, bottomWallRow);
+                    true, door.direction == Direction::South, bottomWallRow,
+                    HostId{HostKind::Corridor, door.corridorTiles, {}});
 
             const TileRect& corridor = door.corridorTiles;
             if ((door.direction == Direction::East || door.direction == Direction::West) &&
@@ -460,6 +463,23 @@ std::vector<Module> BuildModules(const Frame& frame) {
     }
 
     return modules;
+}
+
+Rectangle ModuleBounds(const Module& module) {
+    const auto& segment = module.segment;
+    const float tile = static_cast<float>(TILE_SIZE);
+    float y = static_cast<float>(segment.position.y) * tile;
+    if (segment.section == Section::Upper) y += (1 - module.heightTiles) * tile;
+    if (segment.section == Section::Bottom) y -= tile;
+    if (segment.section != Section::Side)
+        return {segment.position.x * tile, y, module.widthTiles * tile, module.heightTiles * tile};
+
+    const float width = tile / 4.0f;
+    float x = segment.position.x * tile;
+    if (segment.sidePlacement == SidePlacement::InsetRight) x += tile - width;
+    else if (segment.sidePlacement == SidePlacement::Edge)
+        x = segment.edgeTile.x * tile + (segment.position.x < segment.edgeTile.x ? -width : tile);
+    return {x, y, width, module.heightTiles * tile};
 }
 
 void TileMemory::Reset(std::uint64_t seed) {
