@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <optional>
 #include <queue>
 #include <random>
 
@@ -148,11 +149,24 @@ Vector2 ResolveMovement(const Room& room, Vector2 from, Vector2 desired, float h
 Vector2 NavigationTarget(const Room& room, Vector2 from, Vector2 target, float hw, float hh) {
     if(SegmentClear(room,from,target,hw,hh)) return target;
     const auto b=room.Layout().tileBounds;
+    if(b.width<=0||b.height<=0) return from;
     auto cell=[&](Vector2 p) { return RoomCoords{std::clamp(int(std::floor(p.x/TILE_SIZE))-b.x,0,b.width-1),
                                              std::clamp(int(std::floor(p.y/TILE_SIZE))-b.y,0,b.height-1)}; };
-    auto center=[&](int i) { return Vector2{float((b.x+i%b.width)*TILE_SIZE)+TILE_SIZE/2.0f,
-                                          float((b.y+i/b.width)*TILE_SIZE)+TILE_SIZE/2.0f}; };
-    if(b.width<=0||b.height<=0) return from;
+    const Rectangle floor=RoomCollisionRules::RoomBoundsForCollision(b,room.GetBiome());
+    std::vector<std::optional<Vector2>> waypoints(b.width*b.height);
+    for(int i=0;i<b.width*b.height;++i) {
+        const float x=float((b.x+i%b.width)*TILE_SIZE);
+        const float y=float((b.y+i/b.width)*TILE_SIZE);
+        // Intersect the tile with the allowed area for the entity's center.
+        // Edge tiles can remain reachable even when their nominal centers do not fit.
+        const float minX=std::max(x,floor.x+hw);
+        const float maxX=std::min(x+TILE_SIZE,floor.x+floor.width-hw);
+        const float minY=std::max(y,floor.y+hh);
+        const float maxY=std::min(y+TILE_SIZE,floor.y+floor.height-hh);
+        if(minX>maxX||minY>maxY) continue;
+        waypoints[i]=Vector2{std::clamp(x+TILE_SIZE/2.0f,minX,maxX),
+                             std::clamp(y+TILE_SIZE/2.0f,minY,maxY)};
+    }
     auto start=cell(from),goal=cell(target);
     int s=start.y*b.width+start.x,g=goal.y*b.width+goal.x;
     std::vector<int> parent(b.width*b.height,-1);
@@ -164,24 +178,20 @@ Vector2 NavigationTarget(const Room& room, Vector2 from, Vector2 target, float h
             int nx=i%b.width+d.x,ny=i/b.width+d.y;
             if(nx<0||ny<0||nx>=b.width||ny>=b.height) continue;
             int n=ny*b.width+nx;
-            Vector2 p=center(n);
-            Rectangle bounds=EntityBounds(p,hw,hh);
-            Rectangle floor=RoomCollisionRules::RoomBoundsForCollision(b,room.GetBiome());
-            if(bounds.x<floor.x||bounds.y<floor.y||bounds.x+bounds.width>floor.x+floor.width||
-               bounds.y+bounds.height>floor.y+floor.height) continue;
-            Vector2 previous=i==s ? from : center(i);
-            if(parent[n]<0&&SegmentClear(room,previous,p,hw,hh)) { parent[n]=i; queue.push(n); }
+            if(parent[n]>=0||!waypoints[n]) continue;
+            Vector2 previous=i==s ? from : *waypoints[i];
+            if(SegmentClear(room,previous,*waypoints[n],hw,hh)) { parent[n]=i; queue.push(n); }
         }
     }
     if(parent[g]<0) return from;
     int next=g;
     // Choose the farthest visible waypoint to avoid oscillation at tile boundaries.
     while(next!=s) {
-        Vector2 waypoint=center(next);
+        Vector2 waypoint=*waypoints[next];
         if(SegmentClear(room,from,waypoint,hw,hh)) return waypoint;
         next=parent[next];
     }
-    return center(s);
+    return waypoints[s].value_or(from);
 }
 
 float ContactDamage(const Room& room, Rectangle attempted, Rectangle resolved, float seconds) {

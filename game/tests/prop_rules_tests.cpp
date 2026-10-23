@@ -1,6 +1,7 @@
 #include "prop_rules.h"
 #include "room.h"
 #include "room_manager.h"
+#include "room_collision_rules.h"
 #include <cassert>
 #include <cmath>
 #include <iostream>
@@ -87,6 +88,48 @@ void CheckMovementAndDamage() {
     assert(PropRules::ContactDamage(room,{192,170,30,30},{192,170,30,30},1)==0);
 }
 
+void CheckBottomEdgeNavigation() {
+    for(auto offset:{RoomCoords{0,0},RoomCoords{-13,-12}}) {
+        for(float radius:{22.0f,24.0f,26.0f}) {
+            auto room=MakeRoom(10,10);
+            room.Layout().tileBounds={offset.x,offset.y,10,10};
+            const float hw=radius,hh=radius*0.8f;
+            const auto floor=RoomCollisionRules::RoomBoundsForCollision(room.Layout().tileBounds,room.GetBiome());
+            const Vector2 from{floor.x+100,floor.y+220};
+            const Vector2 goal{floor.x+500,floor.y+floor.height-16};
+            auto direct=PropRules::NavigationTarget(room,from,goal,hw,hh);
+            assert(direct.x==goal.x&&direct.y==goal.y);
+
+            room.Props().push_back({&GetPropDefinitions()[2],{offset.x+3,offset.y+2,1,6},0,false});
+            auto first=PropRules::NavigationTarget(room,from,goal,hw,hh);
+            assert(std::hypot(first.x-from.x,first.y-from.y)>1);
+            Vector2 p=from;
+            for(int frame=0;frame<1000&&std::hypot(p.x-goal.x,p.y-goal.y)>1;++frame) {
+                auto waypoint=PropRules::NavigationTarget(room,p,goal,hw,hh);
+                if(waypoint.x!=goal.x||waypoint.y!=goal.y) {
+                    auto bounds=PropRules::EntityBounds(waypoint,hw,hh);
+                    assert(bounds.x>=floor.x-0.001f&&bounds.y>=floor.y-0.001f);
+                    assert(bounds.x+bounds.width<=floor.x+floor.width+0.001f);
+                    assert(bounds.y+bounds.height<=floor.y+floor.height+0.001f);
+                }
+                float dx=waypoint.x-p.x,dy=waypoint.y-p.y,d=std::hypot(dx,dy);
+                float fraction=d>0?std::min(1.0f,3.0f/d):0;
+                p=PropRules::ResolveMovement(room,p,{p.x+dx*fraction,p.y+dy*fraction},hw,hh);
+                assert(PropRules::IsFree(room,PropRules::EntityBounds(p,hw,hh)));
+            }
+            assert(std::hypot(p.x-goal.x,p.y-goal.y)<1);
+
+            // A wall spanning the room still makes the destination unreachable.
+            room.Props()[0].tiles={offset.x+3,offset.y,1,10};
+            auto unreachable=PropRules::NavigationTarget(room,from,goal,hw,hh);
+            assert(unreachable.x==from.x&&unreachable.y==from.y);
+            room.Props()[0].destroyed=true;
+            direct=PropRules::NavigationTarget(room,from,goal,hw,hh);
+            assert(direct.x==goal.x&&direct.y==goal.y);
+        }
+    }
+}
+
 void CheckRunLifecycle() {
     RoomManager first(19),second(19);
     for(const auto& entry:first.Rooms()) {
@@ -110,6 +153,6 @@ void CheckRunLifecycle() {
 }
 }
 int main() {
-    CheckGeneration();CheckMovementAndDamage();CheckRunLifecycle();
+    CheckGeneration();CheckMovementAndDamage();CheckBottomEdgeNavigation();CheckRunLifecycle();
     std::cout<<"Prop rules tests passed\n";
 }
