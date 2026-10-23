@@ -7,6 +7,9 @@
 #include <random>
 #include <unordered_set>
 #include <utility>
+#ifdef ENDLESS_DEBUG_DIAGNOSTICS
+#include <iostream>
+#endif
 
 #include "room_types.h"
 #include "chest.h"
@@ -247,6 +250,7 @@ Room& RoomManager::CreateInitialRoom() {
     auto room = std::make_unique<Room>(coords, seedData, layout);
     currentRoomCoords_ = coords;
     rooms_.emplace(coords, std::move(room));
+    ++layoutRevision_;
     roomsDiscovered_ = 1;
 
     auto& createdRoom = *rooms_.at(coords);
@@ -340,10 +344,16 @@ void RoomManager::EnsureNeighborsGenerated(const RoomCoords& coords, int radius)
     for (auto& entry : rooms_) {
         if (entry.second->DoorsInitialized()) PropRules::Initialize(*entry.second);
     }
+    if (wallPropsRevision_ == layoutRevision_) return;
     std::vector<WallRules::RoomView> wallRooms;
     wallRooms.reserve(rooms_.size());
     for (const auto& entry : rooms_) wallRooms.push_back({entry.second.get(), 1.0f});
     wallProps_ = WallPropRules::Generate(wallRooms, worldSeed_);
+    wallPropsRevision_ = layoutRevision_;
+#ifdef ENDLESS_DEBUG_DIAGNOSTICS
+    std::clog << "[DEBUG][WallProps] seed=" << worldSeed_ << " revision=" << wallPropsRevision_
+              << " rooms=" << rooms_.size() << " props=" << wallProps_.size() << std::endl;
+#endif
 }
 
 // Percorre grafo de salas recursivamente gerando portas e destinos.
@@ -388,7 +398,11 @@ void RoomManager::EnsureDoorsGenerated(Room& room) {
 
 // Cria (ou alinha) sala vizinha para uma porta específica.
 bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
-    door.targetCoords = room.GetCoords() + ToDirectionOffset(door.direction);
+    const RoomCoords target = room.GetCoords() + ToDirectionOffset(door.direction);
+    if (!(door.targetCoords == target)) {
+        door.targetCoords = target;
+        ++layoutRevision_;
+    }
 
     if (door.sealed) {
         return false;
@@ -408,6 +422,7 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
         if (!neighborDoor || neighborDoor->sealed) {
             door.sealed = true;
             door.targetGenerated = false;
+            ++layoutRevision_;
             return false;
         }
 
@@ -419,6 +434,7 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
             if (corridor.width <= 0 || corridor.height <= 0) {
                 door.sealed = true;
                 door.targetGenerated = false;
+                ++layoutRevision_;
                 return false;
             }
 
@@ -445,6 +461,7 @@ bool RoomManager::TryGenerateDoorTarget(Room& room, Doorway& door) {
         neighborDoor->doorState = sharedDoor;
         door.doorState = sharedDoor;
 
+        ++layoutRevision_;
         return true;
     }
 
@@ -516,6 +533,7 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     if (!placementFound) {
         originDoor.sealed = true;
         originDoor.targetGenerated = false;
+        ++layoutRevision_;
         return originRoom;
     }
 
@@ -547,6 +565,7 @@ Room& RoomManager::CreateRoomFromDoor(Room& originRoom, Doorway& originDoor) {
     auto newRoom = std::make_unique<Room>(targetCoords, seedData, layout);
     Room& created = *newRoom;
     rooms_.emplace(targetCoords, std::move(newRoom));
+    ++layoutRevision_;
     RegisterRoomDiscovery(selectedType);
 
     created.SetEntranceDirection(entranceDoor.direction);
@@ -590,6 +609,7 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
         neighborDoor->doorState = sharedDoor;
         door.doorState = sharedDoor;
         layout.doors.push_back(door);
+        ++layoutRevision_;
     }
 
     auto countOpenDoors = [&layout]() {
@@ -700,6 +720,7 @@ void RoomManager::ConfigureDoors(Room& room, std::optional<Direction> entranceDi
                 }
 
                 EnsureDoorInstance(newDoor);
+                ++layoutRevision_;
 
                 ++openDoors;
                 return true;
@@ -751,6 +772,7 @@ void RoomManager::AlignWithNeighbor(Room& room, Direction direction, Room& neigh
     } else {
         room.Layout().doors.push_back(door);
     }
+    ++layoutRevision_;
 }
 
 // Define qual tipo de sala será criada em determinadas coordenadas.

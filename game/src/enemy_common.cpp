@@ -173,6 +173,7 @@ void EnemyCommon::AttemptAttack(const EnemyUpdateContext& context,
     ProjectileSpawnContext spawnContext{};
     spawnContext.origin = GetPosition();
     spawnContext.followTarget = GetPositionAddress();
+    spawnContext.ownerLifetime = GetProjectileLifetime();
     spawnContext.aimDirection = aimDir;
 
     context.projectileSystem.SpawnProjectile(projectile, spawnContext);

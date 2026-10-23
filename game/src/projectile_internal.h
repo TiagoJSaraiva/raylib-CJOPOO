@@ -5,6 +5,8 @@
 #include <unordered_map>
 
 struct ProjectileSystem::ProjectileInstance {
+    std::optional<std::weak_ptr<const void>> ownerLifetime;
+    bool HasExpiredOwner() const { return ownerLifetime && ownerLifetime->expired(); }
     virtual ~ProjectileInstance() = default;
     virtual void Update(float deltaSeconds) = 0;
     virtual void Draw() const = 0;

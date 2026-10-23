@@ -231,6 +231,11 @@ ProjectileSystem::~ProjectileSystem() {
 
 // Atualiza todos os projéteis ativos e limpa os que expiraram.
 void ProjectileSystem::Update(float deltaSeconds) {
+    // Retire following attacks before any family can dereference its raw position pointer.
+    projectiles_.erase(
+        std::remove_if(projectiles_.begin(), projectiles_.end(), [](const auto& projectile) {
+            return projectile->HasExpiredOwner();
+        }), projectiles_.end());
     for (auto& projectile : projectiles_) {
         projectile->Update(deltaSeconds);
     }
@@ -245,6 +250,7 @@ void ProjectileSystem::Update(float deltaSeconds) {
 // Desenha cada projétil ativo (debug ou sprites customizados).
 void ProjectileSystem::Draw() const {
     for (const auto& projectile : projectiles_) {
+        if (projectile->HasExpiredOwner()) continue;
         projectile->Draw();
     }
 }
@@ -256,9 +262,15 @@ void ProjectileSystem::Clear() {
 
 // Instancia projéteis conforme blueprint e contexto atual do disparo.
 void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, const ProjectileSpawnContext& context) {
-    if (blueprint.common.projectilesPerShot <= 0) {
+    if (blueprint.common.projectilesPerShot <= 0 ||
+        (context.ownerLifetime && context.ownerLifetime->expired())) {
         return;
     }
+
+    auto appendFollowing = [&](std::unique_ptr<ProjectileInstance> projectile, const Vector2* followTarget) {
+        if (followTarget) projectile->ownerLifetime = context.ownerLifetime;
+        projectiles_.push_back(std::move(projectile));
+    };
 
     std::uniform_real_distribution<float> spreadDist(
         -blueprint.common.randomSpreadDegrees * 0.5f,
@@ -308,13 +320,13 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                     ? context.followTarget
                     : nullptr;
 
-                projectiles_.push_back(projectile_detail::MakeBluntProjectile(
+                appendFollowing(projectile_detail::MakeBluntProjectile(
                     blueprint.common,
                     blueprint.blunt,
                     spawnOrigin,
                     followPtr,
                     startCenter,
-                    endCenter));
+                    endCenter), followPtr);
                 break;
             }
             case ProjectileKind::Swing: {
@@ -326,13 +338,13 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                     ? context.followTarget
                     : nullptr;
 
-                projectiles_.push_back(projectile_detail::MakeSwingProjectile(
+                appendFollowing(projectile_detail::MakeSwingProjectile(
                     blueprint.common,
                     blueprint.swing,
                     spawnOrigin,
                     followPtr,
                     startCenter,
-                    endCenter));
+                    endCenter), followPtr);
                 break;
             }
             case ProjectileKind::Spear: {
@@ -352,13 +364,13 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                     followOffset = Vector2Subtract(anchor, *followPtr);
                 }
 
-                projectiles_.push_back(projectile_detail::MakeSpearProjectile(
+                appendFollowing(projectile_detail::MakeSpearProjectile(
                     blueprint.common,
                     blueprint.spear,
                     anchor,
                     followPtr,
                     followOffset,
-                    aimDir));
+                    aimDir), followPtr);
                 break;
             }
             case ProjectileKind::FullCircleSwing: {
@@ -366,12 +378,12 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                     ? context.followTarget
                     : nullptr;
 
-                projectiles_.push_back(projectile_detail::MakeFullCircleSwingProjectile(
+                appendFollowing(projectile_detail::MakeFullCircleSwingProjectile(
                     blueprint.common,
                     blueprint.fullCircle,
                     spawnOrigin,
                     followPtr,
-                    finalAngle));
+                    finalAngle), followPtr);
                 break;
             }
             case ProjectileKind::Ranged: {
@@ -386,12 +398,12 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                 rangedDisplayBase = Vector2Add(spawnOrigin, rangedDisplayState.offset);
                 hasRangedDisplayState = true;
 
-                projectiles_.push_back(projectile_detail::MakeRangedWeaponDisplayProjectile(
+                appendFollowing(projectile_detail::MakeRangedWeaponDisplayProjectile(
                     blueprint.common,
                     spawnOrigin,
                     followPtr,
                     weaponOffset,
-                    aimDir));
+                    aimDir), followPtr);
                 break;
             }
         }
@@ -448,14 +460,14 @@ void ProjectileSystem::SpawnProjectile(const ProjectileBlueprint& blueprint, con
                             followOffset = Vector2Subtract(origin, *followPtr);
                         }
 
-                        projectiles_.push_back(projectile_detail::MakeThrownLaserProjectile(
+                        appendFollowing(projectile_detail::MakeThrownLaserProjectile(
                             thrown.common,
                             thrown.laser,
                             origin,
                             followPtr,
                             followOffset,
                             aimDir,
-                            startOffset));
+                            startOffset), followPtr);
                         break;
                     }
                 }
@@ -480,6 +492,7 @@ std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents
     events.reserve(projectiles_.size());
 
     for (auto& projectile : projectiles_) {
+        if (projectile->HasExpiredOwner()) continue;
         projectile->CollectHitEvents(ProjectileTarget{targetId, targetCenter, targetRadius, std::nullopt, targetImmunitySeconds}, rng_, events);
     }
 
@@ -488,14 +501,17 @@ std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents
 
 std::vector<ProjectileSystem::DamageEvent> ProjectileSystem::CollectDamageEvents(Rectangle bounds, std::uintptr_t id) {
     std::vector<DamageEvent> events;
-    for (auto& projectile : projectiles_)
+    for (auto& projectile : projectiles_) {
+        if (projectile->HasExpiredOwner()) continue;
         projectile->CollectHitEvents(ProjectileTarget{id, {}, 0, bounds, 0}, rng_, events);
+    }
     return events;
 }
 
 std::vector<ProjectileSystem::TargetDamageEvent> ProjectileSystem::CollectDamageEventsForTargets(const std::vector<ProjectileTarget>& targets) {
     std::vector<TargetDamageEvent> result;
     for (auto& projectile : projectiles_) {
+        if (projectile->HasExpiredOwner()) continue;
         const ProjectileTarget* first = nullptr;
         float fraction = std::numeric_limits<float>::infinity();
         if (projectile->ConsumesOnImpact()) {

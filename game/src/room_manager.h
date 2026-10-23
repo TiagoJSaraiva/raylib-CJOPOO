@@ -30,6 +30,8 @@ public:
 
     const auto& Rooms() const { return rooms_; }
     const std::vector<WallPropInstance>& WallProps() const { return wallProps_; }
+    std::uint64_t GetLayoutRevision() const { return layoutRevision_; }
+    std::uint64_t GetWallPropsRevision() const { return wallPropsRevision_; }
 
 private:
     Room& CreateInitialRoom();
@@ -58,6 +60,8 @@ private:
     RoomCoords currentRoomCoords_{};
     std::unordered_map<RoomCoords, std::unique_ptr<Room>, RoomCoordsHash> rooms_{};
     std::vector<WallPropInstance> wallProps_;
+    std::uint64_t layoutRevision_{0};
+    std::uint64_t wallPropsRevision_{0};
     int roomsDiscovered_{0};
     bool bossSpawned_{false};
     int roomsSinceBoss_{0};

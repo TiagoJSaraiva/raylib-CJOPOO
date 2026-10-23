@@ -80,7 +80,27 @@ void CheckWallPropRegistry() {
     RoomManager manager(1234, BiomeType::Dungeon);
     assert(!manager.WallProps().empty());
     const auto before = manager.WallProps();
+    const auto revision = manager.GetLayoutRevision();
+    const auto* storage = manager.WallProps().data();
+    assert(revision == manager.GetWallPropsRevision());
+    for (int frame = 0; frame < 120; ++frame) {
+        manager.EnsureNeighborsGenerated(manager.GetCurrentCoords());
+        assert(manager.GetLayoutRevision() == revision);
+        assert(manager.GetWallPropsRevision() == revision);
+        assert(manager.WallProps().data() == storage);
+    }
+    // Door animation, lock state, and visits affect exposure, not structural placement.
+    for (const auto& entry : manager.Rooms()) {
+        entry.second->SetVisited(true);
+        for (auto& door : entry.second->Layout().doors) if (door.doorState) {
+            door.doorState->opening = true;
+            door.doorState->open = true;
+            door.doorState->fadeProgress = 0.5f;
+            door.doorState->interactionState = DoorInteractionState::Locked;
+        }
+    }
     manager.EnsureNeighborsGenerated(manager.GetCurrentCoords());
+    assert(manager.GetWallPropsRevision() == revision && manager.WallProps().data() == storage);
     const auto& after = manager.WallProps();
     assert(before.size() == after.size());
     for (std::size_t i = 0; i < before.size(); ++i) {
@@ -91,6 +111,25 @@ void CheckWallPropRegistry() {
     assert(before.size() == replay.WallProps().size());
     for (std::size_t i = 0; i < before.size(); ++i)
         assert(before[i].key == replay.WallProps()[i].key);
+
+    // Expanding the map configures new rooms/doors and must refresh the registry.
+    const auto roomCount = manager.Rooms().size();
+    manager.EnsureNeighborsGenerated(manager.GetCurrentCoords(), 3);
+    assert(manager.Rooms().size() > roomCount);
+    assert(manager.GetLayoutRevision() > revision);
+    assert(manager.GetWallPropsRevision() == manager.GetLayoutRevision());
+    std::vector<WallRules::RoomView> views;
+    for (const auto& entry : manager.Rooms()) views.push_back({entry.second.get(), 1});
+    const auto expected = WallPropRules::Generate(views, manager.GetWorldSeed());
+    assert(expected.size() == manager.WallProps().size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        assert(expected[i].key == manager.WallProps()[i].key);
+        assert(expected[i].animationPhase == manager.WallProps()[i].animationPhase);
+    }
+    const auto expandedRevision = manager.GetWallPropsRevision();
+    storage = manager.WallProps().data();
+    manager.EnsureNeighborsGenerated(manager.GetCurrentCoords(), 3);
+    assert(manager.GetWallPropsRevision() == expandedRevision && manager.WallProps().data() == storage);
     manager = RoomManager(5678, BiomeType::Cave);
     assert(manager.WallProps().empty());
 }

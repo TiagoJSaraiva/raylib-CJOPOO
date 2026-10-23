@@ -65,6 +65,15 @@ ou mínimo por frame. Sólidos verificam a tentativa de contato antes da
 correção do movimento; não sólidos verificam a posição final. Esse dano
 reduz diretamente a vida, sem esquiva, armadura ou vampirismo.
 
+Ataques que seguem inimigos recebem `ProjectileSpawnContext::ownerLifetime`,
+um marcador opcional de referência fraca fornecido pelo dono. Morte,
+destruição ou reinicialização invalidam os ataques antigos. O sistema os
+remove antes da atualização e ignora seu desenho e dano mesmo antes do
+próximo tick. Isso cobre golpes, estocadas, ataques circulares, lasers e
+exibições de arma; munições independentes continuam seu trajeto. O jogador
+pode omitir o marcador enquanto sua posição permanecer válida até limpar
+os ataques. Consulte [Diagnóstico de crashes](crash-diagnostics.md).
+
 ## Iluminação
 
 `SceneLighting::Ambient` centraliza a luminosidade: Dungeon 65%, Caverna
@@ -124,7 +133,12 @@ salas conhecidas com visibilidade plena e ordenação estável, sem depender
 da revelação ou ordem de entrada no mapa de salas.
 
 O registro pertence a `RoomManager` e é reconstruído deterministicamente
-após a geração/alinhamento de portas. A identidade combina anfitrião, seção
+somente quando muda a revisão estrutural de salas/portas. Chamadas repetidas
+de preparação de vizinhos preservam o registro e seus endereços. Abertura
+visual, travamento, revelação e translucidez não invalidam a geração.
+`GetLayoutRevision()` e `GetWallPropsRevision()` expõem as revisões para
+diagnóstico; builds DEBUG registram seed, revisão e contagens apenas nas
+reconstruções, sem mensagens por frame. A identidade combina anfitrião, seção
 e posição: salas usam suas coordenadas e bounds; corredores usam seu
 footprint global, compartilhado pelas duas portas. Assim não há desenhos
 ou fontes de luz duplicados. A mesma geometria e seed reproduzem posição

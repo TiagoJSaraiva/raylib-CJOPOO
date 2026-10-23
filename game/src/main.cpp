@@ -1373,7 +1373,6 @@ int main() {
                 if (roomManager.MoveToNeighbor(door.direction)) {
                     Room& newRoom = roomManager.GetCurrentRoom();
                     std::cout << "Entered room at (" << newRoom.GetCoords().x << "," << newRoom.GetCoords().y << ")" << std::endl;
-                    roomManager.EnsureNeighborsGenerated(roomManager.GetCurrentCoords());
 
                     currentRoomPtr = &newRoom;
                     movedRoom = true;

@@ -5,6 +5,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <random>
 #include <string>
 #include <vector>
@@ -143,6 +144,9 @@ struct ProjectileSpawnContext {
     Vector2 origin{};
     const Vector2* followTarget{nullptr};
     Vector2 aimDirection{1.0f, 0.0f};
+    // Dynamic owners must supply a lifetime marker. An absent marker is only safe
+    // when followTarget remains valid until all of its following attacks are cleared.
+    std::optional<std::weak_ptr<const void>> ownerLifetime;
 };
 
 // Sistema responsável por atualizar, renderizar e detectar colisões de projéteis.

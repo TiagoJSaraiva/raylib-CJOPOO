@@ -64,6 +64,7 @@ public:
     const Vector2& GetPosition() const { return position_; }
     void SetPosition(const Vector2& position) { position_ = position; }
     const Vector2* GetPositionAddress() const { return &position_; }
+    std::weak_ptr<const void> GetProjectileLifetime() const { return projectileLifetime_; }
     const Vector2& GetOriginalPosition() const { return originalPosition_; }
     void SetOriginalPosition(const Vector2& position) { originalPosition_ = position; }
 
@@ -121,6 +122,8 @@ private:
     RewardPouchDropTable rewardPouchDrops_;
 
     Vector2 position_{};
+    // Projectiles hold only weak references; they never extend the enemy's lifetime.
+    std::shared_ptr<const void> projectileLifetime_{std::make_shared<const int>(0)};
     Vector2 originalPosition_{};
 
     Room* room_{nullptr};

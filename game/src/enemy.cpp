@@ -311,6 +311,7 @@ void Enemy::Initialize(Room& room, const Vector2& spawnPosition) {
 
 // Recomeça flags de fade/dano para reaproveitar a instância.
 void Enemy::ResetSpawnState() {
+    projectileLifetime_ = std::make_shared<const int>(0);
     active_ = false;
     fadeStarted_ = false;
     fadeCompleted_ = false;
@@ -341,11 +342,13 @@ bool Enemy::TakeDamage(float amount) {
     }
     hasTakenDamage_ = true;
     currentHealth_ = std::max(0.0f, currentHealth_ - amount);
+    if (currentHealth_ <= 0.0f) projectileLifetime_.reset();
     return currentHealth_ <= 0.0f;
 }
 
 // Restaura vida ao máximo definido no config.
 void Enemy::HealToFull() {
+    if (!projectileLifetime_) projectileLifetime_ = std::make_shared<const int>(0);
     currentHealth_ = maxHealth_;
 }
 
