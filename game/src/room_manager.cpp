@@ -217,8 +217,9 @@ std::shared_ptr<DoorInstance> EnsureDoorInstance(Doorway& door) {
 } // namespace
 
 // Semeia o gerenciador e cria sala inicial com vizinhos imediatos.
-RoomManager::RoomManager(std::uint64_t worldSeed)
-    : worldSeed_(worldSeed) {
+RoomManager::RoomManager(std::uint64_t worldSeed,
+                         std::optional<BiomeType> initialBiomeOverride)
+    : worldSeed_(worldSeed), initialBiomeOverride_(initialBiomeOverride) {
     CreateInitialRoom();
     EnsureNeighborsGenerated(currentRoomCoords_);
 }
@@ -818,6 +819,10 @@ BiomeType RoomManager::DetermineBiomeForRoom(const Room& originRoom, const RoomC
 
 // Sorteia bioma inicial entre as opções disponíveis.
 BiomeType RoomManager::PickInitialBiome() {
+    if (initialBiomeOverride_) {
+        return *initialBiomeOverride_;
+    }
+
     static constexpr std::array<BiomeType, 3> kAvailableBiomes{
         BiomeType::Cave,
         BiomeType::Mansion,

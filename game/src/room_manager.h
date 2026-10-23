@@ -11,7 +11,8 @@
 // Responsável por gerar, armazenar e navegar entre salas do mapa.
 class RoomManager {
 public:
-    explicit RoomManager(std::uint64_t worldSeed);
+    explicit RoomManager(std::uint64_t worldSeed,
+                         std::optional<BiomeType> initialBiomeOverride = std::nullopt);
 
     Room& GetCurrentRoom();
     const Room& GetCurrentRoom() const;
@@ -51,6 +52,7 @@ private:
     bool CorridorIntersectsRooms(const TileRect& corridor) const;
 
     std::uint64_t worldSeed_{0};
+    std::optional<BiomeType> initialBiomeOverride_{};
     RoomCoords currentRoomCoords_{};
     std::unordered_map<RoomCoords, std::unique_ptr<Room>, RoomCoordsHash> rooms_{};
     int roomsDiscovered_{0};

@@ -22,6 +22,7 @@
 #include <vector>
 
 #include "room_manager.h"
+#include "biome_config.h"
 #include "room_renderer.h"
 #include "room_collision_rules.h"
 #include "room_types.h"
@@ -1113,7 +1114,8 @@ int main() {
     LoadGameFont("assets/font/alagard.ttf", 32);
 
     std::uint64_t worldSeed = GenerateWorldSeed();
-    RoomManager roomManager{worldSeed};
+    const std::optional<BiomeType> biomeOverride = BiomeConfig::LoadBiomeOverride();
+    RoomManager roomManager{worldSeed, biomeOverride};
     RoomRenderer roomRenderer;
     PropRenderer propRenderer;
     SceneLighting sceneLighting;
@@ -1173,7 +1175,7 @@ int main() {
             worldSeed = GenerateWorldSeed();
         }
 
-        roomManager = RoomManager{worldSeed};
+        roomManager = RoomManager{worldSeed, biomeOverride};
         roomRenderer.BeginFloorRun(worldSeed);
         enemyRng.seed(static_cast<std::mt19937::result_type>(worldSeed));
         roomEnemies.clear();

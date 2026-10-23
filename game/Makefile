@@ -410,8 +410,8 @@ $(FLOOR_TEST_BIN): tests/floor_rules_tests.cpp src/floor_rules.cpp src/floor_rul
 $(WALL_TEST_BIN): tests/wall_rules_tests.cpp src/wall_rules.cpp src/wall_rules.h src/floor_rules.cpp src/floor_rules.h src/room.cpp src/room.h src/door_visual_rules.h
 	$(CC) -o $@ tests/wall_rules_tests.cpp src/wall_rules.cpp src/floor_rules.cpp src/room.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
 
-$(ROOM_GENERATION_TEST_BIN): tests/room_generation_tests.cpp src/room_manager.cpp src/room_features.cpp src/room.cpp src/chest.cpp src/prop.cpp src/prop_rules.cpp src/room_collision_rules.cpp $(wildcard src/*.h)
-	$(CC) -o $@ tests/room_generation_tests.cpp src/room_manager.cpp src/room_features.cpp src/room.cpp src/chest.cpp src/prop.cpp src/prop_rules.cpp src/room_collision_rules.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
+$(ROOM_GENERATION_TEST_BIN): tests/room_generation_tests.cpp src/room_manager.cpp src/room_features.cpp src/room.cpp src/chest.cpp src/prop.cpp src/prop_rules.cpp src/room_collision_rules.cpp src/biome_config.cpp $(wildcard src/*.h)
+	$(CC) -o $@ tests/room_generation_tests.cpp src/room_manager.cpp src/room_features.cpp src/room.cpp src/chest.cpp src/prop.cpp src/prop_rules.cpp src/room_collision_rules.cpp src/biome_config.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
 
 $(ROOM_COLLISION_TEST_BIN): tests/room_collision_rules_tests.cpp src/room_collision_rules.cpp src/room_collision_rules.h src/room_types.h
 	$(CC) -o $@ tests/room_collision_rules_tests.cpp src/room_collision_rules.cpp $(CFLAGS) $(INCLUDE_PATHS) -I$(SRC_DIR) -D$(PLATFORM)
