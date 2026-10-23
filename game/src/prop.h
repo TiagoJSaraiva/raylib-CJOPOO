@@ -1,6 +1,7 @@
 #pragma once
 
 #include "room_types.h"
+#include "reward_pouch.h"
 #include "raylib.h"
 #include <optional>
 #include <string>
@@ -22,10 +23,9 @@ struct PropLight {
     Vector2 spritePosition{0.52f, 0.04f};
 };
 
-struct PropDrop { int itemId{0}; float weight{1.0f}; };
 struct DestructibleProp {
     float maxHealth{10.0f};
-    std::vector<PropDrop> drops; // Reserved; loot delivery is a separate feature.
+    RewardPouchDropTable rewardPouchDrops;
 };
 
 struct PropDefinition {

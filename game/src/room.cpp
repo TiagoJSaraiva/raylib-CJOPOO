@@ -4,7 +4,8 @@
 
 // Constrói uma sala concreta copiando seed/layout definidos na geração procedural.
 Room::Room(RoomCoords coords, RoomSeedData seedData, RoomLayout layout)
-    : coords_(coords), seedData_(seedData), layout_(std::move(layout)) {}
+    : coords_(coords), seedData_(seedData), layout_(std::move(layout)),
+      rewardPouchRng_(seedData.seed ^ 0x5257504F554348ULL) {}
 
 // Retorna porta correspondente à direção solicitada, caso exista no layout.
 Doorway* Room::FindDoor(Direction direction) {

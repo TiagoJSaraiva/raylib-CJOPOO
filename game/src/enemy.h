@@ -6,6 +6,7 @@
 #include <string>
 
 #include "room_types.h"
+#include "reward_pouch.h"
 
 class Room;
 class PlayerCharacter;
@@ -21,6 +22,7 @@ struct EnemyConfig {
     float speed{120.0f};
     float spawnRate{1.0f};
     float collisionRadius{22.0f};
+    RewardPouchDropTable rewardPouchDrops;
 };
 
 // Dados fornecidos a cada tick de atualização.
@@ -57,6 +59,7 @@ public:
     int GetId() const { return id_; }
     BiomeType GetBiome() const { return biome_; }
     float GetSpawnRate() const { return spawnRate_; }
+    const RewardPouchDropTable& GetRewardPouchDrops() const { return rewardPouchDrops_; }
 
     const Vector2& GetPosition() const { return position_; }
     void SetPosition(const Vector2& position) { position_ = position; }
@@ -115,6 +118,7 @@ private:
     float currentHealth_{1.0f};
     float speed_{120.0f};
     float spawnRate_{1.0f};
+    RewardPouchDropTable rewardPouchDrops_;
 
     Vector2 position_{};
     Vector2 originalPosition_{};

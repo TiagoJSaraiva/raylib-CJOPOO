@@ -10,8 +10,10 @@ mas são recriados numa nova partida. Não há persistência em disco.
 O catálogo fica em `game/src/prop.cpp`. Cada definição contém identificador,
 nome, lista de biomas, largura e altura em tiles, peso, disposição opcional,
 colisão e dano por segundo. Destruição, spritesheet e luz são configurações
-opcionais por composição. A pool de drops é reservada para uma etapa futura;
-esta versão não entrega itens, moedas ou cura ao destruir props.
+opcionais por composição. A tabela `rewardPouchDrops` configura a chance de
+deixar uma bolsa ao destruir o prop. O vaso tem 20% de chance de uma bolsa
+`small`; os demais props continuam indestrutíveis. Consulte
+[Reward pouches](reward-pouches.md) para pools, coleta e testes.
 
 | Identificador | Dimensões | Peso | Disposição | Vida | Luz |
 |---|---|---|---|---|---|
@@ -105,8 +107,8 @@ Verificação manual em `game.exe`, iniciado de `game/`:
    e retornando à origem ao sair da sala.
 4. Quebrar vasos com armas corpo a corpo e à distância. Posicionar-se para
    que ataques inimigos também atinjam vasos. Confirmar liberação imediata
-   do espaço, ausência de drops/recompensas/cura e passagem de ataques pelos
-   outros props.
+   do espaço, chance de drop de uma bolsa, ausência de cura e passagem de
+   ataques pelos outros props. As recompensas só são entregues na coleta.
 5. Sair e retornar: vasos quebrados continuam ausentes. Reiniciar a partida
    recria os props. Salas especiais e os demais biomas não recebem props.
 6. Conferir luz suave perto da vela, legibilidade longe dela, transições de

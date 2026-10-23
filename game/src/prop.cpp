@@ -23,10 +23,11 @@ const std::vector<PropDefinition>& GetPropDefinitions() {
             result.push_back(d);
             return result.back();
         };
-        add("gray-vase", "Vaso", 1, 6.0f, 0.0f).destructible = DestructibleProp{};
+        add("gray-vase", "Vaso", 1, 6.0f, 0.0f).destructible =
+            DestructibleProp{10.0f, {{RewardPouchType::Small, 20}}};
         add("barrel", "Barril com vela", 1, 1.0f, 0.0f).light = PropLight{};
-        add("bone-jail", "Jaula", 1, 3.0f, 0.5f);
-        add("torture-table", "Mesa de tortura", 2, 1.0f, 0.9f);
+        add("bone-jail", "Jaula", 2, 3.0f, 0.5f);
+        add("torture-table", "Mesa de tortura", 3, 1.0f, 0.9f);
         return result;
     }();
     return definitions;

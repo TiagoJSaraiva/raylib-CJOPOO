@@ -16,3 +16,6 @@
 /tests/prop_combat_tests
 /tests/prop_render_tests
 /tests/prop_gameplay_tests
+/tests/reward_pouch_rules_tests
+/tests/reward_pouch_gameplay_tests
+/tests/reward_pouch_render_tests

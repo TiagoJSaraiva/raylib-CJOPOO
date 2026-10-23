@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <random>
 #include <vector>
 
 #include "room_types.h"
@@ -147,6 +148,10 @@ public:
     bool PropsInitialized() const { return propsInitialized_; }
     void SetPropsInitialized() { propsInitialized_ = true; }
 
+    std::vector<RewardPouchInstance>& RewardPouches() { return rewardPouches_; }
+    const std::vector<RewardPouchInstance>& RewardPouches() const { return rewardPouches_; }
+    std::mt19937_64& RewardPouchRng() { return rewardPouchRng_; }
+
     // ---- Forja ----
     bool HasForge() const { return forge_.has_value(); }
     ForgeInstance* GetForge();
@@ -180,4 +185,6 @@ private:
     std::optional<ForgeInstance> forge_{};
     std::optional<ShopInstance> shop_{};
     std::unique_ptr<Chest> chest_{};
+    std::vector<RewardPouchInstance> rewardPouches_;
+    std::mt19937_64 rewardPouchRng_;
 };

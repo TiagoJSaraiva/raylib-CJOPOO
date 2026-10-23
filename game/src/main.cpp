@@ -1,6 +1,8 @@
 #include <functional>
 #include "prop_rules.h"
 #include "prop_renderer.h"
+#include "reward_pouch_operations.h"
+#include "reward_pouch_renderer.h"
 #include "raylib.h"
 #include "raymath.h"
 
@@ -78,6 +80,7 @@ struct DamageNumber {
     bool isReward{false};
     float age{0.0f};
     float lifetime{1.0f};
+    std::string rewardText;
 };
 
 // Informações pré-calculadas para desenhar uma porta específica na cena.
@@ -153,7 +156,7 @@ void DrawDamageNumbers(const std::vector<DamageNumber>& numbers) {
 
         std::string text;
         if (number.isReward) {
-            text = "+" + std::to_string(displayValue);
+            text = number.rewardText.empty() ? "+" + std::to_string(displayValue) : number.rewardText;
         } else {
             text = std::to_string(displayValue);
             if (number.isCritical) {
@@ -1118,6 +1121,7 @@ int main() {
     RoomManager roomManager{worldSeed, biomeOverride};
     RoomRenderer roomRenderer;
     PropRenderer propRenderer;
+    RewardPouchRenderer rewardPouchRenderer;
     SceneLighting sceneLighting;
     float propAnimationTime = 0;
     roomRenderer.BeginFloorRun(worldSeed);
@@ -1519,7 +1523,7 @@ int main() {
             for (auto& prop : combatRoom.Props()) for (const auto& event : events) {
                 if (event.targetId != prop.TargetId() || prop.destroyed) continue;
                 float before = prop.health;
-                prop.TakeDamage(event.damage.amount * multiplier);
+                RewardPouchOperations::DamageProp(combatRoom, prop, event.damage.amount * multiplier);
                 if (before > prop.health)
                     PushDamageNumber(damageNumbers, {prop.Hitbox().x + prop.Hitbox().width * 0.5f, prop.Depth()}, before - prop.health, event.damage.isCritical);
             }
@@ -1555,7 +1559,7 @@ int main() {
                         }
 
                         float healthBefore = enemyPtr->GetCurrentHealth();
-                        bool died = enemyPtr->TakeDamage(modifiedDamage);
+                        bool died = RewardPouchOperations::DamageEnemy(*enemyRoom, *enemyPtr, modifiedDamage);
                         float actualDamage = std::max(0.0f, healthBefore - enemyPtr->GetCurrentHealth());
                         if (actualDamage > 0.0f) {
                             PushDamageNumber(damageNumbers, enemyPtr->GetPosition(), actualDamage, hit.isCritical);
@@ -1569,18 +1573,6 @@ int main() {
                         }
 
                         if (died) {
-                            // Recompensa pequenas moedas ao eliminar inimigos e mostra feedback visual.
-                            int coinsEarned = GetRandomValue(1, 5);
-                            inventoryUI.coins += coinsEarned;
-                            Vector2 rewardPosition = enemyPtr->GetPosition();
-                            rewardPosition.y -= 40.0f;
-                            PushDamageNumber(
-                                damageNumbers,
-                                rewardPosition,
-                                static_cast<float>(coinsEarned),
-                                false,
-                                1.2f,
-                                true);
                             break;
                         }
                     }
@@ -1683,6 +1675,28 @@ int main() {
         }
 
         Room& interactionRoom = roomManager.GetCurrentRoom();
+        const auto pickups = RewardPouchOperations::Collect(interactionRoom, PlayerBounds(playerPosition),
+                                                            inventoryUI, !playerDead, debugInputBlocked);
+        int pickupLine = 0;
+        for (const auto& pickup : pickups) {
+            auto showReward = [&](const std::string& text) {
+                DamageNumber number;
+                number.position = {playerPosition.x, playerPosition.y - 40.0f - 24.0f * pickupLine++};
+                number.isReward = true;
+                number.lifetime = 1.2f;
+                number.rewardText = text;
+                damageNumbers.push_back(std::move(number));
+            };
+            if (pickup.coins > 0) showReward("+" + std::to_string(pickup.coins) + " moedas");
+            for (const auto& item : pickup.items) {
+                for (const auto& definition : inventoryUI.items) {
+                    if (definition.id == item.itemId) {
+                        showReward("+" + std::to_string(item.quantity) + " " + definition.name);
+                        break;
+                    }
+                }
+            }
+        }
         activeForge = interactionRoom.GetForge();
         activeShop = interactionRoom.GetShop();
         activeChest = interactionRoom.GetChest();
@@ -2132,6 +2146,11 @@ int main() {
         std::vector<SceneActor> actors;
         for (const auto& view : floorRooms) {
             if (view.visibility <= 0) continue;
+            for (const auto& pouch : view.room->RewardPouches()) {
+                const RewardPouchInstance* instance = &pouch;
+                float visibility = view.visibility;
+                actors.push_back({pouch.Depth(), [&, instance, visibility] { rewardPouchRenderer.Draw(*instance, visibility); }});
+            }
             for (const auto& prop : view.room->Props()) {
                 if (prop.destroyed) continue;
                 const PropInstance* instance = &prop;
@@ -2335,6 +2354,7 @@ int main() {
     UnloadGameFont();
     roomRenderer.UnloadTextures();
     propRenderer.Unload();
+    rewardPouchRenderer.Unload();
     sceneLighting.Unload();
     CloseWindow();
     return 0;

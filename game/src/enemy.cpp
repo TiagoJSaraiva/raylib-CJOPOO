@@ -293,6 +293,7 @@ Enemy::Enemy(const EnemyConfig& config)
             currentHealth_(std::max(1.0f, config.maxHealth)),
             speed_(std::max(config.speed, kMinSpeed)),
             spawnRate_(std::max(config.spawnRate, kMinSpawnRate)),
+            rewardPouchDrops_(config.rewardPouchDrops),
             collisionRadius_(std::max(6.0f, config.collisionRadius)) {
         collisionHalfWidth_ = std::max(18.0f, collisionRadius_);
         collisionHalfHeight_ = std::max(16.0f, collisionRadius_ * 0.8f);

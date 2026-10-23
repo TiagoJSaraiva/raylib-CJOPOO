@@ -217,6 +217,33 @@ int FindEmptyInventorySlot(const InventoryUIState& state) {
     return -1;
 }
 
+int AddItemToInventoryPartial(InventoryUIState& state, int itemId, int quantity) {
+    if (itemId <= 0 || quantity <= 0) return 0;
+    ItemCategory category = ItemCategoryFromId(state, itemId);
+    if (category == ItemCategory::None) return 0;
+
+    EnsureInventoryMeta(state);
+    int remaining = quantity;
+    int maxStack = MaxStackForCategory(category);
+    if (IsStackableCategory(category)) {
+        for (int i = 0; i < static_cast<int>(state.inventoryItemIds.size()) && remaining > 0; ++i) {
+            if (state.inventoryItemIds[i] != itemId) continue;
+            int current = std::max(0, state.inventoryQuantities[i]);
+            int added = std::min(std::max(0, maxStack - current), remaining);
+            if (added > 0) SetInventorySlot(state, i, itemId, current + added);
+            remaining -= added;
+        }
+    }
+    while (remaining > 0) {
+        int slot = FindEmptyInventorySlot(state);
+        if (slot < 0) break;
+        int added = std::min(maxStack, remaining);
+        SetInventorySlot(state, slot, itemId, added);
+        remaining -= added;
+    }
+    return quantity - remaining;
+}
+
 int AddItemToInventory(InventoryUIState& state, int itemId, int quantity) {
     if (itemId <= 0 || quantity <= 0) {
         return -1;

@@ -22,6 +22,14 @@ circulares e retangulares. As salas guardam os props durante toda a partida.
 Consulte [Props e iluminação](props-and-lighting.md) para configuração,
 contratos, testes e verificação manual.
 
+## Reward pouches
+
+`reward_pouch` declara pools e isola sorteios; `reward_pouch_operations` integra
+mortes/destruição ao spawn e entrega recompensas com coleta parcial;
+`reward_pouch_renderer` administra texturas e desenho. Cada sala guarda suas
+bolsas e RNG de loot, preservados durante a run. Consulte
+[Reward pouches](reward-pouches.md) para configuração, contratos e validação.
+
 ## Build, testes e execução
 
 - O jogo usa C++17 e Raylib 5.5, vendorizada em `game/vendor/raylib`.

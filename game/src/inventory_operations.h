@@ -12,6 +12,8 @@ bool ReduceStackableSlot(InventoryUIState& state, int index, int amount);
 bool ReduceConsumableStack(InventoryUIState& state, int index, int amount);
 int FindEmptyInventorySlot(const InventoryUIState& state);
 int AddItemToInventory(InventoryUIState& state, int itemId, int quantity);
+// Inserts as much as fits, returning the quantity inserted (zero on failure).
+int AddItemToInventoryPartial(InventoryUIState& state, int itemId, int quantity);
 int FindEmptyChestSlot(const Chest& chest);
 bool ChestCanAccept(const Chest& chest,
                     const InventoryUIState& state,
